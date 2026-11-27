@@ -3,9 +3,9 @@ import { api } from "../api";
 import type { Session } from "../api/types";
 import { alsoCloseSaid, workerRows } from "../closing";
 import { useStore } from "../store";
-import { findSession } from "../tree";
+import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
-import { useAsked, WorkersToClose } from "./CloseWorkers";
+import { useAsked, useWorkersKey, WorkersToClose } from "./CloseWorkers";
 import { Dialog } from "./Dialog";
 
 /**
@@ -63,14 +63,18 @@ function DeleteSaid() {
 
 /**
  * Closing an open session. When others work for it, however far down and in whichever task,
- * they are listed, and a tick box, unticked to begin with, closes them too.
+ * they are listed, read again while the dialog is open whenever who works for whom changes,
+ * and a tick box, unticked to begin with, closes them too.
  */
 function CloseAsk({ session }: { session: Session }) {
     const words = useWords();
     const withdraw = useWithdraw();
     const close = useStore((state) => state.close);
     const projects = useStore((state) => state.projects);
-    const under = useAsked(String(session.id), () => api.sessionDescendants(session.id, false));
+    const again = useWorkersKey((all) => findSessionHome(all, session)?.project);
+    const under = useAsked(String(session.id), again, () =>
+        api.sessionDescendants(session.id, false),
+    );
     const rows = workerRows(under, projects, session.task_id);
     const [ticked, setTicked] = useState(false);
     const busy = session.status === "working" || session.status === "waiting";

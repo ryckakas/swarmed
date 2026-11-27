@@ -573,7 +573,6 @@ async fn turn_diff(core: &Core, id: i64, message: usize, path: Option<String>) -
     Ok(())
 }
 
-/// Puts a closed session back in the lists and prints its title.
 /// Closes a session, with the ones that work for it if asked, and says aside which of those
 /// it left open.
 fn closed(core: &Core, id: i64, with_workers: bool) -> Result<()> {
@@ -620,6 +619,7 @@ fn left_open(id: i64, left: &[i64]) -> Option<String> {
     ))
 }
 
+/// Puts a closed session back in the lists and prints its title.
 fn reopened(core: &Core, id: i64) -> Result<()> {
     say(&core.session_reopen(id)?.title);
     Ok(())

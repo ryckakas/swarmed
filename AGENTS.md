@@ -279,9 +279,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     as a change made here is (`settings_from_elsewhere`, `Core::settings_told`): a model from
     the next turn, an effort or fast mode by starting it again once its turn is over. What it
     records, that process recorded. `Core::configure` compares with `told` too, under the lock
-    on the running sessions, so a change is told once. A process that follows others says so
-    in the locks it holds (`FOLLOWS_OTHERS`), from which `session_settings_reach` tells the
-    command whether the change was passed on or waits for the agent's next start.
+    on the running sessions, so a change is told once, and both read the session's row there
+    (`Live::tell_settings`), so a row read before a change made here cannot tell it back to
+    what it was; the store is never held while that lock is taken. A process that follows
+    others says so in the locks it holds (`FOLLOWS_OTHERS`), from when `follow_others` is
+    called, before the app spawns anything that starts an agent; from them
+    `session_settings_reach` tells the command whether the change was passed on or waits for
+    the agent's next start.
   - **A history read** (`session_events`) passes on what is above the mark first, under the
     same lock as a look (`Elsewhere::passing`), and reads only up to it (`events_upto`):
     everything it returns has been published, so a front end that reads it and adds what it
@@ -1157,7 +1161,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     changes neither. Read entry by entry (`lenient::entries_at`); one for a role not known is
     kept and not applied. `set_settings` checks only the entries that changed
     (`role_defaults_new`): a role there is, a model some agent offers. The settings file keeps
-    them as its one table, written after every plain value, the unknown ones included.
+    them as its one table, written after every plain value, the unknown ones included. Saving
+    starts from the entries the file has (`roles_written`): a key inside one this version does
+    not know is written back, and so is an entry it could not read or read as nothing, unless
+    the user changed that role.
   - **What it may start** (`Core::may_start`): `spawn_session` and `start_task` take a
     `role`, default to the caller's role's child, and refuse one it may not start
     (`roles::of_child`); a role that starts nothing starts no session, and a session with no

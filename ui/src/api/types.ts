@@ -1593,7 +1593,6 @@ export interface SessionSetup {
     role?: string | null;
 }
 
-/** A role a session can have, as the core keeps it (`roles.rs`). */
 /**
  * A role's own model and effort (`RoleDefault`); either left out is the agent's own, or that of
  * the agent that starts the session. A model the session's agent does not offer is passed over.
@@ -1605,6 +1604,7 @@ export interface RoleDefault {
     effort?: Effort | null;
 }
 
+/** A role a session can have, as the core keeps it (`roles.rs`). */
 export interface RoleInfo {
     /** Its name, which the session keeps: `architect` and the like. */
     name: string;

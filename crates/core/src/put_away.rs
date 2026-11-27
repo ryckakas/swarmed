@@ -100,6 +100,17 @@ struct PutAway {
     close_workers: bool,
 }
 
+/// What putting a task away did ([`Core::task_done`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TaskDone {
+    /// The sessions of other tasks that worked for its sessions and were closed with it, the
+    /// deepest first. None unless asked for, and none for a task that was done already.
+    pub workers_closed: Vec<i64>,
+    /// What went wrong on the way, to be said: a `stop` that failed, or a stack that would not
+    /// end.
+    pub notes: Vec<String>,
+}
+
 /// The user's rules for putting tasks away by themselves: after how many days, for each rule
 /// that is on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -235,9 +246,9 @@ impl Core {
     /// Puts a task away: stops its agents and its stack, closes its sessions if the settings
     /// say to, and lists it with the done ones. Nothing is deleted, and it comes back with
     /// [`Core::task_undone`] or once something works on it again. Returns what went wrong on
-    /// the way, to be said: a `stop` that failed, or a stack that would not end. Refused for
-    /// a chat, while another Swarmed runs one of its agents ([`Error::RunsElsewhere`]) and
-    /// while it is being set up. A task done already is left as it is.
+    /// the way, to be said, and the sessions it closed ([`TaskDone`]). Refused for a chat,
+    /// while another Swarmed runs one of its agents ([`Error::RunsElsewhere`]) and while it is
+    /// being set up. A task done already is left as it is, and nothing is closed for it.
     ///
     /// With `close_workers`, the open sessions of other tasks that work for its sessions,
     /// however far down ([`Core::task_descendants_elsewhere`]), are closed first, the deepest
@@ -249,7 +260,7 @@ impl Core {
         name: &str,
         close_workers: bool,
         sink: OutputSink<'_>,
-    ) -> Result<Vec<String>> {
+    ) -> Result<TaskDone> {
         let (project, task) = self.repo_task(project, name)?;
         let how = PutAway {
             why: DoneWhy::Hand,
@@ -286,9 +297,9 @@ impl Core {
         task: &Task,
         how: PutAway,
         sink: OutputSink<'_>,
-    ) -> Result<Vec<String>> {
+    ) -> Result<TaskDone> {
         if task.done_at.is_some() {
-            return Ok(Vec::new());
+            return Ok(TaskDone::default());
         }
         let workers = if how.close_workers {
             deepest_first(&self.descendants_elsewhere(task)?)
@@ -301,8 +312,8 @@ impl Core {
         if matches!(self.setting_up(task), Some(SettingUp::Here { .. })) {
             return Err(Error::SetupRunning(task.name.clone()));
         }
-        for worker in workers {
-            self.close_one(worker)?;
+        for worker in &workers {
+            self.close_one(*worker)?;
         }
         let close = self.settings()?.put_away_closes_sessions;
         // Read first: the store is let go before the loop, which records in it.
@@ -320,7 +331,10 @@ impl Core {
         {
             self.live.publish_apart(AgentEvent::TreeChanged);
         }
-        Ok(notes)
+        Ok(TaskDone {
+            workers_closed: workers,
+            notes,
+        })
     }
 
     /// Stops session `id`'s agent for good, as a put away task's: closed with `close`, else

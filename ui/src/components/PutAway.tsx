@@ -6,7 +6,7 @@ import { doneSaid, offersPutAway, putAwayDoes } from "../putAway";
 import { useStore } from "../store";
 import { usePull } from "../usePull";
 import { useWords } from "../useWords";
-import { WorkersToClose } from "./CloseWorkers";
+import { useAsked, useWorkersKey, WorkersToClose } from "./CloseWorkers";
 import { Dialog } from "./Dialog";
 
 interface Target {
@@ -73,6 +73,7 @@ export function PutAwayButton(
             </button>
             {asking && (
                 <PutAwayAsk
+                    project={project}
                     task={task}
                     under={asking}
                     busy={busy}
@@ -85,8 +86,12 @@ export function PutAwayButton(
 }
 
 interface AskProps {
+    project: string;
     task: Task;
-    /** The open sessions of other tasks that work for its sessions, as the core listed them. */
+    /**
+     * The open sessions of other tasks that work for its sessions, as the core listed them when
+     * the button was pressed.
+     */
     under: Descendant[];
     busy: boolean;
     onPut(closeWorkers: boolean): void;
@@ -95,13 +100,17 @@ interface AskProps {
 
 /**
  * Asks before a task is put away while sessions of other tasks work for its sessions: they are
- * listed, and a tick box, unticked to begin with, closes them too. Their tasks stay.
+ * listed, read again while the dialog is open whenever who works for whom changes, and a tick
+ * box, unticked to begin with, closes them too. Their tasks stay.
  */
-function PutAwayAsk({ task, under, busy, onPut, onClose }: AskProps) {
+function PutAwayAsk({ project, task, under: first, busy, onPut, onClose }: AskProps) {
     const words = useWords();
     const settings = useStore((state) => state.settings);
     const projects = useStore((state) => state.projects);
     const [ticked, setTicked] = useState(false);
+    const again = useWorkersKey((all) => all.find((one) => one.name === project));
+    const ask = () => api.taskDescendantsElsewhere(project, task.name);
+    const under = useAsked(String(task.id), again, ask, first);
     const rows = workerRows(under, projects, task.id);
     const { task: taskWord, tasks } = words.terms;
     return (

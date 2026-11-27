@@ -323,7 +323,9 @@ fn main() {
     let leaving = Arc::clone(&core);
     let noticing = Arc::clone(&core);
     let resuming = Arc::clone(&core);
-    let following = Arc::clone(&core);
+    // Said in the locks of the agents it starts from here on, before anything is spawned that
+    // could start one, as `arrive` says it shows notices.
+    let following = follow_others(Arc::clone(&core));
     let resetting = Arc::downgrade(&core);
     let pulling = Arc::downgrade(&core);
     let tidying = Arc::downgrade(&core);
@@ -349,7 +351,7 @@ fn main() {
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
             // What the command line or another Swarmed on the same data writes reaches the
             // window as if this core had written it, and is noticed within a second.
-            drop(tauri::async_runtime::spawn(follow_others(following)));
+            drop(tauri::async_runtime::spawn(following));
             // Sessions a usage limit stopped go on by themselves when it resets, where the user
             // asked for that. Only the first Swarmed on the data sends them.
             drop(tauri::async_runtime::spawn(follow_resets(resetting)));

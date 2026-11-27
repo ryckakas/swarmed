@@ -17,6 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
+use crate::agent::Effort;
+
 /// The argument that makes a front end's executable serve the tools instead of starting up.
 pub const TOOL_SERVER_ARG: &str = "tool-server";
 /// The name the server is given to agents under.
@@ -203,7 +205,7 @@ fn model_argument() -> Value {
 fn effort_argument() -> Value {
     json!({
         "type": "string",
-        "enum": ["low", "medium", "high", "xhigh", "max"],
+        "enum": Effort::ALL.map(Effort::as_str),
         "description": "How hard it thinks. Left out, its role's default in the user's \
             settings, or yours.",
     })

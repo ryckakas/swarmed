@@ -108,15 +108,6 @@ fn refused(reason: impl Into<String>) -> Error {
     Error::Peers(reason.into())
 }
 
-/// The efforts there are, as `spawn_session` and `start_task` take them.
-const EFFORTS: [Effort; 5] = [
-    Effort::Low,
-    Effort::Medium,
-    Effort::High,
-    Effort::Xhigh,
-    Effort::Max,
-];
-
 /// What a session asks for in a session it starts beside itself (`spawn_session`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PeerSpawn<'a> {
@@ -162,7 +153,7 @@ fn asked_for(
         .map(|effort| Effort::parse(effort).ok_or(effort))
         .transpose();
     let effort = parsed.map_err(|effort| {
-        let efforts: Vec<&str> = EFFORTS.iter().map(|effort| effort.as_str()).collect();
+        let efforts = Effort::ALL.map(Effort::as_str);
         refused(format!(
             "`{effort}` is not an effort; `effort` is one of {}, or left out for the role's \
              default or your own",

@@ -369,7 +369,8 @@ pub(crate) async fn task_remove<R: Runtime>(
 
 /// Puts a task away: stops its agents and its stack, closes its sessions if the settings say
 /// to, and lists it with the done ones; with `close_workers`, also closes the sessions of other
-/// tasks that work for its sessions. Returns what went wrong on the way, to be said.
+/// tasks that work for its sessions. Returns what went wrong on the way, to be said: the
+/// window reads the tree again for the sessions it closed.
 #[tauri::command]
 pub(crate) async fn task_done<R: Runtime>(
     app: AppHandle<R>,
@@ -379,14 +380,15 @@ pub(crate) async fn task_done<R: Runtime>(
     close_workers: bool,
 ) -> Command<Vec<String>> {
     let sink = hook_sink(&app, &project, &name);
-    Ok(core
+    let done = core
         .task_done(&project, &name, close_workers, &sink)
-        .await?)
+        .await?;
+    Ok(done.notes)
 }
 
 /// The open sessions of other tasks that work for a task's sessions, however far down: those
 /// putting it away closes when asked to.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn task_descendants_elsewhere(
     core: CoreState<'_>,
     project: String,
@@ -1745,7 +1747,7 @@ pub(crate) fn session_close(core: CoreState<'_>, id: i64, with_workers: bool) ->
 
 /// The sessions that work for a session, however far down and in whichever task; the closed
 /// ones too with `closed`.
-#[tauri::command]
+#[tauri::command(async)]
 pub(crate) fn session_descendants(
     core: CoreState<'_>,
     id: i64,

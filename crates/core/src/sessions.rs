@@ -271,6 +271,18 @@ pub struct SessionSettings {
     pub fast: bool,
 }
 
+impl SessionSettings {
+    /// The settings `session` has.
+    pub(crate) fn of(session: &Session) -> Self {
+        Self {
+            model: session.model.clone(),
+            supervision: session.supervision,
+            effort: session.effort,
+            fast: session.fast,
+        }
+    }
+}
+
 /// Options for [`Core::session_new`].
 #[derive(Debug, Clone, Default)]
 pub struct SessionOptions {
@@ -1711,7 +1723,7 @@ impl Core {
         let before = self.session(id)?;
         self.store().session_configure(id, settings)?;
         // Not running is fine: the session starts with the new settings.
-        self.settings_told(id, &before.agent, before.status, settings);
+        self.settings_told(id, &before.agent, before.status);
         if before.supervision != settings.supervision {
             let supervision = settings.supervision;
             let changed = AgentEvent::SupervisionChanged { supervision };
@@ -1720,23 +1732,23 @@ impl Core {
         self.session(id)
     }
 
-    /// Passes `settings`, which session `id` on `agent` has now, on to its agent if it runs
+    /// Passes the settings session `id` on `agent` has stored now on to its agent if it runs
     /// here, as far as that does not know them: a model and a supervision at once, a model from
     /// its next turn, and an effort or fast mode by starting it again once its turn is over,
     /// since it takes those only when it starts. `status` is the session's. What it knows is
     /// what it was started with and told since, so a change another process stored, which
     /// only that process's row shows, counts as one too (`settings_from_elsewhere`).
-    pub(crate) fn settings_told(
-        &self,
-        id: i64,
-        agent: &str,
-        status: SessionStatus,
-        settings: &SessionSettings,
-    ) {
+    ///
+    /// The row is read under the lock on the running sessions, where they are told: read
+    /// before it, a change stored and told here meanwhile would be told back to what it was.
+    /// The store is never held while that lock is taken, so taking the store under it waits
+    /// on nothing that waits on it.
+    pub(crate) fn settings_told(&self, id: i64, agent: &str, status: SessionStatus) {
         // A running agent knows the default it was started with, and the list it comes from
         // may have changed since.
         let default_model = self.agents_now().default_model(agent);
-        if self.live.tell_settings(id, settings, default_model) {
+        let stored = || self.session(id).ok().map(|now| SessionSettings::of(&now));
+        if self.live.tell_settings(id, stored, default_model) {
             self.live.restart_when_idle(id, status);
         }
     }
@@ -2357,23 +2369,28 @@ impl Live {
         self.commands().contains_key(&id)
     }
 
-    /// Tells session `id`'s agent, if it runs here, what of `settings` it does not know yet
-    /// (`tell_agent`), and keeps them as what it knows, under the lock on the running
-    /// sessions, so that two callers with the same change tell it once. Whether it has to be
+    /// Tells session `id`'s agent, if it runs here, what of the settings `stored` reads it does
+    /// not know yet (`tell_agent`), and keeps them as what it knows. All of it under the lock
+    /// on the running sessions, the read included, so that two callers with the same change
+    /// tell it once and none tells settings older than another has told. Whether it has to be
     /// started again for them: an agent takes a new effort and fast mode only when it starts.
+    /// Nothing is told if `stored` reads none.
     fn tell_settings(
         &self,
         id: i64,
-        settings: &SessionSettings,
+        stored: impl FnOnce() -> Option<SessionSettings>,
         default_model: Option<String>,
     ) -> bool {
         let mut commands = self.commands();
         let Some(run) = commands.get_mut(&id) else {
             return false;
         };
-        tell_agent(&run.commands, &run.told, settings, default_model);
+        let Some(settings) = stored() else {
+            return false;
+        };
+        tell_agent(&run.commands, &run.told, &settings, default_model);
         let restart = run.told.effort != settings.effort || run.told.fast != settings.fast;
-        run.told = settings.clone();
+        run.told = settings;
         restart
     }
 

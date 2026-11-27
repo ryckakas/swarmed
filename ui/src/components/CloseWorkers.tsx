@@ -1,20 +1,29 @@
 import { type CSSProperties, useEffect, useState } from "react";
-import type { Descendant, Session } from "../api/types";
+import type { Descendant, Project, Session } from "../api/types";
 import { atWorkSaid, type WorkerRow } from "../closing";
+import { useStore } from "../store";
 import { useWords } from "../useWords";
+import { workersKey } from "../workers";
 import { StatusMark, useStatusLabel } from "./StatusMark";
 
 /** How far down the list draws a session nested; those deeper are drawn as deep as that. */
 const DRAWN_DEPTH = 4;
 
 /**
- * What the core lists of session `id` or a task, by `ask`, once it has answered: those the
- * dialog offers to close. Nothing while it is asked, and nothing if asking failed, so that the
- * dialog still closes the one asked about alone.
+ * What the core lists of the session or task `key` names, by `ask`, once it has answered: those
+ * the dialog offers to close. Asked again whenever `again` changes (`useWorkersKey`), so that
+ * the list follows who works for whom while the dialog is open; what was read stays drawn
+ * meanwhile. Until the first answer, `known` if the caller read it already, else nothing; and
+ * nothing if asking failed, so that the dialog still closes the one asked about alone.
  */
-export function useAsked(key: string, ask: () => Promise<Descendant[]>): Descendant[] {
-    const [found, setFound] = useState<{ key: string; under: Descendant[] } | null>(null);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: asked again for another key only
+export function useAsked(
+    key: string,
+    again: string,
+    ask: () => Promise<Descendant[]>,
+    known?: Descendant[],
+): Descendant[] {
+    const [found, setFound] = useState(known === undefined ? null : { key, under: known });
+    // biome-ignore lint/correctness/useExhaustiveDependencies: asked again for another key, or when `again` changes
     useEffect(() => {
         let current = true;
         const keep = (under: Descendant[]) => {
@@ -26,8 +35,20 @@ export function useAsked(key: string, ask: () => Promise<Descendant[]>): Descend
         return () => {
             current = false;
         };
-    }, [key]);
+    }, [key, again]);
     return found?.key === key ? found.under : [];
+}
+
+/**
+ * What of the repository `find` picks out decides whom the core lists under its sessions
+ * (`workersKey`), for `useAsked` to read its list again when it changes; empty if there is
+ * none.
+ */
+export function useWorkersKey(find: (projects: Project[]) => Project | undefined): string {
+    return useStore((state) => {
+        const project = find(state.projects);
+        return project ? workersKey(project) : "";
+    });
 }
 
 interface Props {

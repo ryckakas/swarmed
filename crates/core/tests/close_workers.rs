@@ -279,19 +279,35 @@ async fn putting_a_task_away_closes_the_sessions_of_other_tasks_that_work_for_it
     expected.sort_unstable();
     assert_eq!(ids, expected);
 
-    // Not asked, they stay open.
-    core.task_done("demo", "one", false, &hooks::discard)
+    // Not asked, they stay open, and none is named.
+    let done = core
+        .task_done("demo", "one", false, &hooks::discard)
         .await
         .expect("puts away");
+    assert_eq!(done.workers_closed, Vec::<i64>::new());
+    assert_eq!(open_in(&core, "two"), [t.planner_two.id, t.reviewer.id]);
+    assert_eq!(open_in(&core, "three"), [elsewhere.id]);
+
+    // Put away already, asking closes nothing, and says it closed nothing.
+    let again = core
+        .task_done("demo", "one", true, &hooks::discard)
+        .await
+        .expect("left as it is");
+    assert_eq!(again.workers_closed, Vec::<i64>::new());
     assert_eq!(open_in(&core, "two"), [t.planner_two.id, t.reviewer.id]);
     assert_eq!(open_in(&core, "three"), [elsewhere.id]);
     core.task_undone("demo", "one").expect("brings back");
 
     // Asked, they are closed and their tasks stay; the task's own follow the settings, which
-    // keep them open.
-    core.task_done("demo", "one", true, &hooks::discard)
+    // keep them open. Each closed is named, the deepest first.
+    let done = core
+        .task_done("demo", "one", true, &hooks::discard)
         .await
         .expect("puts away");
+    let mut closed = done.workers_closed.clone();
+    closed.sort_unstable();
+    assert_eq!(closed, expected);
+    assert_eq!(done.workers_closed.first(), Some(&t.reviewer.id));
     assert_eq!(open_in(&core, "two"), NONE);
     assert_eq!(open_in(&core, "three"), NONE);
     assert_eq!(

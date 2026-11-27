@@ -169,7 +169,7 @@ pub use peers::{
 pub use prefix::{EXAMPLE_TASK, branch_example};
 pub use publish::{PullDraft, Unpublished};
 pub use pulls::{Check, CheckOutcome, Pull, PullState};
-pub use put_away::{DoneWhy, follow_put_away};
+pub use put_away::{DoneWhy, TaskDone, follow_put_away};
 pub use queue::QueuedMessage;
 pub use returned::{MAX_PER_RESULT, MAX_RETURNED_MB, Returned};
 pub use rewind::{RewindCheck, RewindDone};

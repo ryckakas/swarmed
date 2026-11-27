@@ -51,11 +51,11 @@ async fn a_task_put_away_stops_its_agents_keeps_its_sessions_and_comes_back() {
     assert!(core.running_sessions().contains(&session.id));
     let mut bus = core.subscribe();
 
-    let notes = core
+    let put = core
         .task_done("demo", "one", false, &hooks::discard)
         .await
         .expect("puts away");
-    assert!(notes.is_empty(), "{notes:?}");
+    assert!(put.notes.is_empty(), "{put:?}");
     let done = task(&core);
     assert!(done.done_at.is_some());
     assert_eq!(done.done_why, Some(DoneWhy::Hand));

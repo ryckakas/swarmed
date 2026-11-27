@@ -565,9 +565,9 @@ async fn a_model_and_effort_set_elsewhere_reach_the_agent_that_runs_here() {
     let fx = fixture();
     let (here, there) = two_cores(&fx).await;
     let here = Arc::new(here);
-    // The app follows what others write, and says so in the locks of the agents it runs.
+    // The app follows what others write, and says so in the locks of the agents it runs from
+    // when it asks to, before the looks have begun.
     drop(tokio::spawn(follow_others(Arc::clone(&here))));
-    tokio::task::yield_now().await;
     here.notice_others().expect("takes stock");
     let session = new_session(&here);
     let answer = runs_on(&here, session.id).await;

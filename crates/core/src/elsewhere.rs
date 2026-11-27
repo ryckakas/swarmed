@@ -38,8 +38,7 @@ use crate::agent::{AgentEvent, Auth};
 use crate::error::{Error, Result};
 use crate::paths::Paths;
 use crate::sessions::{
-    Live, SessionEvent, SessionSettings, SessionStatus, event_from_json, leaves_something_to_read,
-    track,
+    Live, SessionEvent, SessionStatus, event_from_json, leaves_something_to_read, track,
 };
 use crate::store::Store;
 use crate::{Core, lock};
@@ -286,16 +285,22 @@ impl Elsewhere {
 
 /// Publishes what other Swarmed processes on the same data write, looking every second, for as
 /// long as the core is there: for a front end that stays, such as the app.
-pub async fn follow_others(core: Arc<Core>) {
-    // Said in the locks of the agents this process starts from now on.
+///
+/// That this process follows others is said in the locks of the agents it starts from when
+/// this is called, not from when the looks begin: an agent started meanwhile, such as one
+/// whose Remote Control is resumed as the app starts, would otherwise not say so.
+pub fn follow_others(core: Arc<Core>) -> impl Future<Output = ()> + Send + 'static {
     core.live.follows_others.store(true, Ordering::Relaxed);
-    let mut looks = tokio::time::interval(LOOK_EVERY);
-    // Nobody else holds the core once its front end has gone: there is nothing left to tell.
-    while Arc::strong_count(&core) > 1 {
-        looks.tick().await;
-        // A look that failed, such as one that found the database busy for longer than SQLite
-        // waits, is made again next time.
-        core.notice_others().ok();
+    async move {
+        let mut looks = tokio::time::interval(LOOK_EVERY);
+        // Nobody else holds the core once its front end has gone: there is nothing left to
+        // tell.
+        while Arc::strong_count(&core) > 1 {
+            looks.tick().await;
+            // A look that failed, such as one that found the database busy for longer than
+            // SQLite waits, is made again next time.
+            core.notice_others().ok();
+        }
     }
 }
 
@@ -451,13 +456,9 @@ impl Core {
     fn settings_from_elsewhere(&self) {
         let running = self.running_sessions().into_iter();
         for session in running.filter_map(|id| self.session(id).ok()) {
-            let settings = SessionSettings {
-                model: session.model,
-                supervision: session.supervision,
-                effort: session.effort,
-                fast: session.fast,
-            };
-            self.settings_told(session.id, &session.agent, session.status, &settings);
+            // Its settings are read again where they are told, not taken from this row: a
+            // change made here since it was read would otherwise be told back to what it was.
+            self.settings_told(session.id, &session.agent, session.status);
         }
     }
 

@@ -382,12 +382,7 @@ impl Settings {
         self.put_away_idle_days = self.put_away_idle_days.clamp(1, MAX_DAYS);
         self.browser_idle_minutes = self.browser_idle_minutes.min(MAX_IDLE_MINUTES);
         self.branch_prefix = crate::prefix::trimmed(&self.branch_prefix).to_string();
-        for chosen in self.role_defaults.values_mut() {
-            let model = chosen.model.take().map(|model| model.trim().to_string());
-            chosen.model = model.filter(|model| !model.is_empty());
-        }
-        self.role_defaults
-            .retain(|_, chosen| chosen.model.is_some() || chosen.effort.is_some());
+        chosen_only(&mut self.role_defaults);
         self
     }
 
@@ -404,9 +399,10 @@ impl Settings {
     }
 
     /// Writes the settings. Keys this version does not know, which a newer Swarmed may have
-    /// written, are written back as they were, so this one does not erase that one's choices. A
-    /// file that is not TOML is kept beside it first: what the user wrote there is not lost to
-    /// the defaults that stood in for it.
+    /// written, are written back as they were, so this one does not erase that one's choices,
+    /// and so are those inside a role's default ([`roles_written`]). A file that is not TOML is
+    /// kept beside it first: what the user wrote there is not lost to the defaults that stood in
+    /// for it.
     ///
     /// Refused, with nothing written, for rules longer than [`MAX_RULES_BYTES`] and for a
     /// `max_workers` out of [`WORKER_LIMITS`].
@@ -423,12 +419,15 @@ impl Settings {
         // Every plain value before the first table, which would take in whatever follows it:
         // the settings' own, then the unknown ones, then the role defaults' table, then the
         // unknown tables.
-        let (tables, values): (toml::Table, toml::Table) = unknown_kept(path)?
+        let kept = kept(path)?;
+        let (tables, values): (toml::Table, toml::Table) = kept
+            .unknown
             .into_iter()
             .partition(|(_, value)| tabular(value));
         let mut parts = vec![values];
+        let roles = roles_written(&roles, kept.roles).map_err(|e| invalid(path, &e))?;
         if !roles.is_empty() {
-            let roles = toml::Value::try_from(roles).map_err(|e| invalid(path, &e))?;
+            let roles = toml::Value::Table(roles);
             parts.push(toml::Table::from_iter([(ROLE_DEFAULTS.to_string(), roles)]));
         }
         parts.push(tables);
@@ -473,6 +472,73 @@ fn role_defaults_read(value: toml::Value) -> (BTreeMap<String, RoleDefault>, Pro
     (read, problems)
 }
 
+/// Trims each role's model, takes a blank one for none, and leaves out a role left with
+/// neither a model nor an effort.
+fn chosen_only(roles: &mut BTreeMap<String, RoleDefault>) {
+    for chosen in roles.values_mut() {
+        let model = chosen.model.take().map(|model| model.trim().to_string());
+        chosen.model = model.filter(|model| !model.is_empty());
+    }
+    roles.retain(|_, chosen| chosen.model.is_some() || chosen.effort.is_some());
+}
+
+/// The role defaults to write, from those `chosen` and the entries the file has (`written`):
+///
+/// - a role whose default is what this version reads from the file, the user did not change:
+///   its entry is written back as it was, keys this version does not know and all, and so is
+///   one this version could not read or read as nothing, which a newer Swarmed may have
+///   written;
+/// - a role the user changed keeps the keys of its entry this version does not know, with the
+///   fields it knows as chosen now;
+/// - one taken out is left out, and a new one is written as chosen.
+fn roles_written(
+    chosen: &BTreeMap<String, RoleDefault>,
+    written: toml::Table,
+) -> std::result::Result<toml::Table, toml::ser::Error> {
+    let (mut as_read, _) = role_defaults_read(toml::Value::Table(written.clone()));
+    chosen_only(&mut as_read);
+    let mut roles = toml::Table::new();
+    for (role, entry) in written {
+        let now = chosen.get(&role);
+        if now == as_read.get(&role) {
+            roles.insert(role, entry);
+        } else if let Some(now) = now {
+            roles.insert(role, overlaid(entry, now)?);
+        }
+    }
+    for (role, now) in chosen {
+        if !roles.contains_key(role) {
+            roles.insert(role.clone(), toml::Value::try_from(now)?);
+        }
+    }
+    Ok(roles)
+}
+
+/// The entry `entry` with the fields this version knows as `now` has them, and the keys it
+/// does not know as they were. One that is not a table is replaced whole.
+fn overlaid(
+    entry: toml::Value,
+    now: &RoleDefault,
+) -> std::result::Result<toml::Value, toml::ser::Error> {
+    let mut entry = match entry {
+        toml::Value::Table(entry) => entry,
+        _ => toml::Table::new(),
+    };
+    // Every field by name, so that a field added to `RoleDefault` must be added here too: one
+    // left out of the list would keep the file's value under the one chosen now.
+    let RoleDefault {
+        model: _,
+        effort: _,
+    } = now;
+    for known in ["model", "effort"] {
+        entry.remove(known);
+    }
+    if let toml::Value::Table(chosen) = toml::Value::try_from(now)? {
+        entry.extend(chosen);
+    }
+    Ok(toml::Value::Table(entry))
+}
+
 /// The keys this version of the settings file has: every field, as it is written, and the role
 /// defaults, which are not written while there are none.
 fn known_keys() -> Vec<String> {
@@ -483,22 +549,36 @@ fn known_keys() -> Vec<String> {
     keys
 }
 
-/// The keys of the file at `path` that this version does not know, to be written back. A file
-/// that is not TOML is moved aside instead (`lenient::keep_if_unreadable`), before it is
-/// written over.
-fn unknown_kept(path: &Path) -> Result<toml::Table> {
+/// What of the file is written back when the settings are saved ([`kept`]).
+#[derive(Default)]
+struct Kept {
+    /// The keys this version does not know.
+    unknown: toml::Table,
+    /// The role defaults as the file has them, entry by entry, before anything is read.
+    roles: toml::Table,
+}
+
+/// What of the file at `path` is written back: the keys this version does not know, and the
+/// role defaults as they are written there, if they are a table. A file that is not TOML is
+/// moved aside instead (`lenient::keep_if_unreadable`), before it is written over.
+fn kept(path: &Path) -> Result<Kept> {
     lenient::keep_if_unreadable(path)?;
     let Some(text) = lenient::read_if_there(path)? else {
-        return Ok(toml::Table::new());
+        return Ok(Kept::default());
     };
-    let Ok(table) = text.parse::<toml::Table>() else {
-        return Ok(toml::Table::new());
+    let Ok(mut table) = text.parse::<toml::Table>() else {
+        return Ok(Kept::default());
+    };
+    let roles = match table.remove(ROLE_DEFAULTS) {
+        Some(toml::Value::Table(roles)) => roles,
+        _ => toml::Table::new(),
     };
     let known = known_keys();
-    Ok(table
+    let unknown = table
         .into_iter()
         .filter(|(key, _)| !known.contains(key))
-        .collect())
+        .collect();
+    Ok(Kept { unknown, roles })
 }
 
 fn invalid(path: &Path, error: &dyn std::fmt::Display) -> Error {
@@ -900,6 +980,105 @@ mod tests {
         let text = std::fs::read_to_string(&path).expect("reads");
         assert!(!text.contains("role_defaults"), "{text}");
         assert!(text.contains("future = 3"), "{text}");
+    }
+
+    #[test]
+    fn what_this_version_cannot_read_of_the_role_defaults_outlives_a_save() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        // A newer Swarmed's: a key inside an entry, an effort this version has not, and an
+        // entry with nothing this version knows.
+        let written = "[role_defaults.reviewer]\nmodel = \"fable\"\nfast = true\n\
+            [role_defaults.planner]\neffort = \"ultra\"\n\
+            [role_defaults.implementer]\nspeed = \"fast\"\n";
+        std::fs::write(&path, written).expect("writes");
+        let entry = |path: &Path, role: &str| {
+            let text = std::fs::read_to_string(path).expect("reads");
+            let table: toml::Table = text.parse().expect("toml");
+            table[ROLE_DEFAULTS].get(role).cloned()
+        };
+        let as_written = |text: &str| toml::Value::Table(text.parse().expect("toml"));
+
+        // A save of something else writes each back as it was.
+        let mut settings = Settings::load(&path).expect("reads");
+        assert_eq!(
+            settings.role_defaults,
+            BTreeMap::from([reviewer(Some("fable"), None)])
+        );
+        settings.editor = "zed".to_string();
+        settings.save(&path).expect("saves");
+        assert_eq!(
+            entry(&path, "reviewer"),
+            Some(as_written("model = \"fable\"\nfast = true"))
+        );
+        assert_eq!(
+            entry(&path, "planner"),
+            Some(as_written("effort = \"ultra\""))
+        );
+        assert_eq!(
+            entry(&path, "implementer"),
+            Some(as_written("speed = \"fast\""))
+        );
+
+        // A role the user changes keeps what this version does not know of it, and the others
+        // stay as they were.
+        let mut settings = Settings::load(&path).expect("reads");
+        assert_eq!(settings.editor, "zed");
+        settings.role_defaults = BTreeMap::from([reviewer(None, Some(Effort::Low))]);
+        settings.save(&path).expect("saves");
+        assert_eq!(
+            entry(&path, "reviewer"),
+            Some(as_written("fast = true\neffort = \"low\""))
+        );
+        assert_eq!(
+            entry(&path, "planner"),
+            Some(as_written("effort = \"ultra\""))
+        );
+
+        // One that could not be read gives way once the user chooses for that role, and one
+        // taken out is gone.
+        let mut settings = Settings::load(&path).expect("reads");
+        let planner = RoleDefault {
+            model: None,
+            effort: Some(Effort::High),
+        };
+        settings.role_defaults = BTreeMap::from([("planner".to_string(), planner.clone())]);
+        settings.save(&path).expect("saves");
+        assert_eq!(entry(&path, "reviewer"), None);
+        assert_eq!(
+            entry(&path, "planner"),
+            Some(as_written("effort = \"high\""))
+        );
+        assert_eq!(
+            entry(&path, "implementer"),
+            Some(as_written("speed = \"fast\""))
+        );
+        let read = Settings::load(&path).expect("reads");
+        assert_eq!(
+            read.role_defaults,
+            BTreeMap::from([("planner".to_string(), planner)])
+        );
+    }
+
+    #[test]
+    fn a_role_default_that_is_not_a_table_is_kept_until_its_role_is_chosen() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        std::fs::write(&path, "[role_defaults]\nreviewer = \"fable\"\n").expect("writes");
+        let mut settings = Settings::load(&path).expect("reads");
+        assert!(settings.role_defaults.is_empty());
+        settings.save(&path).expect("saves");
+        let text = std::fs::read_to_string(&path).expect("reads");
+        let table: toml::Table = text.parse().expect("toml");
+        assert_eq!(
+            table[ROLE_DEFAULTS]["reviewer"].as_str(),
+            Some("fable"),
+            "{text}"
+        );
+        settings.role_defaults = BTreeMap::from([reviewer(Some("opus"), None)]);
+        settings.save(&path).expect("saves");
+        let read = Settings::load(&path).expect("reads");
+        assert_eq!(read.role_defaults, settings.role_defaults);
     }
 
     #[test]

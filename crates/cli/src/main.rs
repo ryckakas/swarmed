@@ -28,9 +28,8 @@ use pr::PrCommand;
 use session::SessionCommand;
 use swarmed_core::agent::FakeBackend;
 use swarmed_core::{
-    AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, Descendant,
-    EnvironmentChoice, MarkColour, McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings,
-    SetupStatus, Task,
+    AgentSetup, ApiKeyInfo, CloudOrigin, CloudProvider, CloudTask, Core, EnvironmentChoice,
+    MarkColour, McpServerView, NewTaskOptions, Paths, RemoveOptions, Settings, SetupStatus, Task,
 };
 use terminal::TerminalCommand;
 
@@ -1223,15 +1222,14 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
             name,
             close_workers,
         } => {
-            let elsewhere = core.task_descendants_elsewhere(&project, &name)?;
-            for note in core
+            let done = core
                 .task_done(&project, &name, close_workers, &hook_line)
-                .await?
-            {
-                say(&note);
+                .await?;
+            for note in &done.notes {
+                say(note);
             }
             say(&format!("put away task `{name}`"));
-            done_left_open(&elsewhere, close_workers);
+            done_left_open(core, &project, &name, &done.workers_closed, close_workers)?;
         }
         TaskCommand::Undone { project, name } => {
             core.task_undone(&project, &name)?;
@@ -1242,23 +1240,39 @@ async fn sent_or_switched(core: &Core, command: TaskCommand) -> Result<Option<Ta
     Ok(None)
 }
 
-/// Says what became of the sessions of other tasks that worked for a task's sessions when it
-/// was put away (`elsewhere`, read before): closed with `close_workers`, else said aside to be
-/// left open.
-fn done_left_open(elsewhere: &[Descendant], close_workers: bool) {
-    let ids: Vec<i64> = elsewhere.iter().map(|one| one.session.id).collect();
-    if ids.is_empty() {
-        return;
-    }
-    let listed = session::ids_said(&ids);
-    if close_workers {
+/// Says what became of the sessions of other tasks that worked for the sessions of task `name`
+/// once it is put away: those it `closed`, as the core says it closed them, and aside, those
+/// still open, read after. A task put away already closes none, `close_workers` or not.
+fn done_left_open(
+    core: &Core,
+    project: &str,
+    name: &str,
+    closed: &[i64],
+    close_workers: bool,
+) -> Result<()> {
+    if !closed.is_empty() {
+        let listed = session::ids_said(closed);
         say(&format!("closed sessions of other tasks: {listed}"));
-    } else {
-        aside(&format!(
-            "sessions of other tasks still work for its sessions, open: {listed}. \
-             `--close-workers` closes them too."
-        ));
     }
+    let open: Vec<i64> = core
+        .task_descendants_elsewhere(project, name)?
+        .iter()
+        .map(|one| one.session.id)
+        .collect();
+    if open.is_empty() {
+        return Ok(());
+    }
+    let one_by_one = "`swarmed session close <id> --with-workers` closes one with those under it.";
+    let how = match (close_workers, closed.is_empty()) {
+        (false, _) => "`--close-workers` closes them too.".to_string(),
+        (true, true) => format!("The task was put away already, so none were closed: {one_by_one}"),
+        (true, false) => one_by_one.to_string(),
+    };
+    aside(&format!(
+        "sessions of other tasks still work for its sessions, open: {}. {how}",
+        session::ids_said(&open)
+    ));
+    Ok(())
 }
 
 /// Does a command that `written`, `sent_or_switched` or `set_up` knows, and hands any other
