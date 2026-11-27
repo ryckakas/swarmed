@@ -67,6 +67,11 @@ Each feature's mechanics, and the reasons behind them, are in its own module's d
 `//!` at the top of a Rust file, the comment above a UI function or component): read it before
 changing the feature, and keep it true. What follows is what holds across features.
 
+**This file stays short.** A new feature adds no section here: what it does and why goes into
+its module's doc comment, in the same change. A line goes in here only for a rule that holds
+across features, or one an agent would break without having opened the module. A line that grows
+into one feature's details has them moved to that module.
+
 ### Where things go
 
 - **Core first.** Everything lands in `swarmed-core`, as typed operations that know nothing of
