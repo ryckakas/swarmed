@@ -1162,8 +1162,6 @@ pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
     }
 }
 
-/// The line of an event the core records by itself or answers for, or `None` for events not
-/// worth a line.
 /// What a turn used, as the window says it: its tokens in all, then what of them it read anew
 /// and what it wrote.
 fn used(tokens: Tokens) -> String {
@@ -1199,6 +1197,8 @@ fn short(tokens: u64) -> String {
     }
 }
 
+/// The line of an event the core records by itself or answers for, or `None` for events not
+/// worth a line.
 fn described_by_core(event: &AgentEvent) -> Option<String> {
     match event {
         AgentEvent::CommandAnswered { said, .. } => Some(said.clone()),
