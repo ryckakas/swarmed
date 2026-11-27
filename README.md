@@ -32,7 +32,8 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   `gh`.
 - **One pool of MCP servers and skills.** A server set up for Claude Code, Codex or OpenCode
   reaches the other agents too, and so does a skill, without copying anything into their
-  configuration.
+  configuration. [repolore](docs/coding-agents.md#repolore-built-in), which searches your own
+  GitHub history, can be built in: Swarmed installs it and gives every session one copy of it.
 - **Supervise from one window.** Permission requests, questions and plans are answered in the
   conversation, and a notification says when a session needs you.
 - **Sessions outlive a restart.** Every session is kept on disk with its whole conversation, and

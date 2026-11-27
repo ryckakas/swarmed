@@ -457,6 +457,7 @@ configured, secrets included. Nothing is copied into an agent's own files.
 | Codex | `~/.codex/config.toml` |
 | OpenCode | `~/.config/opencode/opencode.json` or `opencode.jsonc` |
 | Swarmed | `mcp.toml` in the data directory, set up in Settings → MCP servers |
+| Swarmed's built-in | repolore, once you turn it on: [repolore, built in](#repolore-built-in) |
 
 - Claude Code, Codex and OpenCode are not given a server by a name they already have, switched
   on or off. The configuration of other agents is not read, so they get the whole pool.
@@ -470,6 +471,89 @@ configured, secrets included. Nothing is copied into an agent's own files.
   servers.
 
 `swarmed mcp` lists the pool: the servers set up in Swarmed, Claude Code, Codex and OpenCode.
+The built-in repolore is shown by `swarmed mcp builtin` instead.
+
+### repolore, built in
+
+[repolore](https://github.com/ryckakas/repolore) searches your own engineering history on
+GitHub: pull requests and their reviews, issues, commits and your repositories' docs. Set up the
+usual way, it is registered with each agent apart (`repolore setup`), and each setup runs a
+shared server that holds a 1.3 GB embedding model. Swarmed can run it for you instead, as its
+built-in server: Settings → MCP servers, under **Swarmed built-in**. It is off until you turn it
+on, and needs repolore 0.5.1 or newer.
+
+Once on, every session gets it as one of Swarmed's own servers, under the name `repolore`,
+whichever agent runs it (one with `shared_mcp_servers = false` too). Swarmed runs
+`repolore-mcp` with two variables:
+
+- `REPOLORE_HOME=<data dir>/repolore`: its configuration, index and model, apart from any setup
+  of yours;
+- `REPOLORE_MANAGED_BY=Swarmed`: repolore's managed mode, in which it registers itself nowhere
+  and names every other registration as a conflict.
+
+Which repositories it indexes, and the rest of its settings, are set on repolore's own page.
+
+| State | What it means | What the row offers |
+| --- | --- | --- |
+| not installed | no `repolore` or `repolore-mcp` | **Install**, showing `uv tool install --managed-python --python 3.12 --upgrade 'repolore-mcp>=0.5.1'` before it runs, with `brew install uv &&` first if uv is missing |
+| out of date | older than 0.5.1 | **Update**, with the same command |
+| off | installed, not turned on | **Turn on**; with a setup of yours found, **Copy your existing setup** or **Start fresh** |
+| waiting | turned on, but not given to sessions yet | what is left in its way, each with its step; **Check again** and **Turn off** |
+| on | given to every session started from now on | its checks, when the index was built and last refreshed, what Claude Code last said of it; **Open repolore**, **Check** and **Turn off** |
+
+- **Copy or start fresh.** A copy runs `repolore copy` into the built-in's home: it keeps your
+  repositories and your index, and the model is not downloaded again. It works while your setup
+  is in use, and refuses only while a refresh runs; then nothing is changed, and you try again
+  later or start fresh. Starting fresh makes an empty home and opens repolore's page to pick
+  the repositories. Your own setup is never changed either way.
+- **One repolore at a time.** Two would hold two models, so the built-in goes to sessions only
+  while repolore is registered nowhere else and your old shared server has stopped. Until then
+  the row waits, and lists what is left. Registrations are found by repolore's own doctor, which
+  knows every client it registers with, and in what Swarmed reads itself: Claude Code and its
+  plugins, Codex, OpenCode and `mcp.toml`.
+- **Taking registrations out.** Each is removed with the command repolore's doctor gives for it,
+  which is that client's own (`claude mcp remove`, `claude plugin uninstall`, `codex mcp
+  remove`), shown before it runs. Swarmed never writes into an agent's files, so OpenCode, Claude
+  Desktop and any client without such a command are a step for you, shown in the row. A
+  `repolore session-start` hook in Claude Code's `settings.json` is pointed out for you to
+  remove, never edited: the built-in refreshes by itself. A registration that comes back, from
+  running `repolore setup` again say, puts the row back to waiting, and new sessions go without
+  the built-in: at once if Swarmed reads that client itself, else from the next check.
+- **The old server.** Sessions started before their registration went keep the old shared server
+  running until they end, and it stops by itself 10 minutes after the last one. The row names
+  Swarmed's sessions that still use it; **Restart idle ones** stops the agents of the idle ones,
+  which start again with their next message. Sessions outside Swarmed are yours to close.
+- **Checks.** Opening the settings runs repolore's doctor without the network
+  (`repolore doctor --json --offline`). **Check** runs the full one, which asks GitHub and
+  whether Claude Code connects too. Nothing runs on a timer, and a session's start asks
+  repolore nothing: Swarmed keeps what the last check found.
+- **Refresh.** A session that starts with the built-in runs `repolore session-start --hours 12`,
+  which returns at once and has repolore refresh its index in the background when one is due.
+- **Open repolore** starts repolore's page (`repolore ui`) on the built-in's home and opens it
+  in your browser. One runs at a time, and it ends when Swarmed quits. With two Swarmeds on one
+  data directory, only the one that started first opens it. Its address carries the page's
+  token, and is never logged.
+- **Your old setup's folders** stay where they are. Once the built-in is on, its last check
+  passed and the old server has stopped, the row offers to move them to the Trash, after you
+  confirm. Never a folder that is, holds or is inside Swarmed's data directory.
+- **Turning it off** stops giving it to new sessions and ends its page. Its home stays, for
+  turning it on again.
+
+`swarmed mcp builtin` does the same from the command line: `status` (the default), `install`,
+`on --copy` or `on --fresh`, `off`, `check [--full]`, `remove <key>` with a key `status` lists,
+`restart` and `trash-old`. It never opens the page: `status` prints the line that opens it from
+a terminal.
+
+Worth knowing before you switch:
+
+- **Codex may time out on a first search.** Codex wants longer timeouts for repolore than its
+  own defaults: 60 s to start and 300 s per call. A server handed over ACP has no field for a
+  timeout, so Codex's first search, while repolore still loads its model, may time out.
+- **Clients outside Swarmed lose repolore** once their registrations are taken out: Cursor,
+  Claude Desktop and the like. `repolore` in a terminal still finds your old index, which is no
+  longer refreshed.
+- **The switch-over takes a while.** Until the sessions on the old server end, new sessions have
+  no repolore at all, which is better than two of them.
 
 ### Apps MCP servers attach to their tools
 
