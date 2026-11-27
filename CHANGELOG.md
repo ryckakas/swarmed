@@ -61,6 +61,9 @@ notice adds its line under Unreleased.
   checks run, a task's browser badge turns slowly while its browser runs, and a sub-agent at
   work in the sidebar is a tiny crawling grub. With reduced motion turned on in the system, each
   stands still as before.
+- **A task's pull request and issue badges stay put under the pointer.** They now come after the
+  task's note and the buttons that only show while the row is pointed at, right before its +, so
+  they no longer slide away as you move to press them.
 
 ### Fixed
 
