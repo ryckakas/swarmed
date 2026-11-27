@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import type { Supervision } from "../api/types";
 import { focusIsFree } from "../focus";
 import { questionsOf } from "../questions";
 import { planKeptSaid } from "../roles";
@@ -98,7 +99,8 @@ function ToolPrompt(props: Props) {
 function usePromptWords(toolName: string, sessionId: number) {
     const next = useStore((state) => afterPlan(state.settings?.default_supervision));
     const role = useStore((state) => findSession(state.projects, sessionId)?.role ?? null);
-    const kept = planKeptSaid(role, useRoles(), useWords());
+    const label = (supervision: Supervision) => SUPERVISION_LABELS[supervision];
+    const kept = planKeptSaid(role, useRoles(), useWords(), label);
     if (toolName !== PLAN_TOOL) {
         return {
             ask: `Allow ${toolName}?`,

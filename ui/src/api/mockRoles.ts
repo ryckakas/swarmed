@@ -10,6 +10,7 @@ export const MOCK_ROLES: RoleInfo[] = [
         description:
             "shapes a whole feature across tasks: splits it into parts, each one task, one branch and one pull request, and starts a planner for each",
         supervision: "plan",
+        approved_supervision: "auto",
         changes_files: false,
         starts: ["planner", "reviewer"],
         child: "planner",
@@ -19,6 +20,7 @@ export const MOCK_ROLES: RoleInfo[] = [
         description:
             "plans one part inside one task, hands every change to implementers in its worktree, and checks what they report against the plan",
         supervision: "plan",
+        approved_supervision: "auto",
         changes_files: false,
         starts: ["implementer", "reviewer"],
         child: "implementer",
@@ -28,6 +30,7 @@ export const MOCK_ROLES: RoleInfo[] = [
         description:
             "builds the part it was given and nothing beside it, and reports back when done or stuck",
         supervision: null,
+        approved_supervision: null,
         changes_files: true,
         starts: [],
         child: null,
@@ -35,11 +38,12 @@ export const MOCK_ROLES: RoleInfo[] = [
     {
         name: "reviewer",
         description:
-            "reads and reviews what it is pointed at, changes nothing, and reports its findings",
+            "reads and reviews what it is pointed at, changes nothing itself, and reports its findings or hands their fixes to implementers",
         supervision: "plan",
+        approved_supervision: null,
         changes_files: false,
-        starts: [],
-        child: null,
+        starts: ["implementer"],
+        child: "implementer",
     },
 ];
 
@@ -114,9 +118,17 @@ function heldBy(session: Session, role: string | null): Supervision | null {
     return next === now ? null : next;
 }
 
-/** Whether a sample session with `role` keeps planning once its plan is approved. */
-export function sampleKeepsPlanning(role: string | null): boolean {
+/** Whether a sample session with `role` hands its plan on once it is approved. */
+export function sampleHandsPlanOn(role: string | null): boolean {
     return MOCK_ROLES.some((known) => known.name === role && !known.changes_files);
+}
+
+/**
+ * The supervision a sample session with `role` goes on in once its plan is approved, for a
+ * role that hands the plan on to sessions it starts and follows; `null` to stay in plan mode.
+ */
+export function sampleHandsOnIn(role: string | null): Supervision | null {
+    return MOCK_ROLES.find((known) => known.name === role)?.approved_supervision ?? null;
 }
 
 /**

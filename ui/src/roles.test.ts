@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createMockApi, sampleProjects } from "./api/mock";
 import { MOCK_ROLES } from "./api/mockRoles";
+import type { Supervision } from "./api/types";
 import {
+    handsOnIn,
+    handsPlanOn,
     heldSaid,
-    keepsPlanning,
     planKeptSaid,
     roleAbout,
     roleChangedSaid,
@@ -16,6 +18,7 @@ import { wordsFor } from "./wording";
 
 const plain = wordsFor("plain");
 const swarm = wordsFor("swarm");
+const label = (supervision: Supervision) => `${supervision} mode`;
 
 describe("the role menu", () => {
     it("offers none, then every role, and keeps one it does not know", () => {
@@ -83,11 +86,20 @@ describe("what a role keeps its session to", () => {
         expect(roleHolds("tester", MOCK_ROLES)).toBeNull();
     });
 
-    it("keeps such a role planning once its plan is approved", () => {
-        expect(keepsPlanning("architect", MOCK_ROLES)).toBe(true);
-        expect(keepsPlanning("implementer", MOCK_ROLES)).toBe(false);
-        expect(keepsPlanning(null, MOCK_ROLES)).toBe(false);
-        expect(plain.planKept("Planner")).toMatch(/^Planner: once approved, it stays in plan mode/);
+    it("has such a role hand its plan on once approved, in the mode its role names", () => {
+        expect(handsPlanOn("architect", MOCK_ROLES)).toBe(true);
+        expect(handsPlanOn("reviewer", MOCK_ROLES)).toBe(true);
+        expect(handsPlanOn("implementer", MOCK_ROLES)).toBe(false);
+        expect(handsPlanOn(null, MOCK_ROLES)).toBe(false);
+        // Those that start and follow sessions leave plan mode; a reviewer stays.
+        expect(handsOnIn("architect", MOCK_ROLES)).toBe("auto");
+        expect(handsOnIn("planner", MOCK_ROLES)).toBe("auto");
+        expect(handsOnIn("reviewer", MOCK_ROLES)).toBeNull();
+        expect(handsOnIn("implementer", MOCK_ROLES)).toBeNull();
+        expect(handsOnIn("tester", MOCK_ROLES)).toBeNull();
+        expect(plain.planKept("Reviewer")).toMatch(
+            /^Reviewer: once approved, it stays in plan mode/,
+        );
         expect(swarm.roleHolds("Broodkeeper")).toMatch(/once the spawn hatches\.$/);
     });
 
@@ -95,8 +107,13 @@ describe("what a role keeps its session to", () => {
         expect(heldSaid("planner", MOCK_ROLES, plain)).toMatch(/^Planner: starts in plan mode/);
         expect(heldSaid("implementer", MOCK_ROLES, plain)).toBeNull();
         expect(heldSaid(null, MOCK_ROLES, plain)).toBeNull();
-        expect(planKeptSaid("reviewer", MOCK_ROLES, swarm)).toMatch(/^Sentinel: once approved/);
-        expect(planKeptSaid("implementer", MOCK_ROLES, plain)).toBeNull();
+        expect(planKeptSaid("reviewer", MOCK_ROLES, swarm, label)).toMatch(
+            /^Sentinel: once approved, it stays in plan mode/,
+        );
+        expect(planKeptSaid("planner", MOCK_ROLES, plain, label)).toMatch(
+            /^Planner: once approved, plan mode ends \(auto mode\) so that it starts and follows/,
+        );
+        expect(planKeptSaid("implementer", MOCK_ROLES, plain, label)).toBeNull();
     });
 });
 

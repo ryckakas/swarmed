@@ -258,6 +258,33 @@ async fn a_session_starts_only_the_roles_its_own_may() {
         "{refused:?}"
     );
 
+    // A reviewer hands the fixes it was asked for to implementers, and starts nothing else.
+    let reviewing = new_session(&core, Some("reviewer"));
+    let fixer = core
+        .peer_spawn(reviewing.id, "fix the finding", None, None)
+        .expect("spawns");
+    assert_eq!(fixer.role.as_deref(), Some("implementer"));
+    turn(&mut bus, fixer.id).await;
+    let refused = core.peer_spawn(reviewing.id, "plan it", None, Some("planner"));
+    assert!(
+        matches!(&refused, Err(Error::Peers(why)) if why.contains("may start only implementer")),
+        "{refused:?}"
+    );
+    // Under an architect's planner it is the third with a role in a row and starts nobody: it
+    // is told to ask the session it works for, to which its rules have it report the fixes.
+    let architect = new_session(&core, Some("architect"));
+    let part = new_session(&core, Some("planner"));
+    let deep = new_session(&core, Some("reviewer"));
+    core.session_set_parent(part.id, Some(architect.id))
+        .expect("works for it");
+    core.session_set_parent(deep.id, Some(part.id))
+        .expect("works for it");
+    let refused = core.peer_spawn(deep.id, "fix the finding", None, None);
+    assert!(
+        matches!(&refused, Err(Error::Peers(why)) if why.contains("at most 3 in a row") && why.contains("ask the session you work for")),
+        "{refused:?}"
+    );
+
     // With no role, as before: none by default, any role asked for.
     let free = new_session(&core, None);
     let plain = core
@@ -399,6 +426,95 @@ async fn a_running_agent_is_put_in_its_role_s_plan_mode_and_out_of_it() {
     );
 }
 
+#[tokio::test]
+async fn a_session_with_a_role_uses_swarmed_s_session_tools_unasked_in_plan_mode_too() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let reviewer = new_session(&core, Some("reviewer"));
+    assert_eq!(reviewer.supervision, Supervision::Plan);
+    core.session_start(reviewer.id, Auth::Subscription)
+        .expect("starts");
+    for tool in [
+        "send_message",
+        "list_sessions",
+        "read_session",
+        "close_session",
+    ] {
+        let call = format!("call: mcp__swarmed__{tool}");
+        assert_eq!(
+            answer(&core, &mut bus, reviewer.id, &call).await,
+            "called it"
+        );
+    }
+    let events = core.session_events(reviewer.id).expect("reads");
+    let asked = |event: &AgentEvent| matches!(event, AgentEvent::PermissionRequest { .. });
+    assert!(!events.iter().any(asked), "never put to the user");
+
+    // Anything else is put to the user as before, and in plan mode so is starting a session
+    // or a task: a reviewer stays there, so each implementer it starts is the user's to allow.
+    for asked in [
+        "Bash",
+        "mcp__swarmed__spawn_session",
+        "mcp__swarmed__start_task",
+    ] {
+        let call = format!("call: {asked}");
+        core.session_send(reviewer.id, &call).expect("sends");
+        let (request, tool) = requested(&mut bus).await;
+        assert_eq!(tool, asked);
+        core.session_deny(reviewer.id, &request, "Not now.")
+            .expect("denies");
+        turn(&mut bus, reviewer.id).await;
+    }
+
+    // And so are the session tools, in a session with no role.
+    let plain = new_session(&core, None);
+    core.session_start(plain.id, Auth::Subscription)
+        .expect("starts");
+    core.session_send(plain.id, "call: mcp__swarmed__send_message")
+        .expect("sends");
+    let (request, tool) = requested(&mut bus).await;
+    assert_eq!(tool, "mcp__swarmed__send_message");
+    core.session_allow(plain.id, &request).expect("allows");
+    turn(&mut bus, plain.id).await;
+}
+
+#[tokio::test]
+async fn a_role_starts_sessions_unasked_only_once_its_plan_is_approved() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let planner = new_session(&core, Some("planner"));
+    core.session_start(planner.id, Auth::Subscription)
+        .expect("starts");
+
+    // Still planning: nothing was approved, so the user is asked about each start.
+    let spawn = "call: mcp__swarmed__spawn_session";
+    core.session_send(planner.id, spawn).expect("sends");
+    let (request, tool) = requested(&mut bus).await;
+    assert_eq!(tool, "mcp__swarmed__spawn_session");
+    core.session_allow(planner.id, &request).expect("allows");
+    turn(&mut bus, planner.id).await;
+
+    // Its plan approved, it is out of plan mode, and starting is its work like the rest.
+    approved(&core, &mut bus, planner.id, "build the export").await;
+    assert_eq!(supervision_of(&core, planner.id), Supervision::Auto);
+    for tool in ["spawn_session", "start_task"] {
+        let call = format!("call: mcp__swarmed__{tool}");
+        assert_eq!(
+            answer(&core, &mut bus, planner.id, &call).await,
+            "called it"
+        );
+    }
+    let events = core.session_events(planner.id).expect("reads");
+    let asked = |event: &&AgentEvent| matches!(event, AgentEvent::PermissionRequest { tool_name, .. } if tool_name != PLAN_TOOL);
+    assert_eq!(
+        events.iter().filter(asked).count(),
+        1,
+        "only while planning"
+    );
+}
+
 /// The permission request the agent of a session makes next: its id and the tool it is for.
 async fn requested(
     bus: &mut tokio::sync::broadcast::Receiver<swarmed_core::SessionEvent>,
@@ -416,21 +532,21 @@ async fn requested(
     }
 }
 
-#[tokio::test]
-async fn approving_the_plan_of_a_role_that_changes_no_files_keeps_it_planning() {
-    let fx = fixture();
-    let core = core_with_task(&fx).await;
-    let mut bus = core.subscribe();
-    let planner = new_session(&core, Some("planner"));
-    core.session_start(planner.id, Auth::Subscription)
-        .expect("starts");
-    core.session_send(planner.id, "build the export")
-        .expect("sends");
-    let (request, _) = requested(&mut bus).await;
-    core.session_allow(planner.id, &request).expect("approves");
-    let events = turn(&mut bus, planner.id).await;
-
-    // Approved, as every front end shows it; the agent is told to hand it on, not to start.
+/// What the agent of session `id`, presenting its plan for `message`, is told once the user
+/// approves it, with the events of that turn.
+async fn approved(
+    core: &Core,
+    bus: &mut tokio::sync::broadcast::Receiver<swarmed_core::SessionEvent>,
+    id: i64,
+    message: &str,
+) -> (String, Vec<AgentEvent>) {
+    core.session_start(id, Auth::Subscription).expect("starts");
+    core.session_send(id, message).expect("sends");
+    let (request, tool) = requested(bus).await;
+    assert_eq!(tool, PLAN_TOOL);
+    core.session_allow(id, &request).expect("approves");
+    let events = turn(bus, id).await;
+    // Approved, as every front end shows it.
     assert!(events.contains(&AgentEvent::PermissionAnswered {
         request_id: request,
         allowed: true,
@@ -439,33 +555,50 @@ async fn approving_the_plan_of_a_role_that_changes_no_files_keeps_it_planning() 
         AgentEvent::ToolResult { content, .. } => Some(content.clone()),
         _ => None,
     });
-    let told = told.expect("the plan's call ended");
+    (told.expect("the plan's call ended"), events)
+}
+
+#[tokio::test]
+async fn approving_the_plan_of_a_role_that_changes_no_files_hands_it_on() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+
+    // A planner is told to hand it on, not to build it, and leaves plan mode for auto mode,
+    // so that starting and following its implementers asks the user nothing.
+    let planner = new_session(&core, Some("planner"));
+    let (told, events) = approved(&core, &mut bus, planner.id, "build the export").await;
     assert!(
         told.starts_with("The user approved your plan. Your role, the planner's, changes no files"),
         "{told}"
     );
+    assert!(told.contains("You are out of plan mode now"));
     assert!(told.contains("Hand each change to an implementer now with `spawn_session`"));
     assert!(events.contains(&AgentEvent::Text {
         text: "still planning".into()
     }));
+    assert_eq!(supervision_of(&core, planner.id), Supervision::Auto);
+    assert_eq!(supervision_changes(&core, planner.id), [Supervision::Auto]);
+    // What its role took the place of is still put back when the role goes.
+    core.session_set_role(planner.id, None)
+        .expect("takes it off");
+    assert_eq!(supervision_of(&core, planner.id), Supervision::Ask);
+
+    // A reviewer has nothing to follow: it stays in plan mode and reports.
+    let reviewer = new_session(&core, Some("reviewer"));
+    let (told, _) = approved(&core, &mut bus, reviewer.id, "review the export").await;
     assert!(
-        !events
-            .iter()
-            .any(|event| matches!(event, AgentEvent::SupervisionChanged { .. })),
-        "{events:?}"
+        told.contains("You stay in the mode that keeps you from it."),
+        "{told}"
     );
-    assert_eq!(supervision_of(&core, planner.id), Supervision::Plan);
+    assert!(told.contains("Report your findings now"));
+    assert_eq!(supervision_of(&core, reviewer.id), Supervision::Plan);
+    assert_eq!(supervision_changes(&core, reviewer.id), []);
 
     // An implementer the user put in plan mode carries its plan out once approved, as before.
     let implementer = supervised(&core, Some("implementer"), Supervision::Plan);
-    core.session_start(implementer.id, Auth::Subscription)
-        .expect("starts");
-    core.session_send(implementer.id, "build the form")
-        .expect("sends");
-    let (request, _) = requested(&mut bus).await;
-    core.session_allow(implementer.id, &request)
-        .expect("approves");
-    let events = turn(&mut bus, implementer.id).await;
+    let (told, events) = approved(&core, &mut bus, implementer.id, "build the form").await;
+    assert_eq!(told, "ok");
     assert!(events.contains(&AgentEvent::Text {
         text: "carrying out the plan".into()
     }));

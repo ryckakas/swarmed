@@ -9,6 +9,12 @@
 //! where the new rules start, and the agent is told with its next message. Every start of the
 //! agent has the role in its guidance ([`section`]), with what each of the other roles is for
 //! and who works with it.
+//!
+//! Swarmed's session tools are a role's work, so a session with a role uses them without the
+//! user being asked ([`uses_unasked`]), in plan mode too: Claude Code holds every MCP tool that
+//! is not read-only at a question there, whatever its allow rules say. The two that start a
+//! session are the exception in plan mode, where the user is asked about each start: what it
+//! starts changes files, and nothing of a plan was approved yet.
 
 use serde::Serialize;
 
@@ -30,6 +36,10 @@ pub struct Role {
     pub instructions: &'static str,
     /// The supervision it starts in; `None` for what was chosen for the session.
     pub supervision: Option<Supervision>,
+    /// The supervision it goes on in once the user approves a plan it presented, for a role
+    /// that changes no files and hands its plan on to sessions it starts and follows: asked
+    /// about each step, that would be the user's work. `None` to stay in plan mode.
+    pub approved_supervision: Option<Supervision>,
     /// Whether its agent changes files.
     pub changes_files: bool,
     /// The roles of the sessions it may start; none for a role that starts no sessions.
@@ -37,9 +47,9 @@ pub struct Role {
     /// The role of a session it starts without naming one.
     pub child: Option<&'static str>,
     /// What its agent goes on with once the user approves a plan it presented, for a role that
-    /// changes no files: it stays in the mode that keeps it from changing them, and is told
-    /// this instead of the usual go-ahead. `None` for a role that changes files, which goes
-    /// on to carry its plan out.
+    /// changes no files: it is told this instead of the usual go-ahead, which would have it
+    /// carry the plan out itself. `None` for a role that changes files, which goes on to carry
+    /// its plan out.
     #[serde(skip)]
     pub approved: Option<&'static str>,
 }
@@ -60,6 +70,7 @@ check that the parts fit together and land in order, and report to the user. You
 files and run nothing that changes anything: each part is its planner's to plan and its \
 implementers' to build.",
     supervision: Some(Supervision::Plan),
+    approved_supervision: Some(Supervision::Auto),
     changes_files: false,
     starts: &["planner", "reviewer"],
     child: Some("planner"),
@@ -84,6 +95,7 @@ changes anything, and do not implement through sub-agents of your own either: a 
 make, an implementer makes. If the design does not hold, say so to whom you report rather than \
 change it alone.",
     supervision: Some(Supervision::Plan),
+    approved_supervision: Some(Supervision::Auto),
     changes_files: false,
     starts: &["implementer", "reviewer"],
     child: Some("implementer"),
@@ -103,6 +115,7 @@ elsewhere, you suggest to the session you work for. When you are done, report wh
 found to it with `send_message`. When you are stuck, ask it first, and the user only when it \
 cannot decide. You start no sessions and no tasks.",
     supervision: None,
+    approved_supervision: None,
     changes_files: true,
     starts: &[],
     child: None,
@@ -112,20 +125,27 @@ cannot decide. You start no sessions and no tasks.",
 /// The reviewer: reads, and changes nothing.
 const REVIEWER: Role = Role {
     name: "reviewer",
-    description: "reads and reviews what it is pointed at, changes nothing, and reports its \
-                  findings",
+    description: "reads and reviews what it is pointed at, changes nothing itself, and reports \
+                  its findings or hands their fixes to implementers",
     instructions: "Read and review what you were asked to: whether it is correct, whether it does \
 what was asked, and whether it reads clearly. You change no files and run nothing that changes \
 anything; running tests and checks is fine. Report your findings to the session you work for \
 with `send_message`, or to the user if you work for none: each with where it is and why it \
-matters, the most severe first. You start no sessions and no tasks.",
+matters, the most severe first. When you were asked to get them fixed as well, hand the fixes to \
+implementers with `spawn_session` (its `role` is `implementer`), in parts that do not touch the \
+same files, check what each reports back, and then report what was found and fixed. Where you \
+cannot start one, as when you work for a planner that itself works for an architect, report the \
+fixes to make to the session you work for instead, which hands them on. Start no tasks.",
     supervision: Some(Supervision::Plan),
+    approved_supervision: None,
     changes_files: false,
-    starts: &[],
-    child: None,
+    starts: &["implementer"],
+    child: Some("implementer"),
     approved: Some(
         "Report your findings now to the session you work for with `send_message`, or to the \
-         user if you work for none.",
+         user if you work for none, or hand their fixes to implementers with `spawn_session` if \
+         you were asked to get them fixed. If you cannot start an implementer, report the fixes \
+         to make to the session you work for instead.",
     ),
 };
 
@@ -202,10 +222,30 @@ fn with_article(name: &str) -> String {
 const KEPT_FROM_CHANGES: &str = "Swarmed keeps you to that: your role starts you in plan mode, or \
 in your agent's read-only mode where it has no plan mode, either of which keeps you from changing \
 files. Swarmed's session tools (`list_sessions`, `read_session`, `send_message`, `spawn_session`, \
-`start_task`) change none of your files, so they are yours to use in that mode, even where it \
-says to run nothing that changes anything; the user may be asked to allow each call. When the \
-user approves a plan you present, you stay in that mode: an approval is no go-ahead to change \
-anything yourself, but to hand the plan on as your role says.";
+`start_task`, `close_session`) change none of your files and are your role's work, so they are \
+yours to use in that mode, even where it says to run nothing that changes anything, and the user \
+is not asked about them, but for one thing: while you are in plan mode the user is asked about \
+each session or task you start (`spawn_session`, `start_task`), since what you start changes \
+files. Swarmed knows them by the names Claude Code gives them, so if your agent asks about one \
+under another name, the user may be asked after all. When the user approves a plan you present, you are told how to hand it on: an approval is \
+never a go-ahead to change anything yourself.";
+
+/// Swarmed's session tools, as Claude Code names them: by server, then by tool. Each is a
+/// role's work: seeing and reading the others, telling them, starting them and closing them.
+/// What a role may start is checked when it starts one, not here.
+const SESSION_TOOLS: [&str; 6] = [
+    "mcp__swarmed__list_sessions",
+    "mcp__swarmed__read_session",
+    "mcp__swarmed__send_message",
+    "mcp__swarmed__spawn_session",
+    "mcp__swarmed__start_task",
+    "mcp__swarmed__close_session",
+];
+
+/// The session tools that start a session, which then works by its own supervision and may
+/// change files: the user is asked about these while the session that calls them is in plan
+/// mode, where nothing it proposed was approved yet.
+const STARTING_TOOLS: [&str; 2] = ["mcp__swarmed__spawn_session", "mcp__swarmed__start_task"];
 
 /// The rules of `role`, as its agent keeps to them: what it is, its own rules, how Swarmed keeps
 /// it from changing files if it changes none, and what it may start, then what every role is
@@ -230,16 +270,38 @@ fn rules(role: &Role) -> String {
 }
 
 /// What the agent of a session with `role` is told when the user approves a plan it presented,
-/// in place of the usual go-ahead: for a role that changes no files, that it stays in the mode
-/// that keeps it from changing them, and how it hands the plan on. `None` for a role that
-/// changes files, which goes on to carry its plan out.
+/// in place of the usual go-ahead: for a role that changes no files, that it still changes
+/// none, the mode it goes on in, and how it hands the plan on. `None` for a role that changes
+/// files, which goes on to carry its plan out.
 pub(crate) fn approval(role: &Role) -> Option<String> {
     let next = role.approved?;
+    let mode = if role.approved_supervision.is_some() {
+        "You are out of plan mode now, so that starting and following the sessions that carry it \
+         out needs no approval of each step; you still change nothing yourself."
+    } else {
+        "You stay in the mode that keeps you from it."
+    };
     Some(format!(
         "The user approved your plan. Your role, the {}'s, changes no files: this is no go-ahead \
-         to change anything yourself, and you stay in the mode that keeps you from it. {next}",
+         to change anything yourself. {mode} {next}",
         role.name
     ))
+}
+
+/// Whether the agent of a session with `role`, supervised as `supervision`, may call
+/// `tool_name` without the user being asked: one of Swarmed's session tools, for a session
+/// with a role, whose work they are. A session with no role is asked about them as before.
+///
+/// In plan mode the two that start a session are still put to the user. An architect or a
+/// planner leaves plan mode once its plan is approved and starts unasked from then on; until
+/// then it could start implementers, which change files, with nothing approved. A reviewer
+/// stays in plan mode for good, so each implementer it starts is the user's to allow: of all
+/// roles it reads the most that nobody vouches for.
+pub(crate) fn uses_unasked(role: Option<&Role>, supervision: Supervision, tool_name: &str) -> bool {
+    if role.is_none() || !SESSION_TOOLS.contains(&tool_name) {
+        return false;
+    }
+    supervision != Supervision::Plan || !STARTING_TOOLS.contains(&tool_name)
 }
 
 /// The supervision a session supervised as `now` has once its role is `role`, and what to keep
@@ -403,12 +465,14 @@ impl Core {
         Ok(())
     }
 
-    /// The role of session `id` if it keeps the session from changing files once the user
-    /// approves its plan, with what its agent is told instead of the go-ahead.
-    pub(crate) fn approved_kept(&self, id: i64) -> Result<Option<String>> {
+    /// What becomes of the plan of session `id` that the user approved, if its role changes no
+    /// files: what its agent is told instead of the go-ahead, and the supervision it goes on in,
+    /// if it leaves plan mode to hand the plan on.
+    pub(crate) fn approved_kept(&self, id: i64) -> Result<Option<(String, Option<Supervision>)>> {
         let session = self.session(id)?;
         let role = session.role.as_deref().and_then(find);
-        Ok(role.and_then(approval))
+        let kept = role.and_then(|role| Some((approval(role)?, role.approved_supervision)));
+        Ok(kept)
     }
 }
 
@@ -565,8 +629,88 @@ mod tests {
         let planner = find("planner").expect("built in");
         let approved = approval(planner).expect("kept");
         assert!(approved.starts_with("The user approved your plan. Your role, the planner's,"));
+        assert!(approved.contains("You are out of plan mode now"));
         assert!(approved.ends_with(planner.approved.expect("kept")));
         assert!(note(Some(planner), None).contains(KEPT_FROM_CHANGES));
+        // A reviewer has no sessions to follow once approved: it stays where it reads.
+        let reviewing = find("reviewer").expect("built in");
+        let reviewer = approval(reviewing).expect("kept");
+        assert!(reviewer.contains("You stay in the mode that keeps you from it."));
+        // Third in a row it starts nobody, so it is told where its fixes go then, both times.
+        let back = "report the fixes to make to the session you work for instead";
+        assert!(reviewing.instructions.contains(back));
+        assert!(reviewer.contains(back));
+    }
+
+    #[test]
+    fn a_role_that_hands_its_plan_on_to_sessions_it_follows_leaves_plan_mode_once_approved() {
+        let after = |name: &str| find(name).expect("built in").approved_supervision;
+        assert_eq!(after("architect"), Some(Supervision::Auto));
+        assert_eq!(after("planner"), Some(Supervision::Auto));
+        assert_eq!(after("reviewer"), None);
+        assert_eq!(after("implementer"), None);
+        for role in ROLES {
+            let leaves = role.approved_supervision.is_some();
+            assert!(!leaves || role.approved.is_some(), "{} is told", role.name);
+        }
+    }
+
+    /// The session tools the user is asked about in a session with `role` supervised as
+    /// `supervision`.
+    fn put_to_user(role: &Role, supervision: Supervision) -> Vec<&'static str> {
+        let asked = |tool: &&str| !uses_unasked(Some(role), supervision, tool);
+        SESSION_TOOLS.into_iter().filter(asked).collect()
+    }
+
+    #[test]
+    fn only_a_session_with_a_role_uses_the_session_tools_unasked() {
+        let others = [
+            "Bash",
+            "mcp__swarmed__configure",
+            "mcp__swarmed__delegate_to_cloud",
+            "mcp__swarmed__show_browser",
+            "mcp__other__send_message",
+        ];
+        let (ask, auto, plan) = (Supervision::Ask, Supervision::Auto, Supervision::Plan);
+        for role in ROLES {
+            let asked = |tool: &&str| !uses_unasked(Some(&role), auto, tool);
+            assert!(others.iter().all(asked), "{}", role.name);
+            // Out of plan mode, every session tool; in it, all but the two that start.
+            assert_eq!(put_to_user(&role, ask), [""; 0], "{}", role.name);
+            assert_eq!(put_to_user(&role, auto), [""; 0], "{}", role.name);
+            assert_eq!(put_to_user(&role, plan), STARTING_TOOLS, "{}", role.name);
+        }
+        assert!(!uses_unasked(None, auto, "mcp__swarmed__spawn_session"));
+        assert!(!uses_unasked(None, plan, "mcp__swarmed__send_message"));
+    }
+
+    /// A start is asked about exactly until an approved plan takes the session out of plan mode.
+    #[test]
+    fn a_role_starts_sessions_unasked_only_once_it_is_out_of_plan_mode() {
+        let starts_unasked = |role: &Role, supervision: Option<Supervision>| {
+            supervision.map(|supervision| put_to_user(role, supervision).is_empty())
+        };
+        for role in ROLES {
+            let starting = starts_unasked(&role, role.supervision);
+            assert_ne!(starting, Some(true), "{} as it starts", role.name);
+            let approved = starts_unasked(&role, role.approved_supervision);
+            assert_ne!(approved, Some(false), "{} once approved", role.name);
+        }
+        assert!(
+            STARTING_TOOLS
+                .iter()
+                .all(|tool| SESSION_TOOLS.contains(tool))
+        );
+    }
+
+    /// Every session tool a role uses unasked is one the tool server serves, by that name.
+    #[test]
+    fn the_session_tools_are_named_as_claude_code_names_them() {
+        let prefix = format!("mcp__{}__", crate::toolserver::SERVER_NAME);
+        for tool in SESSION_TOOLS {
+            let name = tool.strip_prefix(&prefix).expect("Swarmed's server");
+            assert!(crate::toolserver::serves(name), "{name}");
+        }
     }
 
     #[test]

@@ -1064,7 +1064,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   role starts sessions (see roles below). While `MAX_SPAWNED` open sessions work for a
   session, however each came to, its agent starts no more, with `spawn_session` or
   `start_task` (`room_for_another`); the user can still have more work for it. The tools are
-  not on the allow list: in ask mode the user is asked. A session can close only sessions
+  not on the allow list: in ask mode the user is asked, unless the session has a role (see
+  roles below). A session can close only sessions
   that work for it and that an agent started (`peer_close`): spawned ones, and those its own
   agent started in another way, which `started_by` keeps (written by `start_task` and an
   agent's shell too, never changed by the user's moves, filled for older sessions from their
@@ -1127,13 +1128,31 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     wins. A session a role-holder starts begins from that kept supervision
     (`supervision_without_role`), so an implementer is never held in its planner's plan mode.
     A same-agent fork copies it; a clone onto another agent starts anew under the role.
-  - **Approving its plan keeps it planning:** for a role that changes no files, `decide`
-    answers `PLAN_TOOL` with a refusal whose reason is `roles::approval` (the role's
-    `approved`: how it hands the plan on), recorded as allowed, and the session stays in
-    `Plan`. Allowing would end Claude Code's plan mode with its own "You can now start coding".
-    Tried with Claude Code 2.1.332: in plan mode it asks before an MCP tool and runs it once
-    allowed, and the model calls one only when told it may, which the guidance
-    (`KEPT_FROM_CHANGES`) does; an edit in plan mode is asked about, not refused.
+  - **Its session tools are not put to the user, but for a start in plan mode**
+    (`roles::uses_unasked`, pure, and `allow_unasked` in `sessions.rs`): starting, reading,
+    telling and closing sessions is a role's work, so a permission request for one of Swarmed's
+    session tools (`SESSION_TOOLS`) from a session with a role is allowed at once and never
+    stored, on any agent. They are matched by the names Claude Code gives them
+    (`mcp__swarmed__…`), so an agent that names its request otherwise still asks, which the
+    guidance (`KEPT_FROM_CHANGES`) and the documentation say. Allow rules cannot do it: Claude Code 2.1.332 holds every MCP tool that is not
+    read-only at a question in plan mode before it reads them (`planModeWriteFloor`), and runs
+    it once the permission prompt allows it. The two that start a session (`STARTING_TOOLS`:
+    `spawn_session`, `start_task`) are put to the user while the session is in `Plan`: what
+    they start begins in `supervision_without_role` and changes files, and nothing was
+    approved yet. An architect or a planner starts unasked once its approved plan took it out
+    of plan mode; a reviewer never leaves it, so each implementer it starts is asked about,
+    on purpose: it reads the most that nobody vouches for. What a role may start is still
+    checked when it starts one.
+  - **Approving its plan hands it on:** for a role that changes no files, `decide` answers
+    `PLAN_TOOL` with a refusal whose reason is `roles::approval` (the role's `approved`: how it
+    hands the plan on), recorded as allowed. Allowing would end Claude Code's plan mode with
+    its own "You can now start coding". A role that starts and follows sessions (architect,
+    planner: `Role::approved_supervision`) then goes on in `Auto` through `supervise`, so its
+    orchestration is not asked about step by step, and its rules alone keep it from changing
+    files; `supervision_before_role` is left as it was, so taking the role off still puts that
+    back. A reviewer stays in `Plan`. Tried with Claude Code 2.1.332: in plan mode the model
+    calls an MCP tool only when told it may, which the guidance (`KEPT_FROM_CHANGES`) does; an
+    edit in plan mode is asked about, not refused.
   - **Shown:** a short chip on its sidebar row, gone when the row has no room for it (a
     container query), and the menu in the header and the new-task view. `list_sessions`,
     `read_session` and `swarmed session list` (`role <name>` last) say it.
@@ -1154,7 +1173,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Refused to a spawned session and to a chat, and by a process that ends with its turn, as
   the command line's does, which would take the setup along: only one that stays answers it
   (`Core::set_stays`, which the app sets). `TreeChanged` is published, since front ends
-  learn of a task their own process made only when told. Not on the allow list.
+  learn of a task their own process made only when told. Not on the allow list: the user is
+  asked, unless the session has a role and is out of plan mode (see roles above).
 - **A session's agent can be changed until it has begun** (`session_set_agent`): before its
   first message reaches an agent, which from then on holds the conversation. The model goes
   back to the new agent's default. The UI offers the agent menu for exactly that long.
@@ -1251,7 +1271,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   plan mode, and presents its plan by asking to use `PLAN_TOOL`. Allowing that request approves
   the plan: the core then puts the session back to how new sessions are supervised and tells the
   agent, which by itself would fall back to asking about everything. A session whose role
-  changes no files stays in plan mode and is told to hand the plan on instead (see roles). Every change of
+  changes no files is told to hand the plan on instead, in `Auto` or still in plan mode as its
+  role says (see roles). Every change of
   supervision is an event, `SupervisionChanged`. Other agents have no plan mode and ask instead.
 - **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
   starts and after each turn, and recorded as `Applied`. Only those two values are read: the

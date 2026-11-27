@@ -39,6 +39,8 @@ fn run_by(server: &crate::mcp::McpServer) -> String {
 /// - plain text: replies `echo: <text>` and ends the turn;
 /// - `run: <command>`: asks permission for a `Bash` tool call, then reports the outcome; a stop
 ///   meanwhile takes the request back and ends the turn;
+/// - `call: <tool>`: asks permission for a call of that tool, in plan mode too, then reports the
+///   outcome;
 /// - `env: <NAME>`: replies with the value of that variable as given for the session, or `unset`;
 /// - `mcp: <name>`: replies with the command and arguments of the MCP server of that name it
 ///   was given, or `none`; never what the server's variables hold;
@@ -499,10 +501,13 @@ impl Script {
             self.emit(done(true, Some("interrupted")));
             return next;
         }
-        let next = match message.strip_prefix("run:") {
+        // A tool named after `call:` is asked about in plan mode too, as Claude Code asks
+        // about an MCP tool there.
+        let next = match (message.strip_prefix("call:"), message.strip_prefix("run:")) {
+            (Some(tool), _) => self.call_tool(tool.trim()).await,
             _ if self.spec.supervision == Supervision::Plan => self.plan(message).await,
-            Some(shell) => self.run_tool(shell.trim()).await,
-            None => self.echo(message),
+            (None, Some(shell)) => self.run_tool(shell.trim()).await,
+            (None, None) => self.echo(message),
         };
         if next == Next::Continue {
             self.end_answered();
@@ -645,6 +650,17 @@ impl Script {
 
     fn echo(&self, message: &str) -> Next {
         self.text(format!("echo: {message}"));
+        Next::Continue
+    }
+
+    /// Asks permission for a call of the tool named `tool` and reports what the decision led
+    /// to.
+    async fn call_tool(&mut self, tool: &str) -> Next {
+        let allowed = match self.ask(tool, json!({})).await {
+            Ok(allowed) => allowed,
+            Err(next) => return next,
+        };
+        self.text(if allowed { "called it" } else { "not allowed" });
         Next::Continue
     }
 

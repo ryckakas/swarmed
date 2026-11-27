@@ -1579,6 +1579,11 @@ export interface RoleInfo {
     description: string;
     /** The supervision it starts in; `null` for what was chosen for the session. */
     supervision: Supervision | null;
+    /**
+     * The supervision it goes on in once the user approves its plan, for a role that hands the
+     * plan on to sessions it starts and follows; `null` to stay in plan mode.
+     */
+    approved_supervision: Supervision | null;
     /** Whether its agent changes files. */
     changes_files: boolean;
     /** The roles of the sessions it may start. */

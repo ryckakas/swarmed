@@ -1482,15 +1482,17 @@ impl Core {
         // A role that changes no files keeps its session from that once its plan is approved
         // too: the agent is told how to hand it on, in an answer that keeps it planning, since
         // allowing the plan would end its plan mode with the go-ahead to start changing things.
+        // A role that hands its plan on to sessions it starts and follows then leaves plan mode
+        // for the supervision its role names, so that the user is not asked about each step.
         let kept = if plan_approved {
             self.approved_kept(id)?
         } else {
             None
         };
         self.live.note(&self.store, id, answered)?;
-        let command = match kept {
-            Some(reason) => AgentCommand::Deny { request_id, reason },
-            None => command,
+        let (command, handed_on) = match kept {
+            Some((reason, then)) => (AgentCommand::Deny { request_id, reason }, then),
+            None => (command, None),
         };
         let leaves = plan_approved && matches!(command, AgentCommand::Allow { .. });
         commands
@@ -1498,6 +1500,9 @@ impl Core {
             .map_err(|_| Error::SessionNotRunning(id))?;
         if leaves {
             self.leave_plan_mode(id)?;
+        }
+        if let Some(supervision) = handed_on {
+            self.supervise(id, supervision)?;
         }
         Ok(())
     }
@@ -2873,11 +2878,46 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
     }
     let kept = |event| apps::kept(&shared.paths, id, returned::kept(&shared.paths, id, event));
     match shared.live.standing(id, run, ending) {
-        Standing::Current => on_event(shared, id, kept(event)),
+        Standing::Current => {
+            // A request answered here is dropped on purpose: the user was never asked, so
+            // there is nothing of it to store, publish or give notice of.
+            if !allow_unasked(shared, id, &event) {
+                on_event(shared, id, kept(event));
+            }
+        }
         Standing::Replaced => shared.live.note_late(&shared.store, id, kept(event)),
         // Nothing is left to store it in, and front ends have been told the session is gone.
         Standing::Discarded => {}
     }
+}
+
+/// Allows what `event` asks at once, instead of putting it to the user, if it asks to use one
+/// of Swarmed's session tools in a session whose role makes them its work
+/// ([`roles::uses_unasked`]): all of them out of plan mode, and in it all but the two that
+/// start a session. Says whether it did: the agent was then sent its answer, and nothing of
+/// the request is stored; the call and its result are.
+fn allow_unasked(shared: &Shared, id: i64, event: &AgentEvent) -> bool {
+    let AgentEvent::PermissionRequest {
+        request_id,
+        tool_name,
+        ..
+    } = event
+    else {
+        return false;
+    };
+    let Ok(session) = lock(&shared.store).session_by_id(id) else {
+        return false;
+    };
+    let role = session.role.as_deref().and_then(roles::find);
+    if !roles::uses_unasked(role, session.supervision, tool_name) {
+        return false;
+    }
+    let request_id = request_id.clone();
+    let sent = shared
+        .live
+        .sender(id)
+        .map(|commands| commands.send(AgentCommand::Allow { request_id }).is_ok());
+    sent.unwrap_or(false)
 }
 
 /// What an event of the agent's is once messages told to it mid-turn are accounted for: a

@@ -650,6 +650,8 @@ fn the_ui_can_give_a_session_a_role_at_its_start_and_after() {
     assert_eq!(roles[1]["starts"], json!(["implementer", "reviewer"]));
     assert_eq!(roles[1]["child"], "implementer");
     assert_eq!(roles[1]["changes_files"], false);
+    assert_eq!(roles[1]["approved_supervision"], "auto");
+    assert_eq!(roles[3]["approved_supervision"], json!(null));
     assert!(roles[1]["description"].is_string());
 
     let how = json!({ "model": null, "supervision": "auto", "effort": null });
