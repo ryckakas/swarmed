@@ -660,6 +660,9 @@ impl Core {
     /// Takes in a reading of a task's pull request, or that it has none any more: keeps it,
     /// tells every front end, and records what changed since the last reading. Gives what is
     /// kept now, which is another Swarmed's reading if one was kept meanwhile.
+    ///
+    /// Every way of reading a pull request goes through here (`task_pull`, `task_pull_look`,
+    /// the follower, a merge's reading after it), so that each change is said once.
     pub(crate) fn pull_take_in(
         &self,
         task: &Task,

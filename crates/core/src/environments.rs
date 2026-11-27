@@ -12,7 +12,8 @@
 //! One of them can be the project's default, which a new task is set up in when none is
 //! chosen. That is kept in the database, not in either file: a Swarmed sharing the data
 //! directory that does not know the key would refuse the file, as 0.3.0 does, or name the key
-//! as a problem every time it starts. A column it does not know, it never sees.
+//! as a problem every time it starts. A column it does not know, it never sees. Agents cannot
+//! set it: `configure` has no way to.
 
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;

@@ -69,7 +69,8 @@ pub struct RemoveOptions {
     /// Remove even with uncommitted changes, unpushed commits or a failing `teardown` hook.
     pub force: bool,
     /// Also delete the task's local branch, unless commits on it exist nowhere else: on neither
-    /// the base nor a remote. Such a branch is kept, and that is said.
+    /// the base nor a remote. Such a branch is kept, and that is said. A remote branch is
+    /// never touched.
     pub delete_branch: bool,
 }
 

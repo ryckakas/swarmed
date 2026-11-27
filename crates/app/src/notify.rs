@@ -6,6 +6,10 @@
 //! clicking a banner opens the session it is about. A development build has no identity, and
 //! falls back on the older way of showing them as the Terminal's, which newer systems may
 //! not show at all.
+//!
+//! To see banners, try them in the built app: `pnpm app:build` makes the bundle, signed ad
+//! hoc, which is enough; `pnpm app` does not. `open Swarmed.app --args notify-check` says
+//! what the system allows and sends one banner.
 
 use swarmed_core::Notice;
 

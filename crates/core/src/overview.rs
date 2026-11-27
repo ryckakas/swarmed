@@ -52,7 +52,8 @@ pub struct TaskOverview {
     /// The pull request of the branch its worktree is on, as Swarmed last read it, if it has
     /// one (`following.rs`).
     pub pull: Option<Pull>,
-    /// Whether the task's browser runs (`browser.rs`), here or in another Swarmed.
+    /// Whether the task's browser runs (`browser.rs`), here or in another Swarmed. The sidebar
+    /// marks it: running work is never hidden.
     pub browser: bool,
 }
 

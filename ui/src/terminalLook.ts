@@ -130,7 +130,8 @@ export function terminalExtras(config: TerminalConfig | null) {
     return {
         copyOnSelect: config?.copy_on_select ?? false,
         clipboard: config?.clipboard ?? true,
-        // Off unless asked for: faster for much output, but not yet seen to draw right everywhere.
+        // Off unless asked for: faster for much output, but not yet seen to draw right in the
+        // app's own window. Check there before changing the default.
         gpu: config?.gpu ?? false,
     };
 }

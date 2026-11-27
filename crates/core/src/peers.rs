@@ -3,9 +3,9 @@
 //! that needs a branch of its own (`peers/tasks.rs`).
 //!
 //! Agents reach this through Swarmed's own tool server. That server is a process the agent
-//! starts, so it asks the core over a socket in the data directory: one request on a line, one
-//! answer on a line. Everything here is also plain methods on [`Core`], which is what the
-//! tests use.
+//! starts, so it asks the core over a socket in the system's temporary folder
+//! (`Paths::tools_socket`): one request on a line, one answer on a line. Everything here is
+//! also plain methods on [`Core`], which is what the tests use.
 
 use std::ops::RangeInclusive;
 use std::path::Path;
@@ -712,7 +712,8 @@ impl Core {
     /// The model and effort of a session `starter` starts on its own agent with `role`: those
     /// asked for, refused unless the agent offers the model and the effort is one there is
     /// (`asked_for`); else the role's defaults from the user's settings, where the agent
-    /// offers the role's model; else `starter`'s own, as before there was a choice.
+    /// offers the role's model; else `starter`'s own, as before there was a choice. Nothing
+    /// caps it at `starter`'s own model, and fast mode stays `starter`'s.
     pub(crate) fn started_on(
         &self,
         starter: &Session,

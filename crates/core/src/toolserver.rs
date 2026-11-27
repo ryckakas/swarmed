@@ -25,8 +25,10 @@ pub const TOOL_SERVER_ARG: &str = "tool-server";
 pub const SERVER_NAME: &str = "swarmed";
 /// The tool that shows HTML to the user in the conversation. Its input has the HTML as `html`.
 pub const SHOW_HTML: &str = "show_html";
-/// The tool that opens the task's browser beside the conversation. Answered by the core, as the
-/// session tools are, but not at once: the browser may have to start first.
+/// The tool that opens the task's browser beside the conversation.
+///
+/// Answered by the core, as the session tools are, but not at once: the browser may have to start
+/// first. Never on Claude Code's allow list: it navigates with the task's logins.
 pub const SHOW_BROWSER: &str = "show_browser";
 /// The tool that hands work to a cloud agent. Answered by the core, as the session tools are,
 /// but not at once: the provider is asked first.
@@ -481,6 +483,10 @@ fn cloud_tool() -> Value {
 /// Hands the HTML of a `show_html` call to the core, by leaving it as a file in `spool`. The
 /// core picks it up when the call's result arrives. Files are named so that they sort in the
 /// order they were written, and appear whole: written under another name, then renamed.
+///
+/// The view comes from the tool, not from the call: agents call it directly, from a script or
+/// from a sub-agent, and the tool gets the HTML whichever way. Reading it out of the call's
+/// own shape (`shownHtml` in the UI) is only for conversations recorded before.
 fn deliver(spool: &Path, html: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(spool)?;
     let now = SystemTime::now()

@@ -245,7 +245,8 @@ fn args(spec: &SessionSpec, mcp_config: Option<&Path>) -> Vec<String> {
 const PRIVATE_FILE_PREFIX: &str = "swarmed-mcp-";
 
 /// A file written for an agent to read, which holds secrets: only the user can read it, and
-/// it is removed when this is dropped, which is when the agent's process is.
+/// it is removed when this is dropped, which is when the agent's process is. Never handed over
+/// on the command line instead, where `ps` shows it to anyone.
 #[derive(Debug)]
 struct PrivateFile(PathBuf);
 

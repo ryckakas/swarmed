@@ -12,9 +12,10 @@
 //! What was read is kept in memory ([`Known`]), so that sending a message asks nothing of the
 //! network: it is composed from what the menu listed, or from what a front end had read just
 //! before it sent ([`Core::project_github_read`]). A message that waits in a queue goes with
-//! each one's state at the time it is sent, not when it was typed: while one waits, what it
-//! names is read again every [`FRESH_EVERY`] ([`Core::github_waiting_read_again`]), and its
-//! list is written again from that as it goes ([`fresh_list`]).
+//! each one's state at the time it is sent, not when it was typed (the user's choice): while
+//! one waits, what it names is read again every [`FRESH_EVERY`]
+//! ([`Core::github_waiting_read_again`]), and its list is written again from that as it goes
+//! ([`fresh_list`]).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

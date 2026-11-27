@@ -117,6 +117,9 @@ enum Call {
 /// The agent's own mode that comes closest to `supervision`, among the ones it `offered`.
 /// The names are the ones agents use for these three: asking before anything is changed,
 /// deciding for itself what needs a person, and never asking.
+///
+/// The mode is not all an agent goes by. Antigravity's own settings decide too: with
+/// `toolPermission` at `always-proceed` there, it never asks, whatever its mode.
 fn agent_mode(supervision: Supervision, offered: &[String]) -> Option<&str> {
     let names: &[&str] = match supervision {
         Supervision::Ask => &["read-only", "ask", "default"],
@@ -321,7 +324,9 @@ impl Conversation {
             // Swarmed offers no file or terminal services; the agent uses its own tools. It
             // follows sub-agents, as the protocol has them and as OpenCode tells of them. Codex
             // reports work left running only to a client that declares JetBrains' AIR, which
-            // changes the shape of all it sends besides, so that is not declared.
+            // changes the shape of all it sends besides, so that is not declared. ACP v2's
+            // `state_update.background` and `terminal/cancel` are the way, once codex-acp
+            // sends them to a client like this one.
             "clientCapabilities": {
                 "fs": { "readTextFile": false, "writeTextFile": false },
                 "terminal": false,
