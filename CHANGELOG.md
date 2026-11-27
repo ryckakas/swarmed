@@ -42,10 +42,12 @@ notice adds its line under Unreleased.
   sidebar, the shorter a row draws what follows its name, step by step: a pull request's number
   without its #, then no task icon, then an issue's ring without its number, then a pinned pin
   and a filled note that wait for the pointer; a session's mark shortens its words, and its time
-  to go on shows only its clock. Pointed at in the narrowest sidebar, a row with badges leaves
-  out its cloud and then an empty note, which Tab still reaches: ⌘D pins, ⌘⇧H highlights, ⌘⇧N
-  opens the note, and the session's header hands work to the cloud. Every + stays in one
-  column, and a pinned session's pin now stands before its agent icon, so the icons do too.
+  to go on shows only its clock. Pointed at in a sidebar narrower than its default, a task's row
+  with badges leaves out its cloud and then an empty note, and a session's row beside a mark,
+  its time to go on or "for #123" leaves out its pin, unless it is pinned, and then its
+  highlight. Tab still reaches each of them, and so do shortcuts: ⌘D pins, ⌘⇧H highlights, ⌘⇧N
+  opens the task's note, and the session's header hands work to the cloud. Every + stays in
+  one column, and a pinned session's pin now stands before its agent icon, so the icons do too.
 
 ## [0.4.9] - 2026-11-27
 
