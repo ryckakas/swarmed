@@ -243,7 +243,8 @@ impl Core {
     ///
     /// It is that agent's doing, not the user's choice, so it is also held to what
     /// `spawn_session` is: refused unless `parent` may start a session with this one's role
-    /// (`may_start`), and while as many work for it as may (`room_for_another`).
+    /// (`may_start`), and while as many work for it as may (`room_for_another`). Taken, the
+    /// session counts as one that agent started, which it may close (`peer_close`).
     pub fn session_parent_from_start(&self, id: i64, parent: i64) -> Result<Session> {
         let child = self.session(id)?;
         if child.parent != Some(parent)
@@ -263,7 +264,7 @@ impl Core {
             return Err(Error::SessionClosed(id));
         }
         self.may_work_for(&child, parent)?;
-        self.store().session_set_parent(id, Some(parent))?;
+        self.store().session_set_started_by(id, parent)?;
         self.live.publish_apart(AgentEvent::TreeChanged);
         self.session(id)
     }
