@@ -1129,7 +1129,7 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     (`supervision_without_role`), so an implementer is never held in its planner's plan mode.
     A same-agent fork copies it; a clone onto another agent starts anew under the role.
   - **With Claude Code, its session tools are not put to the user, but for a start in plan
-    mode** (`roles::uses_unasked`, pure, and `allowed_unasked` in `sessions.rs`): starting,
+    mode** (`roles::uses_unasked`, pure, and `allow_unasked` in `sessions.rs`): starting,
     reading, telling and closing sessions is a role's work, so a permission request for one of
     Swarmed's session tools (`SESSION_TOOLS`) from a session with a role is allowed at once and
     never stored. Only for a session on Claude Code that was handed Swarmed's server: the names

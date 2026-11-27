@@ -2878,23 +2878,29 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
     }
     let kept = |event| apps::kept(&shared.paths, id, returned::kept(&shared.paths, id, event));
     match shared.live.standing(id, run, ending) {
-        Standing::Current if allowed_unasked(shared, id, &event) => {}
-        Standing::Current => on_event(shared, id, kept(event)),
+        Standing::Current => {
+            // A request answered here is dropped on purpose: the user was never asked, so
+            // there is nothing of it to store, publish or give notice of.
+            if !allow_unasked(shared, id, &event) {
+                on_event(shared, id, kept(event));
+            }
+        }
         Standing::Replaced => shared.live.note_late(&shared.store, id, kept(event)),
         // Nothing is left to store it in, and front ends have been told the session is gone.
         Standing::Discarded => {}
     }
 }
 
-/// Whether `event` asks to use one of Swarmed's session tools in a session whose role makes
-/// them its work, and was allowed at once instead of being put to the user
+/// Allows what `event` asks at once, instead of putting it to the user, if it asks to use one
+/// of Swarmed's session tools in a session whose role makes them its work
 /// ([`roles::uses_unasked`]): all of them out of plan mode, and in it all but the two that
-/// start a session. Nothing of it is stored: the call and its result are.
+/// start a session. Says whether it did: the agent was then sent its answer, and nothing of
+/// the request is stored; the call and its result are.
 ///
 /// Only for Claude Code, and only where Swarmed handed it the server those tools are on: the
 /// names are Claude Code's own for a server's tool. Another agent's request is named by the
 /// free words it titles its call with, which say nothing of what the call does.
-fn allowed_unasked(shared: &Shared, id: i64, event: &AgentEvent) -> bool {
+fn allow_unasked(shared: &Shared, id: i64, event: &AgentEvent) -> bool {
     let AgentEvent::PermissionRequest {
         request_id,
         tool_name,
