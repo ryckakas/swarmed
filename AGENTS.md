@@ -1173,7 +1173,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Refused to a spawned session and to a chat, and by a process that ends with its turn, as
   the command line's does, which would take the setup along: only one that stays answers it
   (`Core::set_stays`, which the app sets). `TreeChanged` is published, since front ends
-  learn of a task their own process made only when told. Not on the allow list.
+  learn of a task their own process made only when told. Not on the allow list: the user is
+  asked, unless the session has a role and is out of plan mode (see roles above).
 - **A session's agent can be changed until it has begun** (`session_set_agent`): before its
   first message reaches an agent, which from then on holds the conversation. The model goes
   back to the new agent's default. The UI offers the agent menu for exactly that long.
