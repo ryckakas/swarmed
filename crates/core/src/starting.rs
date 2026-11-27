@@ -147,8 +147,9 @@ impl Core {
         let made = self.task_made(project, name, &options, sink).await?;
         let run = self.setup_begin(&made.task)?;
         let mut session = self.session_for_prompt(&made.task, &first.options, &message)?;
-        if parent.is_some() {
-            self.store().session_set_parent(session.id, parent)?;
+        // Started by that session's agent, which may close it (`peer_close`).
+        if let Some(starter) = parent {
+            self.store().session_set_started_by(session.id, starter)?;
             session.parent = parent;
         }
         let files = self.with_images(session.id, &first.files, &images)?;
