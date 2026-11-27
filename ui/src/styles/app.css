@@ -1842,6 +1842,36 @@ code {
     color: var(--pollen);
 }
 
+/* Checks under way on an open pull request: a light passes across the badge while they run. */
+.pull-badge[data-tone="running"][data-state="open"] {
+    background: linear-gradient(
+            100deg,
+            transparent 35%,
+            color-mix(in srgb, currentcolor 30%, transparent) 50%,
+            transparent 65%
+        )
+        no-repeat;
+    background-size: 250% 100%;
+    animation: checks-running 1.8s linear infinite;
+}
+
+@keyframes checks-running {
+    from {
+        background-position: 130% 0;
+    }
+
+    to {
+        background-position: -30% 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pull-badge[data-tone="running"][data-state="open"] {
+        background: none;
+        animation: none;
+    }
+}
+
 .pull-badge[data-tone="failed"] {
     color: var(--clay);
 }
@@ -2769,8 +2799,30 @@ code {
     }
 }
 
+/* The swarm's: a tiny grub, crawling as a working session's does, from tail to head. */
+.sub-agent-grub {
+    flex: none;
+    width: 11px;
+    height: 7px;
+    overflow: visible;
+    fill: var(--pollen);
+}
+
+.sub-agent-grub circle {
+    animation: larva-crawl 1.1s ease-in-out infinite;
+}
+
+.sub-agent-grub circle:nth-of-type(2) {
+    animation-delay: 0.11s;
+}
+
+.sub-agent-grub circle:nth-of-type(3) {
+    animation-delay: 0.22s;
+}
+
 @media (prefers-reduced-motion: reduce) {
-    .sub-agent-pulse {
+    .sub-agent-pulse,
+    .sub-agent-grub circle {
         animation: none;
     }
 }
@@ -3013,41 +3065,127 @@ code {
     }
 }
 
+@media (prefers-reduced-motion: reduce) {
+    .mark-working {
+        animation: none;
+    }
+}
+
 /*
- * Work left in the background: a ring around an idle or unread mark, in either style, so that
- * such a session never looks merely idle. Sub-agents at work get a clear ring in the working
- * colour that breathes slowly, unlike working's quick pulse; commands left running, often on
- * purpose, a faint one in idle's own colour that stands still. Before the swarm's own rules,
- * so that the flash of a hatching stays.
+ * Work left in the background circles an idle or unread mark, in either style, so that such a
+ * session never looks merely idle: what runs moves, what is still has nothing running. For
+ * sub-agents at work, in the working colour, a grub for each runs round a faint track (an arc
+ * round the plain style's dot); for commands left running, often on purpose, a thread in idle's
+ * own colour creeps round, quieter. Without motion, each is the ring it runs on.
  */
-.mark[data-background],
-:is(.egg, .larva)[data-background] {
-    border-radius: 50%;
-    outline-offset: 2px;
+.orbit {
+    --orbit: var(--faint);
 }
 
-.mark[data-background="agents"],
-:is(.egg, .larva)[data-background="agents"] {
-    outline: 1.5px solid var(--busy);
-    animation: background-ring 2.8s ease-in-out infinite;
+.orbit[data-level="agents"] {
+    --orbit: var(--busy);
 }
 
-.mark[data-background="commands"],
-:is(.egg, .larva)[data-background="commands"] {
-    outline: 1px solid var(--faint);
+.orbit-track {
+    fill: none;
+    stroke: var(--orbit);
+    stroke-width: 0.7;
+    opacity: 0.35;
 }
 
-@keyframes background-ring {
-    50% {
-        outline-color: color-mix(in srgb, var(--busy) 55%, transparent);
-        outline-offset: 3px;
+/* Above `.larva circle`, which would draw the beads in the grub's own colour. */
+.orbit .orbit-bead {
+    fill: var(--orbit);
+    stroke: none;
+}
+
+/* A turn is a swing across and a swing up and down a quarter of a turn apart: an oval. */
+.orbit-across,
+.orbit-up-down {
+    animation: orbit-across var(--half-turn) cubic-bezier(0.37, 0, 0.63, 1) infinite alternate;
+}
+
+.orbit-up-down {
+    animation-name: orbit-up-down;
+}
+
+.orbit-silk {
+    fill: none;
+    stroke: var(--orbit);
+    stroke-width: 0.8;
+    stroke-dasharray: 2.5 2.5;
+    animation: orbit-silk 1.6s linear infinite;
+}
+
+.orbit-arc {
+    fill: none;
+    stroke: var(--orbit);
+    stroke-width: 1.1;
+    stroke-dasharray: 26 74;
+    animation: orbit-arc 1.1s linear infinite;
+}
+
+/* The plain style's dot is a box; its orbit is drawn over it, centred, as wide as it. */
+.mark[data-background] {
+    position: relative;
+}
+
+.mark-orbit {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 8px;
+    height: 8px;
+    overflow: visible;
+    translate: -50% -50%;
+    stroke-linecap: round;
+}
+
+@keyframes orbit-across {
+    from {
+        translate: calc(var(--rx) * -1) 0;
+    }
+
+    to {
+        translate: var(--rx) 0;
+    }
+}
+
+@keyframes orbit-up-down {
+    from {
+        translate: 0 calc(var(--ry) * -1);
+    }
+
+    to {
+        translate: 0 var(--ry);
+    }
+}
+
+@keyframes orbit-silk {
+    to {
+        stroke-dashoffset: -5;
+    }
+}
+
+@keyframes orbit-arc {
+    to {
+        stroke-dashoffset: -100;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .mark-working,
-    .mark[data-background="agents"],
-    :is(.egg, .larva)[data-background="agents"] {
+    .orbit .orbit-bead,
+    .orbit-arc {
+        display: none;
+    }
+
+    .orbit-track {
+        stroke-width: 1.1;
+        opacity: 1;
+    }
+
+    .orbit-silk {
+        stroke-dasharray: none;
         animation: none;
     }
 }
@@ -8617,6 +8755,40 @@ kbd {
 
 .browser-badge:disabled {
     opacity: 1;
+}
+
+/*
+ * A task's browser runs: its globe turns, slowly and quietly, as what is left running does. Each
+ * meridian narrows to a line and widens again; the second is a quarter of a turn behind.
+ */
+.globe-meridian {
+    transform-origin: 8px 8px;
+    animation: globe-turn 3s cubic-bezier(0.37, 0, 0.63, 1) infinite alternate;
+}
+
+.globe-meridian + .globe-meridian {
+    animation-delay: -1.5s;
+}
+
+@keyframes globe-turn {
+    from {
+        scale: 1 1;
+    }
+
+    to {
+        scale: -1 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .globe-meridian {
+        scale: 0.35 1;
+        animation: none;
+    }
+
+    .globe-meridian + .globe-meridian {
+        display: none;
+    }
 }
 
 .browser-program {

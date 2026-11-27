@@ -39,12 +39,12 @@ import { useWords } from "../useWords";
 import { type Words, withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
 import { HighlightButton, HighlightWords } from "./Highlight";
-import { CloseIcon, CloudIcon, GlobeIcon, PlusIcon, PlusMinusIcon } from "./IconButton";
+import { CloseIcon, CloudIcon, PlusIcon, PlusMinusIcon, TurningGlobeIcon } from "./IconButton";
 import { Incubating } from "./Incubating";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
 import { RoleChip } from "./Role";
-import { StatusMark } from "./StatusMark";
+import { StatusMark, SubAgentMark } from "./StatusMark";
 import { useRowDrag } from "./useRowDrag";
 
 export function Sidebar() {
@@ -737,7 +737,7 @@ function BrowserBadge({ task }: { task: Task }) {
             onClick={show}
         >
             <svg viewBox="0 0 16 16" aria-hidden="true">
-                <GlobeIcon />
+                <TurningGlobeIcon />
             </svg>
         </button>
     );
@@ -1158,7 +1158,7 @@ function SubAgentRows({ session }: { session: Session }) {
                         aria-current={viewed === one.id ? "true" : undefined}
                         onClick={() => void openSub(api, session.id, one.id)}
                     >
-                        <span className="sub-agent-pulse" aria-hidden="true" />
+                        <SubAgentMark />
                         <span className="session-title">{one.name || words.subAgent}</span>
                         {one.kind && <span className="sub-agent-kind">{one.kind}</span>}
                     </button>

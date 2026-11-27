@@ -130,6 +130,21 @@ export function GlobeIcon() {
     );
 }
 
+/**
+ * The globe of a browser that runs: two meridians a quarter of a turn apart, each narrowing to a
+ * line and widening again, so that it turns, slowly.
+ */
+export function TurningGlobeIcon() {
+    return (
+        <>
+            <circle cx="8" cy="8" r="6" />
+            <path d="M2 8h12" />
+            <ellipse className="globe-meridian" cx="8" cy="8" rx="6" ry="6" />
+            <ellipse className="globe-meridian" cx="8" cy="8" rx="6" ry="6" />
+        </>
+    );
+}
+
 /** An arrow to the left: back. */
 export function BackIcon() {
     return <path d="M13 8H3M7 4L3 8l4 4" />;

@@ -333,9 +333,11 @@ tell you it is done until the sub-agent is too. A command left running does not 
 a dev server may never end. Reading what a command printed is Claude Code's alone.
 
 A session whose agent has something running in the background never looks merely idle in the
-sidebar: its mark gets a ring, a clear one that breathes slowly while sub-agents are at work and
-a faint one while only commands run. Pointed at, the mark says what runs, and a folded task or
-repository shows the ring of what runs in it, below working and above idle. A command that runs
+sidebar: something circles its mark while that runs. While sub-agents are at work, a small grub
+for each (up to three) runs round it on a faint track, or an arc in the plain style; while only
+commands run, a faint dashed thread creeps round it, quieter. With reduced motion turned on in
+the system, each is a still ring. Pointed at, the mark says what runs, and a folded task or
+repository shows what runs in it the same way, below working and above idle. A command that runs
 for good, such as a dev server, keeps its session marked for good: stop it from the Background
 list once you no longer need it. The session is still idle, and a message goes at once.
 
