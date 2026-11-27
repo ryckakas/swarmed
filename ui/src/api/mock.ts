@@ -105,7 +105,8 @@ import type {
 // in a browser, whose last call returns an image, `app` calls an MCP tool whose server
 // attached an app to it (`mockApps.ts`), and `browse` opens the task's browser with
 // `show_browser` and acts in its own tab there, which the pane goes to. In plan mode it
-// presents a plan.
+// presents a plan. On the sample Claude Code a plain answer, `delegate` and `slow` count the
+// turn's tokens as they go (`mockTokens.ts`).
 //
 // What the sample data holds, to check the UI against:
 // - "A very long conversation" has 2,000 messages, for checking scroll speed.
