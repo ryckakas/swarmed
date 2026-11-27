@@ -1,6 +1,7 @@
 // What a session is for, as the window says it: the menu that chooses a session's role, the
 // chip on its row, the line a change leaves in its conversation, and what the role keeps it to
-// (plan mode, and a plan handed on once approved). Pure, so it can be tested.
+// (plan mode, and a plan handed on once approved, in the mode its role names). Pure, so it can
+// be tested.
 
 import type { RoleInfo, Supervision } from "./api/types";
 import type { Words } from "./wording";
@@ -57,11 +58,21 @@ export function roleHolds(name: string | null, roles: RoleInfo[]): Supervision |
 }
 
 /**
- * Whether approving a plan of a session with role `name` keeps it planning: a role that changes
- * no files hands its plan on instead of carrying it out.
+ * Whether approving a plan of a session with role `name` hands the plan on: a role that changes
+ * no files is told to pass it to the sessions it starts, or report it, instead of carrying it
+ * out.
  */
-export function keepsPlanning(name: string | null, roles: RoleInfo[]): boolean {
+export function handsPlanOn(name: string | null, roles: RoleInfo[]): boolean {
     return roles.some((role) => role.name === name && !role.changes_files);
+}
+
+/**
+ * The supervision a session with role `name` goes on in once its plan is approved, for a role
+ * that hands the plan on to sessions it starts and follows; `null` to stay in plan mode, for
+ * no role, and for one the window does not know.
+ */
+export function handsOnIn(name: string | null, roles: RoleInfo[]): Supervision | null {
+    return roles.find((role) => role.name === name)?.approved_supervision ?? null;
 }
 
 /**
@@ -76,8 +87,19 @@ export function heldSaid(name: string | null, roles: RoleInfo[], words: Words): 
 
 /**
  * What the prompt to approve a plan of a session with role `name` says the approval does, for
- * a role that keeps planning; `null` for the usual.
+ * a role that hands its plan on: the mode it goes on in, by `label`, if it leaves plan mode.
+ * `null` for the usual.
  */
-export function planKeptSaid(name: string | null, roles: RoleInfo[], words: Words): string | null {
-    return name !== null && keepsPlanning(name, roles) ? words.planKept(words.role(name)) : null;
+export function planKeptSaid(
+    name: string | null,
+    roles: RoleInfo[],
+    words: Words,
+    label: (supervision: Supervision) => string,
+): string | null {
+    if (name === null || !handsPlanOn(name, roles)) {
+        return null;
+    }
+    const then = handsOnIn(name, roles);
+    const role = words.role(name);
+    return then === null ? words.planKept(role) : words.planHandedOn(role, label(then));
 }

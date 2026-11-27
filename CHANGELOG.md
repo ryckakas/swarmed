@@ -35,8 +35,24 @@ notice adds its line under Unreleased.
   folder, opens in your editor when pressed, at the top of the file. The rest of what you
   write stays as you typed it: a heading, emphasis or a list is not drawn as Markdown.
 
+### Changed
+
+- **An architect or a planner leaves plan mode once you approve its plan.** It goes on in Auto
+  mode, so starting, following and closing the sessions that carry the plan out no longer asks
+  you about each step; it is still told to hand the plan on and change no files itself. A
+  reviewer stays in plan mode. See
+  [How a role is kept to](docs/coding-agents.md#how-a-role-is-kept-to).
+- **A reviewer can hand fixes to implementers.** Asked to get its findings fixed as well, a
+  reviewer starts implementers for them with `spawn_session`, and reports what was found and
+  fixed.
+
 ### Fixed
 
+- **Sessions with a role no longer ask you before each session tool.** Listing, reading and
+  messaging other sessions, starting sessions and tasks, and closing them go through without a
+  question, in plan mode too, so a reviewer can report its findings and a planner can start its
+  implementers. Allow rules of your own could not do this: in plan mode Claude Code asks before
+  every MCP tool that is not read-only, whatever they say.
 - **Agents close the sessions they start with `start_task`.** An architect or a planner that
   hands work to an implementer in a task of its own can close that session with
   `close_session` once it has reported back, as it can a session it spawned beside itself, and

@@ -542,8 +542,10 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | `set_mark` | put a colour and a few words on its own session in the sidebar |
 | `configure` | change Swarmed's own settings, within limits |
 
-Claude Code may call `show_html` without asking; in Ask mode you are asked about the rest. Other
-agents decide for themselves which calls they ask about.
+Claude Code may call `show_html` without asking; in Ask mode you are asked about the rest. A
+session with a [role](#roles) uses `list_sessions`, `read_session`, `send_message`,
+`spawn_session`, `start_task` and `close_session` without asking, in plan mode too: they are its
+role's work. Other agents decide for themselves which calls they ask about.
 
 `configure` makes some changes at once: saved prompts, actions that send a prompt, the status
 line's pieces, the looks, which levels the usage notice says, whether turns end with a line, the terminal's
@@ -587,7 +589,7 @@ keeps to them. Without one, a session works as you ask, as every session did bef
 | `architect` | shapes a whole feature across tasks: splits it into parts, each one task, one branch and one pull request, and starts a planner for each |
 | `planner` | plans one part inside one task, hands every change to implementers in its worktree, and checks what they report against the plan |
 | `implementer` | builds the part it was given and nothing beside it, and reports back when done or stuck |
-| `reviewer` | reads and reviews what it is pointed at, changes nothing, and reports its findings |
+| `reviewer` | reads and reviews what it is pointed at, changes nothing itself, and reports its findings or hands their fixes to implementers |
 
 An architect and a planner are told apart by level. For a change that fits one pull request,
 start a planner and no architect.
@@ -611,15 +613,16 @@ apply, along with your next message.
 Every agent is given the same table, so it knows which role a piece of work belongs to. A
 session with a role starts only the roles its own may: an architect starts planners (a task for
 each part, with `start_task`) and reviewers, a planner starts implementers (with
-`spawn_session`, in its own worktree) and reviewers, and an implementer or a reviewer starts
-nobody. Without a role asked for, an architect's session is a planner and a planner's an
-implementer. A session with no role may start any role, or none. A fork keeps its session's role.
-Only you choose a role: `configure` cannot set one.
+`spawn_session`, in its own worktree) and reviewers, a reviewer starts implementers for the fixes
+it was asked to get made, and an implementer starts nobody. Without a role asked for, an
+architect's session is a planner, and a planner's or a reviewer's an implementer. A session with
+no role may start any role, or none. A fork keeps its session's role. Only you choose a role:
+`configure` cannot set one.
 
 #### How a role is kept to
 
-An architect, a planner and a reviewer change no files, and Swarmed keeps them from it, not
-only tells them:
+An architect, a planner and a reviewer change no files themselves, and Swarmed keeps them from it
+while they plan, not only tells them:
 
 - **They start in plan mode.** Claude Code is put in its plan mode; an agent without one in its
   read-only mode where it has one (Codex's `read-only`), else in Ask before commands, with the
@@ -628,15 +631,22 @@ only tells them:
   such a role is chosen in the new-task view, its supervision menu shows plan mode and cannot be
   changed; change it once the session runs. A supervision you choose yourself wins: taking the
   role off later leaves it as you chose.
-- **Approving their plan does not send them building.** Approving a plan of an architect, a
-  planner or a reviewer keeps it in plan mode, and its agent is told to hand the plan on (an
+- **Their session tools never ask.** Starting, reading, telling and closing the sessions they
+  work with is what these roles are for, so a session with a role uses Swarmed's session tools
+  without asking you, in plan mode too. Allow rules of your own cannot do this: in plan mode
+  Claude Code asks before every MCP tool that is not read-only, whatever they say. Anything
+  else that would change a file, Claude Code still asks you about.
+- **Approving their plan does not send them building.** Approving the plan of an architect, a
+  planner or a reviewer tells its agent to hand the plan on instead of the usual go-ahead: an
   architect starts a task for each part, a planner hands each change to an implementer, a
-  reviewer reports its findings) instead of the usual go-ahead. The prompt says so. An implementer,
-  or a session with no role, carries its plan out as before.
-- **Plan mode still lets them delegate.** Swarmed's session tools change none of their files,
-  and their agents are told to use them in plan mode. In plan mode Claude Code asks before each
-  call of them, so you allow each session they start, as in Ask before commands. Anything that
-  would change a file, Claude Code asks you about too.
+  reviewer reports its findings, or hands their fixes to implementers if it was asked to get them
+  fixed. The prompt says so.
+- **An architect and a planner then leave plan mode.** Once its plan is approved, an architect
+  or a planner goes on in Auto mode, so that starting, following and closing the sessions that
+  carry the plan out, and checking their work, needs no approval of each step. From then on only
+  its rules keep it from changing files itself. A reviewer stays in plan mode. Taking the role
+  off later still puts back the supervision it had before its role. An implementer, or a session
+  with no role, carries its plan out as before.
 
 A session with a role may start sessions and tasks if its role starts any, even one another
 session started: a planner an architect or another session started starts its implementers.

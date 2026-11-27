@@ -25,7 +25,8 @@ import { rewindApi } from "./mockRewind";
 import {
     MOCK_ROLES,
     SAMPLE_ROLES,
-    sampleKeepsPlanning,
+    sampleHandsOnIn,
+    sampleHandsPlanOn,
     sampleRoleSet,
     sampleStartsIn,
     sampleSupervision,
@@ -2937,13 +2938,18 @@ class MockAgent {
     }
 
     /**
-     * In plan mode the agent only proposes; approving the plan ends plan mode, except for a role
-     * that changes no files, which keeps planning and hands the plan on, as the core has it.
+     * In plan mode the agent only proposes; approving the plan ends plan mode. A role that
+     * changes no files hands the plan on instead of carrying it out, as the core has it: an
+     * architect or a planner in auto mode, a reviewer in plan mode still.
      */
     private presentPlan(id: number, text: string, done: AgentEvent) {
         const plan = `## ${text}\n\n1. Read the code this touches.\n2. Make the change in \`src/\`.\n3. Run the tests.\n\nNothing is changed until you approve.`;
         const toolId = this.ask(id, PLAN_TOOL, { plan });
-        const kept = sampleKeepsPlanning(this.configure(id, {}).role);
+        const role = this.configure(id, {}).role;
+        const kept = sampleHandsPlanOn(role);
+        // A role that hands its plan on leaves plan mode for its own supervision; one that
+        // carries its plan out, for auto mode, as the sample's default supervision is.
+        const then = kept ? sampleHandsOnIn(role) : "auto";
         this.decisions.set(id, (approved) => {
             const { content, reply } = planAnswered(approved, kept);
             const result: AgentEvent = {
@@ -2953,9 +2959,9 @@ class MockAgent {
                 is_error: !approved || kept,
             };
             this.later(id, result, "working");
-            if (approved && !kept) {
-                this.configure(id, { supervision: "auto" });
-                this.later(id, { type: "supervision_changed", supervision: "auto" }, null);
+            if (approved && then !== null) {
+                this.configure(id, { supervision: then });
+                this.later(id, { type: "supervision_changed", supervision: then }, null);
             }
             this.later(id, { type: "text", text: reply }, "working", 2);
             this.later(id, done, "idle", 3);

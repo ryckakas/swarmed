@@ -180,6 +180,8 @@ export interface Words {
      */
     roleHolds: (role: string) => string;
     planKept: (role: string) => string;
+    /** What approving the plan of a role that hands it on in `mode`, a supervision's name, does. */
+    planHandedOn: (role: string, mode: string) => string;
     /**
      * What a session, or the sessions under a folded heading, have running in the background,
      * as its status mark says when pointed at: "2 sub-agents, 1 command in the background".
@@ -423,6 +425,8 @@ const PLAIN: Words = {
         `${role}: starts in plan mode, or its agent's read-only mode, and changes no files. Change it once the session runs.`,
     planKept: (role) =>
         `${role}: once approved, it stays in plan mode and hands the plan on, changing no files itself.`,
+    planHandedOn: (role, mode) =>
+        `${role}: once approved, plan mode ends (${mode.toLowerCase()}) so that it starts and follows the sessions that carry the plan out, changing no files itself.`,
     inBackground: ({ agents, commands }) =>
         `${counted([
             [agents, "sub-agent", "sub-agents"],
@@ -607,6 +611,8 @@ const SWARM: Words = {
         `${role}: starts in plan mode, or its agent's read-only mode, and touches nothing. Change it once the spawn hatches.`,
     planKept: (role) =>
         `${role}: once approved, it stays in plan mode and passes the plan to the swarm, touching nothing itself.`,
+    planHandedOn: (role, mode) =>
+        `${role}: once approved, plan mode ends (${mode.toLowerCase()}) so that it hatches and tends the swarm that carries the plan out, touching nothing itself.`,
     inBackground: ({ agents, commands }) =>
         [
             agents > 0 ? `${counted([[agents, "hatchling", "hatchlings"]])} foraging` : "",

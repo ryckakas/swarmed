@@ -72,6 +72,14 @@ fn tools() -> Value {
     tools
 }
 
+/// Whether the server serves a tool called `name`.
+#[cfg(test)]
+pub(crate) fn serves(name: &str) -> bool {
+    let tools = tools();
+    let mut all = tools.as_array().into_iter().flatten();
+    all.any(|tool| tool["name"] == name)
+}
+
 /// The tools about what happens on this machine: showing views, and the other sessions.
 fn local_tools() -> Value {
     json!([{
