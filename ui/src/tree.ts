@@ -213,15 +213,6 @@ export function parentChoices(projects: Project[], session: Session): Session[] 
     return all.filter((one) => one.id !== session.id && !below.has(one.id));
 }
 
-/** The open sessions that work for session `id`, in whichever task they are. */
-export function childrenOf(projects: Project[], id: number): Session[] {
-    return projects
-        .flatMap((project) => project.tasks)
-        .filter((task) => !task.archived)
-        .flatMap((task) => task.sessions)
-        .filter((session) => session.parent === id && session.id !== id);
-}
-
 /** Whether `event` is the agent handing the conversation back: a turn over, or an error. */
 export function endsTurn({ event, status }: SessionEvent): boolean {
     return event.type === "turn_done" || (event.type === "exited" && status === "errored");

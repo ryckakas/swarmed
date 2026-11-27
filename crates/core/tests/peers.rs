@@ -8,7 +8,7 @@ use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth};
 use swarmed_core::{
     CHATS, Core, Delivery, Environment, Error, Layout, LimitWarnings, MAX_SPAWNED, MathShown,
-    NewTaskOptions, Palette, Session, SessionEvent, SessionOptions, ToolCalls, hooks,
+    NewTaskOptions, Palette, Session, SessionEvent, SessionOptions, Settings, ToolCalls, hooks,
     serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -231,9 +231,94 @@ async fn a_session_starts_others_beside_itself_within_limits() {
         Err(Error::Peers(reason)) if reason.contains("most allowed")
     ));
     // Closing one makes room again.
-    core.session_close(child.id).expect("closes");
+    core.session_close(child.id, false).expect("closes");
     core.peer_spawn(parent.id, "room again", None, None)
         .expect("spawns");
+}
+
+/// Sets how many open sessions may work for one session.
+fn workers(core: &Core, max_workers: usize) {
+    let settings = Settings {
+        max_workers,
+        ..core.settings().expect("reads")
+    };
+    core.set_settings(&settings).expect("saves");
+}
+
+/// Whether `result` is the refusal of one more session working for another, naming the
+/// setting and how many it lets work for one.
+fn refused_for_workers<T: std::fmt::Debug>(result: Result<T, Error>, most: usize) -> bool {
+    let reason = match result {
+        Err(Error::Peers(reason)) => reason,
+        other => panic!("not refused: {other:?}"),
+    };
+    reason.contains("the most allowed")
+        && reason.contains(&format!("let {most} work for one session"))
+        && reason.contains("`max_workers`")
+        && reason.contains("Workers per session")
+}
+
+#[tokio::test]
+async fn how_many_may_work_for_one_session_is_the_users_setting() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let parent = new_session(&core);
+    assert_eq!(core.settings().expect("reads").max_workers, MAX_SPAWNED);
+
+    // Fewer than the default.
+    workers(&core, 2);
+    for _ in 0..2 {
+        core.peer_spawn(parent.id, "a part", None, None)
+            .expect("spawns");
+    }
+    assert!(refused_for_workers(
+        core.peer_spawn(parent.id, "one too many", None, None),
+        2
+    ));
+
+    // More than the default: those already open count, and the rest go up to the new limit.
+    workers(&core, MAX_SPAWNED + 2);
+    for _ in 2..MAX_SPAWNED + 2 {
+        core.peer_spawn(parent.id, "another part", None, None)
+            .expect("spawns");
+    }
+    assert_eq!(core.sessions("demo", "one").expect("lists").len(), 9);
+    assert!(refused_for_workers(
+        core.peer_spawn(parent.id, "one too many", None, None),
+        MAX_SPAWNED + 2
+    ));
+
+    // Lowered below those already open: none is closed, and none more starts.
+    workers(&core, 1);
+    assert!(refused_for_workers(
+        core.peer_spawn(parent.id, "still too many", None, None),
+        1
+    ));
+    assert_eq!(core.sessions("demo", "one").expect("lists").len(), 9);
+
+    // Out of range is refused, and the limit stays as it was.
+    for out_of_range in [0, 21] {
+        let settings = Settings {
+            max_workers: out_of_range,
+            ..core.settings().expect("reads")
+        };
+        assert!(matches!(
+            core.set_settings(&settings),
+            Err(Error::WorkersOutOfRange(n)) if n == out_of_range
+        ));
+    }
+    assert_eq!(core.settings().expect("reads").max_workers, 1);
+
+    // Written by hand out of range, it is the default, said with the other problems.
+    std::fs::write(fx.paths.settings(), "max_workers = 50\n").expect("writes");
+    assert_eq!(core.settings().expect("reads").max_workers, MAX_SPAWNED);
+    let problems = core.config_problems().expect("reads");
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.contains("`max_workers` is 50")),
+        "{problems:?}"
+    );
 }
 
 /// Whether `result` is the refusal an agent gets for a session it may not reach.
@@ -261,7 +346,7 @@ async fn a_started_session_tells_the_user_it_finished_once_nobody_else_hears_it(
     assert_eq!(core.notice_for(&done).expect("reads"), None);
 
     // With that one closed, its agent is told to report to the user, who hears of it.
-    core.session_close(parent.id).expect("closes");
+    core.session_close(parent.id, false).expect("closes");
     core.session_send(child.id, "carry on").expect("sends");
     let done = turn_end(&mut bus, child.id).await;
     let notice = core.notice_for(&done).expect("reads").expect("a notice");
@@ -289,7 +374,7 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
         .peer_spawn(parent.id, "a part", None, None)
         .expect("spawns");
     turn(&mut bus, child.id).await;
-    core.session_close(child.id).expect("closes");
+    core.session_close(child.id, false).expect("closes");
     while !matches!(next(&mut bus).await.event, AgentEvent::Exited { .. }) {}
 
     // Its agent stays stopped, whoever asks: a message, or a plain start.
@@ -313,7 +398,7 @@ async fn a_closed_session_is_neither_read_nor_brought_back_by_a_message() {
         spawned.push(another.expect("spawns").id);
     }
     for id in &spawned {
-        core.session_close(*id).expect("closes");
+        core.session_close(*id, false).expect("closes");
         assert!(out_of_reach(core.peer_message(parent.id, *id, "carry on")));
     }
     assert_eq!(core.running_sessions(), Vec::<i64>::new());
@@ -509,6 +594,70 @@ async fn an_agent_changes_how_often_usage_warnings_are_said_at_once() {
     assert!(!ok, "{said}");
     assert!(said.contains("`limit_warnings`"), "{said}");
     assert_eq!(chosen(), LimitWarnings::Rare);
+}
+
+#[tokio::test]
+async fn an_agent_cannot_change_how_many_sessions_may_work_for_one() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+    let limit = || core.settings().expect("reads").max_workers;
+
+    // Given among the looks, it is not one of them: the rest is changed, this is not.
+    let raised = serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest",
+        "max_workers": 20 });
+    let (ok, said) = configure(&socket, session.id, raised).await;
+    assert!(ok, "{said}");
+    assert!(!said.contains("max_workers"), "{said}");
+    assert_eq!(core.settings().expect("reads").palette, Palette::Forest);
+    assert_eq!(limit(), MAX_SPAWNED);
+
+    // Nor is there a kind of its own, and the refusal says it is out of reach.
+    for kind in ["settings", "sessions", "max_workers"] {
+        let asked = serde_json::json!({ "kind": kind, "op": "save", "max_workers": 20 });
+        let (ok, said) = configure(&socket, session.id, asked).await;
+        assert!(!ok, "{said}");
+        assert!(
+            said.contains("how many sessions may work for one and the roles' models"),
+            "{said}"
+        );
+    }
+    assert_eq!(limit(), MAX_SPAWNED);
+}
+
+#[tokio::test]
+async fn an_agent_cannot_change_the_models_and_efforts_of_roles() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+    let defaults = serde_json::json!({ "reviewer": { "model": "opus", "effort": "max" } });
+
+    // Given among the looks, it is not one of them.
+    let among = serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest",
+        "role_defaults": defaults });
+    let (ok, said) = configure(&socket, session.id, among).await;
+    assert!(ok, "{said}");
+    assert!(!said.contains("role_defaults"), "{said}");
+    assert_eq!(core.settings().expect("reads").palette, Palette::Forest);
+    assert!(core.settings().expect("reads").role_defaults.is_empty());
+
+    // Nor is there a kind of its own.
+    for kind in ["roles", "role_defaults", "models"] {
+        let asked = serde_json::json!({ "kind": kind, "op": "save", "role_defaults": defaults });
+        let (ok, said) = configure(&socket, session.id, asked).await;
+        assert!(!ok, "{said}");
+        assert!(
+            said.contains("the roles' models and efforts cannot be changed"),
+            "{said}"
+        );
+    }
+    assert!(core.settings().expect("reads").role_defaults.is_empty());
 }
 
 #[tokio::test]

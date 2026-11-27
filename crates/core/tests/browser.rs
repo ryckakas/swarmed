@@ -803,7 +803,7 @@ async fn putting_the_task_away_stops_its_chrome_and_keeps_what_was_signed_in_to(
     core.browser_open(task).await.expect("starts");
     let process = pid(&fx, task);
 
-    core.task_done("demo", "one", &hooks::discard)
+    core.task_done("demo", "one", false, &hooks::discard)
         .await
         .expect("puts away");
     assert!(!alive(process));

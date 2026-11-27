@@ -447,6 +447,8 @@ Set in the app's Settings, kept in `settings.toml`.
 | `editor` | `code` | the command that opens a folder in your editor |
 | `terminal_app` | `Terminal` | the application "Open in Terminal" uses |
 | `default_supervision` | `auto` | how new sessions are supervised: `ask`, `auto` or `plan`; `bypass`, which allows everything, is not offered in Settings |
+| `max_workers` | `6` | how many open sessions may work for one session, from 1 to 20, before its agent starts no more until one is closed; see [How many may work for one](coding-agents.md#how-many-may-work-for-one). Shown as Workers per session. Agents cannot change it. A number out of range is read as `6` and named as a problem |
+| `role_defaults` | none | the model and effort each role's new sessions start on unless one is chosen for them, as a table per role (below); see [A role's model and effort](coding-agents.md#a-roles-model-and-effort). Shown as Role defaults. Agents cannot change it |
 | `auto_title` | `true` | a model names each new session after its first message |
 | `branch_prefix` | empty | what a new task's branch starts with, before `/` and the task's name; empty is your login. See [A task's branch](#a-tasks-branch) |
 | `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch, and when a task's pull request changed (see [Pull requests](#pull-requests)) |
@@ -466,6 +468,24 @@ Set in the app's Settings, kept in `settings.toml`.
 | `theme`, `palette`, `style`, `layout`, `text_scale` | system, swarm, colony, classic, 100 | how the app looks |
 
 A key Swarmed does not know stays in `settings.toml` when the settings are saved, so an older Swarmed beside a newer one does not erase that one's choices. What else happens to what it cannot understand is in [What Swarmed cannot understand](#what-swarmed-cannot-understand).
+
+### Role defaults
+
+Each role can have a model and an effort its new sessions start on, whoever starts them, unless
+one is chosen for the session:
+
+```toml
+[role_defaults.reviewer]
+model = "fable"
+effort = "medium"
+```
+
+The roles are `architect`, `planner`, `implementer` and `reviewer`; either key can be left out.
+`model` is a model by the name its agent offers it under, and saving one that no agent offers is
+refused; one an agent stopped offering since is kept, and passed over for that agent's sessions.
+`effort` is `low`, `medium`, `high`, `xhigh` or `max`. A role's entry that cannot be read is
+left out and named as a problem, without costing the others; one for a role this version does
+not know is kept and not applied.
 
 ### The custom layout
 
