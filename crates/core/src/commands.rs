@@ -8,7 +8,8 @@
 //! window opens (`/rewind`), or refused because Swarmed has its own way to do it. A command
 //! the table does not name is
 //! sent on: a skill, a command of the user's own, or one that only opens a screen in the
-//! terminal, which Claude Code answers itself, marked as such.
+//! terminal, which Claude Code answers itself, marked as such. A screen, a setting's
+//! questions and a refusal start no turn and record no message.
 
 use std::collections::{BTreeMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};

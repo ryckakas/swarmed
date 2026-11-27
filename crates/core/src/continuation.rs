@@ -19,7 +19,10 @@
 //!   says a limit refuses requests still: it then waits for that limit's reset instead.
 //! - **Asks nothing:** the time comes from a report already heard, and nothing asks Claude
 //!   Code for its usage first. A limit that had not reset after all refuses the turn again,
-//!   which says so, with the new reset.
+//!   which says so, with the new reset. Only Claude Code reports resets, so another agent's
+//!   refusal sets nothing.
+//! - **Out of agents' reach:** `configure` cannot turn `continue_after_limit` on, since it
+//!   sends messages by itself.
 
 use std::sync::{Mutex, Weak};
 use std::time::Duration;

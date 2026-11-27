@@ -4,7 +4,8 @@ use tauri::menu::{Menu, MenuBuilder, MenuEvent, MenuItemBuilder, Submenu, Submen
 use tauri::{AppHandle, Emitter, Runtime};
 
 /// What the window hears when one of Swarmed's own items is chosen, with the item's id. What it
-/// shows for each is up to the window (`ui/src/menu.ts`).
+/// shows for each is up to the window (`menuChosen` in `ui/src/store.ts`): a new item of
+/// Swarmed's gets its id in both.
 pub(crate) const MENU_EVENT: &str = "menu";
 
 const ABOUT: &str = "about";

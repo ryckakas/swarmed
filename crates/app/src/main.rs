@@ -175,9 +175,12 @@ const APP_HOST: &str = "app-";
 /// the id in `host` (`app-<id>`), else an agent's view, by the id in `path`.
 ///
 /// The document comes from an agent or a server. It is served from this scheme's own origin,
-/// which holds no permission to call Swarmed's commands, under a policy of its own instead of
-/// the app's: a view under [`VIEW_POLICY`], an app under the one the core built from what its
-/// server declared.
+/// under a policy of its own instead of the app's: a view under [`VIEW_POLICY`], an app under
+/// the one the core built from what its server declared.
+///
+/// Tauri counts this scheme as the app's own and checks Swarmed's commands against no
+/// capability for it. A frame cannot call one only because the window's invoke key is given to
+/// the main frame alone, the frame is sandboxed, and its policy lets it send no request.
 fn view_response(core: &Core, host: &str, path: &str) -> Response<Cow<'static, [u8]>> {
     let found = match host.strip_prefix(APP_HOST) {
         // An app is one document at its root: nothing else is served from its host.

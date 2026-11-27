@@ -84,7 +84,8 @@ pub(crate) struct Queues {
     /// themselves until the setup is over.
     setting_up: Mutex<HashMap<i64, Vec<i64>>>,
     /// The waiting message of each session that it was made with and waits for its task's
-    /// setup, by its id: kept in the database until it goes.
+    /// setup, by its id: kept in the database until it goes. Its lock is taken before the
+    /// store's and `waiting`'s, never after.
     kept: Mutex<HashMap<i64, u64>>,
     ids: AtomicU64,
 }
@@ -655,6 +656,9 @@ impl Core {
     /// step (`AgentInfo::hears_mid_turn`). It is recorded where the agent says it heard it,
     /// and an open request stays open. An agent between turns gets it as any message. A
     /// message no longer waiting is left alone.
+    ///
+    /// As tried with Claude Code 2.1.330: a `user` line written mid-turn is taken in after the
+    /// tool under way, answered in the same turn, and an open `can_use_tool` request stays open.
     pub fn session_tell_now(&self, id: i64, message: u64) -> Result<()> {
         let session = self.session(id)?;
         if !self.agents_now().hears_mid_turn(&session.agent) {

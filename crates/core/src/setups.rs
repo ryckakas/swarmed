@@ -623,6 +623,10 @@ impl Core {
     /// nothing of it carries on behind a removal: no hook still writing in the worktree, and
     /// no stack started after it. Its hook is asked to stop and given time, as a stack is,
     /// then killed with what it started. Returns what is to be said if it would not end.
+    ///
+    /// Found among what runs in the worktree instead (`leftovers.rs`), the hook was killed as
+    /// a failure, and what it ran elsewhere, holding its output open, was missed. That is still
+    /// how a removal from another Swarmed ends one: the setups here are this process's own.
     pub(crate) async fn setup_stop_for_removal(
         &self,
         task: &Task,

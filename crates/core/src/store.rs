@@ -80,7 +80,9 @@ pub struct Task {
     pub project_id: i64,
     /// The name, unique among the project's active tasks.
     pub name: String,
-    /// The branch checked out in the worktree.
+    /// The branch the task began on, checked out in the worktree when it was made. It never
+    /// changes. The task panel's heading, the status line and removal's branch deletion mean
+    /// it; what is shown and published follows the branch the worktree is on now (`publish.rs`).
     pub branch: String,
     /// The ref the branch was created from; used to detect commits that were never pushed.
     pub base_ref: String,

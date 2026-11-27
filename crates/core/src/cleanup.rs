@@ -1,12 +1,13 @@
 //! Clean-up: what removed tasks left behind, and the snapshots, listed and deleted on request.
 //!
-//! Five kinds of thing are listed:
+//! Six kinds of thing are listed:
 //! - removed tasks' worktrees that are not deleted yet, in each project's [`REMOVED`] folder;
 //! - the branches of removed tasks that Swarmed made for them and that are still there;
 //! - stale worktrees: folders beside the tasks' own that no task owns, and git's records of
 //!   worktrees whose folder is gone;
 //! - snapshots, one per environment;
-//! - the checkpoints of tasks that are gone, which their removal did not delete.
+//! - the checkpoints of tasks that are gone, which their removal did not delete;
+//! - the browser profiles of tasks that are gone.
 //!
 //! Nothing of a current task, no remote branch, no branch Swarmed did not make and no
 //! repository's own checkout is ever listed. What would lose work found nowhere else is

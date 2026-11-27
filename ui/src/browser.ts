@@ -297,7 +297,8 @@ export function restartTo(
 /**
  * Whether the tab is Chrome's blank page, which the pane draws as the white page it is rather
  * than with its pictures: headless, Chrome never paints `about:blank`, and its pictures of it
- * are black. A new tab and a Chrome started on no page show it.
+ * are black, whatever background is set for it. A new tab and a Chrome started on no page
+ * show it.
  */
 export function blankPage(tab: BrowserTab | null): boolean {
     return tab?.url === "about:blank";

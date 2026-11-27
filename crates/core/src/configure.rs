@@ -659,6 +659,8 @@ fn action_line(action: &Action) -> String {
 
 /// An environment for an agent to read: its commands, and the names of its variables alone.
 /// What an agent has to know to write an environment that works for several tasks at once.
+/// It is where an agent learns to keep tasks apart: keep it true as hooks and their variables
+/// change.
 const ENVIRONMENT_GUIDE: &str = "How an environment works: `setup` runs once after a task's \
     worktree is made and has to finish (install, build, seed); `start` is started after it and \
     left running (the dev stack, in the foreground); `stop` runs before what `start` left \
