@@ -143,8 +143,9 @@ import type {
 //   on shows the window panel, and one already running offers to start again in a window.
 // - repolore, Swarmed's built-in MCP server (`mockBuiltinMcp.ts`), walks every state from
 //   Settings → MCP servers: not installed; Install, then off with a setup of the user's; a Copy
-//   refused once while a refresh runs; waiting on three registrations, the old server and an
-//   idle session; on with a warning, its old setup offered for the Trash; and off again.
+//   refused once while a refresh runs, or a fresh start whose repositories are picked in its
+//   page; waiting on three registrations, the old server and an idle session; on with a
+//   warning, its old setup offered for the Trash; and off again.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>

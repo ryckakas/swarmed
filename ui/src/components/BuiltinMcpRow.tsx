@@ -31,8 +31,10 @@ import {
     startsFresh,
     stateLabel,
     stateTone,
+    statusMark,
     summaryLine,
     trashOffered,
+    unpickedLine,
     when,
 } from "../builtinMcp";
 import { hookKey, useStore } from "../store";
@@ -138,6 +140,7 @@ function BuiltinMcpRow({ view, onChange }: RowProps) {
                         {view.name} <StateMark view={view} />
                     </p>
                     <p className="settings-hint">{summaryLine(view)}</p>
+                    <Unpicked view={view} />
                 </div>
                 {!asking && <Buttons view={view} busy={running !== null} onAct={act} />}
             </div>
@@ -222,6 +225,12 @@ async function turnOn(
     onChange?.(on);
     await api.builtinMcpOpen(view.name);
     return { ...on, page_open: true };
+}
+
+/** What a fresh start still needs: the repositories, picked in the server's page. */
+function Unpicked({ view }: { view: BuiltinMcpView }) {
+    const line = unpickedLine(view);
+    return line === null ? null : <p className="settings-hint">{line}</p>;
 }
 
 /** The state beside the name, coloured by whether it wants something, and the version. */
@@ -479,11 +488,12 @@ function OnPart(props: { view: BuiltinMcpView; busy: boolean; onTrash(): void })
 }
 
 function ClaudeSays({ status }: { status: string | null }) {
-    if (status === null) {
-        return <span className="mcp-status">not seen yet</span>;
-    }
-    const tone = status === "connected" || status === "passed" ? "good" : "off";
-    return <span className={`mcp-status mcp-status-${tone}`}>{status}</span>;
+    const { said, tone } = statusMark(status);
+    return (
+        <span className={tone === "plain" ? "mcp-status" : `mcp-status mcp-status-${tone}`}>
+            {said}
+        </span>
+    );
 }
 
 function Fact({ name, children }: { name: string; children: ReactNode }) {

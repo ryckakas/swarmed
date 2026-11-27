@@ -13,7 +13,9 @@ import type {
 // (`builtin_mcp.rs`). Settings → MCP servers walks it through every state once:
 // 1. It starts not installed. Install prints a few lines, then it is off, with a setup of the
 //    user's own found.
-// 2. The first Copy is refused while a refresh runs; the second copies.
+// 2. The first Copy is refused while a refresh runs; the second copies. Start fresh instead
+//    turns on with nothing chosen to read, opening its page: the row then offers Open repolore
+//    too, and the next check after the page was open takes the repositories as picked there.
 // 3. Then it waits: on Claude Code's and Codex's registrations, which Remove takes out, on
 //    OpenCode's, a step for the user, taken as done by the next Check again, and on the old
 //    server, which one idle session still holds through its 1 relay. Claude Code's settings
@@ -199,6 +201,8 @@ class MockBuiltin {
         if (this.oldServer?.relays === 0) {
             this.oldServer = null;
         }
+        // Once its page was open, the sample takes the repositories as picked there.
+        this.homeReady ||= this.pageOpen;
         this.checked = full ? "full" : "offline";
         return this.view();
     }
@@ -218,8 +222,9 @@ class MockBuiltin {
                 throw new Error("a refresh is running; try again when it is done");
             }
             this.indexed = true;
+            this.homeReady = true;
         }
-        this.homeReady = true;
+        // A fresh start's folder holds no setup until the repositories are picked in its page.
         this.turnedOn = true;
         this.checked = "offline";
         return this.view();

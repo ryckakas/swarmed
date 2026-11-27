@@ -115,7 +115,10 @@ export function offered(view: BuiltinMcpView): BuiltinAction[] {
         case "off":
             return offersCopy(view) ? ["fresh", "copy"] : ["turn-on"];
         case "waiting":
-            return ["turn-off", "check-again"];
+            // A fresh start has nothing chosen to read until the user picks it in the page.
+            return view.home_ready
+                ? ["turn-off", "check-again"]
+                : ["turn-off", "check-again", "open"];
         case "on":
             return ["turn-off", "check", "open"];
     }
@@ -317,8 +320,35 @@ export function trashOffered(view: BuiltinMcpView): boolean {
         view.checks.every((check) => check.ok) &&
         view.existing !== null &&
         view.existing.folders.length > 0 &&
-        view.old_server === null
+        view.old_server === null &&
+        view.problem === null
     );
+}
+
+/**
+ * What is left to set up in a fresh start, once turned on: the repositories, picked in the
+ * server's own page. `null` once its folder holds a setup.
+ */
+export function unpickedLine(view: BuiltinMcpView): string | null {
+    if (view.home_ready || (view.state !== "waiting" && view.state !== "on")) {
+        return null;
+    }
+    return `Nothing is chosen for ${view.name} to read yet: pick the repositories in its page, with Open ${view.name}.`;
+}
+
+/**
+ * What Claude Code last said of the server, and its colour: nothing until a session it was
+ * given to has started.
+ */
+export function statusMark(status: string | null): {
+    said: string;
+    tone: "good" | "off" | "plain";
+} {
+    if (status === null) {
+        return { said: "not seen yet", tone: "plain" };
+    }
+    const tone = status === "connected" || status === "passed" ? "good" : "off";
+    return { said: status, tone };
 }
 
 /** The user's setup from before: where it is, and whether it has an index. */

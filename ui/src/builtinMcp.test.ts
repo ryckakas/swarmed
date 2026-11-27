@@ -20,8 +20,10 @@ import {
     startsFresh,
     stateLabel,
     stateTone,
+    statusMark,
     summaryLine,
     trashOffered,
+    unpickedLine,
     when,
 } from "./builtinMcp";
 
@@ -120,6 +122,12 @@ describe("a built-in's state", () => {
         expect(offered(view({ state: "missing" }))).toEqual(["install"]);
         expect(offered(view({ state: "outdated" }))).toEqual(["update"]);
         expect(offered(view({ state: "waiting" }))).toEqual(["turn-off", "check-again"]);
+        // A fresh start waits with nothing chosen: its page stays in reach to pick that.
+        expect(offered(view({ state: "waiting", home_ready: false }))).toEqual([
+            "turn-off",
+            "check-again",
+            "open",
+        ]);
         expect(offered(view({ state: "on" }))).toEqual(["turn-off", "check", "open"]);
         expect(actionLabel("open", "repolore")).toEqual({
             idle: "Open repolore",
@@ -270,6 +278,23 @@ describe("a built-in that is on", () => {
         expect(trashOffered({ ...well, checked: null })).toBe(false);
         expect(trashOffered({ ...well, old_server: { pid: 1, relays: 0 } })).toBe(false);
         expect(trashOffered({ ...well, state: "waiting" })).toBe(false);
+        // The core refuses while the last reading or step failed.
+        expect(trashOffered({ ...well, problem: "the doctor timed out" })).toBe(false);
+    });
+
+    it("says Claude Code has not seen it until a session it was given to started", () => {
+        expect(statusMark(null)).toEqual({ said: "not seen yet", tone: "plain" });
+        expect(statusMark("connected")).toEqual({ said: "connected", tone: "good" });
+        expect(statusMark("failed")).toEqual({ said: "failed", tone: "off" });
+    });
+
+    it("asks for the repositories while a fresh start has none chosen", () => {
+        expect(unpickedLine(view({ state: "waiting", home_ready: false }))).toContain(
+            "pick the repositories in its page, with Open repolore",
+        );
+        expect(unpickedLine(view({ state: "on", home_ready: false }))).not.toBeNull();
+        expect(unpickedLine(view({ state: "on", home_ready: true }))).toBeNull();
+        expect(unpickedLine(view({ state: "off", home_ready: false }))).toBeNull();
     });
 
     it("shows the server's times as dates, and what is no date as it came", () => {

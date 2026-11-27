@@ -289,6 +289,24 @@ describe("the mock's built-in repolore", () => {
         const offAgain = await done(api.builtinMcpTurnOff("repolore"));
         expect(offAgain).toMatchObject({ state: "off", home_ready: true, page_open: false });
     });
+
+    it("starts fresh with nothing chosen, which its page picks before the next check", async () => {
+        vi.useFakeTimers();
+        const api = createMockApi();
+        await done(api.builtinMcpInstall("repolore"));
+        const fresh = await done(api.builtinMcpTurnOn("repolore", false));
+        expect(fresh).toMatchObject({ state: "waiting", home_ready: false, page_open: false });
+        await done(api.builtinMcpOpen("repolore"));
+        const picked = await done(api.builtinMcpCheck("repolore", false));
+        expect(picked).toMatchObject({ home_ready: true, page_open: true });
+        // Turned off before anything was picked, it offers the copy again.
+        const api2 = createMockApi();
+        await done(api2.builtinMcpInstall("repolore"));
+        await done(api2.builtinMcpTurnOn("repolore", false));
+        const off = await done(api2.builtinMcpTurnOff("repolore"));
+        expect(off).toMatchObject({ state: "off", home_ready: false });
+        expect(off.existing).not.toBeNull();
+    });
 });
 
 describe("the mock's tree", () => {
