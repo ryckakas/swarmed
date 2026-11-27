@@ -17,12 +17,13 @@ notice adds its line under Unreleased.
 
 ### Added
 
-- **See everyone who works for a session, all the way down.** The session's header now lists
-  every session that works for it, however far down and in whichever task, nested as they work
-  for one another, each with how it is doing and, in another task, that task's name and pull
-  request badge. Press a line to open the session, or the badge to open the pull request. The
-  closed ones are folded below, each with Reopen, so a finished chain stays readable, and a long
-  tree folds to those working for the session directly.
+- **See everyone who works for a session, all the way down.** The session's header counts every
+  session that works for it, however far down and in whichever task, on one line by how they
+  are doing ("9 working for it: 1 needs you, 2 working, 6 idle · 2 closed"). Press it to unfold
+  their tree: nested as they work for one another, each with how it is doing and, in another
+  task, that task's name and pull request badge. Press a line to open the session, or the badge
+  to open the pull request. The closed ones are folded below, each with Reopen, so a finished
+  chain stays readable.
 - **Close a session with every session that works for it.** When others work for the session you
   close, however far down and in whichever task, the close dialog lists them with how each is
   doing and offers to close them too, unticked unless you tick it. Putting a task away asks the

@@ -11,6 +11,7 @@ import {
     type WorkerLine,
     workersKey,
     workersOf,
+    workersSummary,
 } from "./workers";
 
 const session = (
@@ -18,7 +19,16 @@ const session = (
     taskId: number,
     parent: number | null,
     status: SessionStatus = "idle",
-): Session => ({ id, task_id: taskId, parent, status, title: `s${id}` }) as Session;
+): Session =>
+    ({
+        id,
+        task_id: taskId,
+        parent,
+        status,
+        unread: false,
+        background: { agents: 0, commands: 0 },
+        title: `s${id}`,
+    }) as Session;
 
 const kept = (one: Session, closed = false): KeptSession => ({ session: one, closed });
 
@@ -236,5 +246,65 @@ describe("workersKey", () => {
     it("stays the same while only how sessions are doing changes", () => {
         const busy = TREE.map((one) => kept({ ...one.session, status: "working" }));
         expect(key(busy)).toBe(key(TREE));
+    });
+});
+
+describe("workersSummary", () => {
+    const plain = wordsFor("plain");
+    const swarm = wordsFor("swarm");
+    const lineOf = (one: Session): WorkerLine => ({
+        session: one,
+        depth: 1,
+        elsewhere: null,
+        parent: null,
+        under: 0,
+    });
+    // Nine at work for a planner, however far down: two working, one waiting for the user, one
+    // with an unread answer, five idle, one of them with a sub-agent still at work.
+    const OPEN = [
+        session(1, 10, 0, "idle"),
+        session(2, 10, 0, "working"),
+        { ...session(3, 10, 0, "idle"), unread: true },
+        session(4, 10, 0, "waiting"),
+        session(5, 10, 0, "idle"),
+        { ...session(6, 10, 0, "idle"), background: { agents: 1, commands: 0 } },
+        session(7, 10, 0, "working"),
+        session(8, 10, 0, "idle"),
+        session(9, 10, 0, "idle"),
+    ].map(lineOf);
+    const CLOSED = [lineOf(session(11, 10, 0)), lineOf(session(12, 20, 11))];
+
+    it("counts the open ones by how they are doing, the most urgent first, then the closed", () => {
+        const summary = workersSummary({ open: OPEN, closed: CLOSED }, plain);
+        expect(summary.lead).toBe("9 working for it");
+        expect(summary.counts.map((one) => [one.kind, one.count, one.said])).toEqual([
+            ["waiting", 1, "1 needs you"],
+            ["working", 2, "2 working"],
+            ["unread", 1, "1 unread"],
+            ["idle", 5, "5 idle"],
+        ]);
+        expect(summary.closed).toBe("2 closed");
+        expect(summary.said).toBe(
+            "9 working for it: 1 needs you, 2 working, 1 unread, 5 idle, 2 closed",
+        );
+    });
+
+    it("rings the mark of a count with what its sessions left running", () => {
+        const idle = workersSummary({ open: OPEN, closed: [] }, plain).counts.at(-1);
+        expect(idle?.background).toEqual({ agents: 1, commands: 0 });
+    });
+
+    it("says it in the style's words, and with none open, only the closed", () => {
+        const both = workersSummary({ open: OPEN.slice(0, 2), closed: CLOSED }, swarm);
+        expect(both.said).toBe("2 serving it: 1 mutating, 1 dormant, 2 closed");
+        const waiting = workersSummary(
+            { open: [OPEN[3], OPEN[3]] as WorkerLine[], closed: [] },
+            plain,
+        );
+        expect(waiting.counts[0]?.said).toBe("2 need you");
+        const done = workersSummary({ open: [], closed: CLOSED }, plain);
+        expect(done.lead).toBe("Working for it");
+        expect(done.counts).toEqual([]);
+        expect(done.said).toBe("Working for it: 2 closed");
     });
 });

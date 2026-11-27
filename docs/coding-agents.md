@@ -614,17 +614,24 @@ works for whom stays a tree. The sidebar nests it to any depth: a session sits u
 works for when both are in the same task, and one whose parent is in another task, or closed,
 stays in its own place with a small link to that one (`for #7`).
 
-The session's header names the session it works for, and under it every session that works for
-it, however far down and in whichever task: nested as they work for one another, each with how
-it is doing, and for one in another task that task's name and its pull request's badge, as the
-sidebar shows it. Pressing a line opens that session; pressing the badge opens the pull request.
-One that works for a closed session is drawn under the nearest open one above it, with a link to
-the closed one (`for #7`). The closed ones are folded below the open ones (**2 closed**), each
-with **Reopen**, which puts it back and opens it. A tree of more than eight open sessions that
-goes further down than one level is folded to those that work for the session directly, each
-with how many work under it, to unfold one by one; a long list scrolls in a space of its own, so
-the conversation keeps its room. The sidebar stays as it is: a task is listed where its branch,
-pull request and setup are looked for.
+The session's header names the session it works for, and beside it one line that counts every
+session that works for it, however far down and in whichever task, by how they are doing, the
+most urgent first, each with its mark as the sidebar draws it, and how many are closed: **9
+working for it: 1 needs you, 2 working, 6 idle · 2 closed**. Press that line (or Tab to it and
+press Enter) to unfold their tree under it, and again to fold it. Each session starts folded, and
+whether it is unfolded is kept while Swarmed runs, never on disk. A session that only works for
+another shows that one alone, with nothing to unfold.
+
+Unfolded, the tree nests them as they work for one another, each with how it is doing, and for
+one in another task that task's name and its pull request's badge, as the sidebar shows it.
+Pressing a line opens that session; pressing the badge opens the pull request. One that works for
+a closed session is drawn under the nearest open one above it, with a link to the closed one
+(`for #7`). The closed ones are folded below the open ones (**2 closed**), each with **Reopen**,
+which puts it back and opens it. A tree of more than eight open sessions that goes further down
+than one level is folded to those that work for the session directly, each with how many work
+under it, to unfold one by one; a long list scrolls in a space of its own, so the conversation
+keeps its room. The sidebar stays as it is: a task is listed where its branch, pull request and
+setup are looked for.
 
 Each agent is told who works with it when it starts. When you change it, the conversations it
 concerns say so on a line of their own, and their agents are told who works with them now along

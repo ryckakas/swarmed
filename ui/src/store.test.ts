@@ -595,6 +595,25 @@ describe("unsent messages", () => {
         expect(useStore.getState().recalls).toEqual({});
     });
 
+    it("fold who works for a session until unfolded, and forget that with the session", async () => {
+        const api = createMockApi();
+        useStore.setState({ workersShown: [] });
+        await useStore.getState().refresh(api);
+        // Every session starts folded: one line that counts them.
+        expect(useStore.getState().workersShown).toEqual([]);
+        useStore.getState().toggleWorkersShown(4);
+        useStore.getState().toggleWorkersShown(5);
+        await useStore.getState().open(api, 3);
+        expect(useStore.getState().workersShown).toEqual([4, 5]);
+        useStore.getState().toggleWorkersShown(5);
+        expect(useStore.getState().workersShown).toEqual([4]);
+        useStore.getState().toggleWorkersShown(5);
+        await useStore.getState().deleteSession(api, 4);
+        expect(useStore.getState().workersShown).toEqual([5]);
+        await useStore.getState().close(api, 5, false);
+        expect(useStore.getState().workersShown).toEqual([]);
+    });
+
     it("keep where each transcript was left, and go with the session, sub-agents' too", async () => {
         const api = createMockApi();
         await useStore.getState().refresh(api);

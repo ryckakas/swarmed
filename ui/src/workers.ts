@@ -3,9 +3,10 @@
 // under whom, is the core's (`session_descendants`); how an open one is doing is the tree's,
 // which hears every event. Pure, so it can be tested.
 
-import type { Descendant, Project, Session, Task } from "./api/types";
+import type { BackgroundCount, Descendant, Project, Session, Task } from "./api/types";
+import { addedUp } from "./inBackground";
 import { findSession, findSessionHome } from "./tree";
-import type { Words } from "./wording";
+import { type StatusKind, statusKind, type Words } from "./wording";
 
 /**
  * Up to this many open sessions, the tree is drawn whole; with more, and some of them further
@@ -149,6 +150,68 @@ export function shownWorkers(open: WorkerLine[], unfolded: readonly number[]): W
         shown.push(line);
     }
     return shown;
+}
+
+/** How many of those working for a session are doing one thing, as the folded line counts them. */
+export interface StatusCount {
+    kind: StatusKind;
+    count: number;
+    /** What they have running in the background, added up, which rings their mark. */
+    background: BackgroundCount;
+    /** The count in words: "2 working". */
+    said: string;
+}
+
+/** The one line a session's header folds those working for it into. */
+export interface WorkersSummary {
+    /** What leads the line: "9 working for it", or only "Working for it" with none open. */
+    lead: string;
+    /** The open ones counted by how they are doing, the most urgent first; none with no count. */
+    counts: StatusCount[];
+    /** The closed ones in words, "2 closed"; `null` for none. */
+    closed: string | null;
+    /** All of it in words, for the button that unfolds it. */
+    said: string;
+}
+
+/** How sessions can be doing, the most urgent first, as the sidebar ranks them. */
+const URGENCY: StatusKind[] = ["waiting", "errored", "working", "unread", "idle"];
+
+/**
+ * Those working for a session on one line: how many are open, counted by how they are doing with
+ * the most urgent first, and how many are closed. "9 working for it: 1 needs you, 2 working,
+ * 6 idle, 2 closed".
+ */
+export function workersSummary(workers: Workers, words: Words): WorkersSummary {
+    const sessions = workers.open.map((line) => line.session);
+    const counts = URGENCY.map((kind) => {
+        const doing = sessions.filter((one) => statusKind(one.status, one.unread) === kind);
+        const background = addedUp(doing.map((one) => one.background));
+        return {
+            kind,
+            count: doing.length,
+            background,
+            said: countSaid(kind, doing.length, words),
+        };
+    }).filter((one) => one.count > 0);
+    const lead =
+        sessions.length > 0
+            ? `${sessions.length} ${words.workingFor.toLowerCase()}`
+            : words.workingFor;
+    const closed = workers.closed.length > 0 ? words.closed(workers.closed.length) : null;
+    const parts = [...counts.map((one) => one.said), ...(closed === null ? [] : [closed])];
+    return { lead, counts, closed, said: `${lead}: ${parts.join(", ")}` };
+}
+
+/** `count` sessions doing `kind`, in the style's words: "2 working", "1 needs you", "3 unread". */
+function countSaid(kind: StatusKind, count: number, words: Words): string {
+    if (kind === "waiting") {
+        return `${count} ${count === 1 ? "needs" : "need"} you`;
+    }
+    if (kind === "unread") {
+        return words.unread(count);
+    }
+    return `${count} ${(words.status[kind][0] ?? kind).toLowerCase()}`;
 }
 
 /** What the button that shows or hides those under a line names: "the 3 sessions that work under it". */

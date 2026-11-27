@@ -141,6 +141,14 @@ interface State {
     scrolls: Record<string, ScrollSpot>;
     /** Keeps where a transcript was left, if its session is still there to come back to. */
     keepScroll(sessionId: number, key: string, spot: ScrollSpot): void;
+    /**
+     * The sessions whose header shows everyone working for them as a tree. Every other one folds
+     * them into one line that counts them, which is how a session starts. In memory only, and
+     * forgotten with the session, as its draft is.
+     */
+    workersShown: number[];
+    /** Unfolds the tree of those working for session `sessionId`, or folds it again. */
+    toggleWorkersShown(sessionId: number): void;
     /** What the new-task box holds and has not sent, per repository by its name; in memory too. */
     newTaskDrafts: Record<string, Draft>;
     /** Changes what the new-task box holds for repository `project`. */
@@ -771,6 +779,7 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         recalls: without(state.recalls, sessionIds),
         appContexts: without(state.appContexts, sessionIds),
         scrolls: withoutScrolls(state.scrolls, sessionIds),
+        workersShown: withoutIds(state.workersShown, sessionIds),
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
         edits: without(state.edits, taskIds),
@@ -820,6 +829,7 @@ function closed(state: State, sessionId: number): Partial<State> {
         recalls: without(state.recalls, [sessionId]),
         appContexts: without(state.appContexts, [sessionId]),
         scrolls: withoutScrolls(state.scrolls, [sessionId]),
+        workersShown: withoutIds(state.workersShown, [sessionId]),
     };
 }
 
@@ -1042,6 +1052,9 @@ export const useStore = create<State>((set, get) => ({
     allowApps: (key) => set((state) => ({ appsAllowed: withAllowed(state.appsAllowed, key) })),
     scrolls: {},
     keepScroll: (sessionId, key, spot) => set((state) => keptScroll(state, sessionId, key, spot)),
+    workersShown: [],
+    toggleWorkersShown: (sessionId) =>
+        set((state) => ({ workersShown: toggledId(state.workersShown, sessionId) })),
     newTaskDrafts: {},
     editNewTaskDraft: (project, change) =>
         set((state) => ({ newTaskDrafts: withDraft(state.newTaskDrafts, project, change) })),
