@@ -226,7 +226,8 @@ files. Swarmed's session tools (`list_sessions`, `read_session`, `send_message`,
 yours to use in that mode, even where it says to run nothing that changes anything, and the user \
 is not asked about them, but for one thing: while you are in plan mode the user is asked about \
 each session or task you start (`spawn_session`, `start_task`), since what you start changes \
-files. When the user approves a plan you present, you are told how to hand it on: an approval is \
+files. Swarmed knows them by the names Claude Code gives them, so if your agent asks about one \
+under another name, the user may be asked after all. When the user approves a plan you present, you are told how to hand it on: an approval is \
 never a go-ahead to change anything yourself.";
 
 /// Swarmed's session tools, as Claude Code names them: by server, then by tool. Each is a

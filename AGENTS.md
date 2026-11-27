@@ -1132,7 +1132,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     (`roles::uses_unasked`, pure, and `allow_unasked` in `sessions.rs`): starting, reading,
     telling and closing sessions is a role's work, so a permission request for one of Swarmed's
     session tools (`SESSION_TOOLS`) from a session with a role is allowed at once and never
-    stored. Allow rules cannot do it: Claude Code 2.1.332 holds every MCP tool that is not
+    stored, on any agent. They are matched by the names Claude Code gives them
+    (`mcp__swarmed__…`), so an agent that names its request otherwise still asks, which the
+    guidance (`KEPT_FROM_CHANGES`) and the documentation say. Allow rules cannot do it: Claude Code 2.1.332 holds every MCP tool that is not
     read-only at a question in plan mode before it reads them (`planModeWriteFloor`), and runs
     it once the permission prompt allows it. The two that start a session (`STARTING_TOOLS`:
     `spawn_session`, `start_task`) are put to the user while the session is in `Plan`: what

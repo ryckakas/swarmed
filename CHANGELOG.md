@@ -54,7 +54,8 @@ notice adds its line under Unreleased.
   is out of plan mode, so a planner whose plan you approved starts its implementers unasked; in
   plan mode you are still asked about each start, since what is started changes files. Allow
   rules of your own could not do this: in plan mode Claude Code asks before every MCP tool that
-  is not read-only, whatever they say.
+  is not read-only, whatever they say. An agent that names these tools otherwise than Claude
+  Code does may still ask.
 - **Agents close the sessions they start with `start_task`.** An architect or a planner that
   hands work to an implementer in a task of its own can close that session with
   `close_session` once it has reported back, as it can a session it spawned beside itself, and

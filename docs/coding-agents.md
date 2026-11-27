@@ -545,8 +545,9 @@ Every session gets an MCP server named `swarmed`, with these tools:
 Claude Code may call `show_html` without asking; in Ask mode you are asked about the rest. A
 session with a [role](#roles) uses `list_sessions`, `read_session`, `send_message`,
 `spawn_session`, `start_task` and `close_session` without asking: they are its role's work. In
-plan mode too, but for `spawn_session` and `start_task`, which ask you there. Other agents decide
-for themselves which calls they ask about.
+plan mode too, but for `spawn_session` and `start_task`, which ask you there. An agent that names
+these tools otherwise than Claude Code does may still ask. Other agents decide for themselves
+which calls they ask about.
 
 `configure` makes some changes at once: saved prompts, actions that send a prompt, the status
 line's pieces, the looks, which levels the usage notice says, whether turns end with a line, the terminal's
@@ -640,7 +641,9 @@ while they plan, not only tells them:
   exception: what is started changes files, so in plan mode, where you approved nothing yet,
   you are asked about each start. Out of plan mode a start goes through unasked like the rest.
   A reviewer stays in plan mode, so you are asked about every implementer it starts. Anything
-  else that would change a file, Claude Code still asks you about.
+  else that would change a file, Claude Code still asks you about. Swarmed knows these tools by
+  the names Claude Code gives them (`mcp__swarmed__send_message` and the like), so an agent
+  that names them otherwise when it asks may still ask you about them.
 - **Approving their plan does not send them building.** Approving the plan of an architect, a
   planner or a reviewer tells its agent to hand the plan on instead of the usual go-ahead: an
   architect starts a task for each part, a planner hands each change to an implementer, a
