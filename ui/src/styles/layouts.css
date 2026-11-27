@@ -118,15 +118,40 @@
 }
 
 /*
- * And takes no room until then, so a name is cut short only while its row is pointed at. The
- * highlight's button does so in every layout (app.css).
+ * A task's row draws what it shows shorter in the same steps as classic's (app.css, #500), from
+ * wider: its icons and buttons are enlarged more than its text, by which the steps are measured.
  */
-:root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-note:not([data-has="true"]),
-:root[data-layout="senior"] .row-head:not(:hover, :focus-within) .row-pin:not([data-pinned="true"]),
-:root[data-layout="senior"]
-    .session-line:not(:hover, :focus-within)
-    .row-pin:not([data-pinned="true"]) {
-    display: none;
+@container sidebar (max-width: 20.5em) {
+    :root[data-layout="senior"] .pull-hash {
+        display: none;
+    }
+
+    :root[data-layout="senior"] .pull-badge {
+        padding-inline: 3px;
+    }
+}
+
+@container sidebar (max-width: 19.75em) {
+    :root[data-layout="senior"] .task > .row-head .row-icon {
+        display: none;
+    }
+}
+
+@container sidebar (max-width: 18em) {
+    :root[data-layout="senior"] .issue-number {
+        display: none;
+    }
+
+    :root[data-layout="senior"] .issue-badge {
+        padding-inline: 3px;
+    }
+
+    :root[data-layout="senior"]
+        .task
+        > .row-head:has(.issue-badge, .pull-badge):not(:hover, :focus-within)
+        :is(.row-pin[data-pinned="true"], .row-note[data-has="true"]) {
+        display: none;
+    }
 }
 
 /* The tree: taller rows, names in the text face at a size to read, more between the levels. */

@@ -36,6 +36,16 @@ notice adds its line under Unreleased.
   the session works for ("for #123"), its mark and its time to go on by itself, so the icons of
   a task's sessions stand in one column, and a role sits right beside "for #123". A press on the
   icon still opens the session.
+- **A narrow sidebar no longer scrolls sideways, and every name keeps a few letters.** The
+  buttons a row shows only under the pointer (pin, note, cloud, issues, environments) take no
+  room until it is pointed at or reached with Tab, in classic as in senior. The narrower the
+  sidebar, the shorter a row draws what follows its name, step by step: a pull request's number
+  without its #, then no task icon, then an issue's ring without its number, then a pinned pin
+  and a filled note that wait for the pointer; a session's mark shortens its words, and its time
+  to go on shows only its clock. Pointed at in the narrowest sidebar, a row with badges leaves
+  out its cloud and then an empty note, which Tab still reaches: ⌘D pins, ⌘⇧H highlights, ⌘⇧N
+  opens the note, and the session's header hands work to the cloud. Every + stays in one
+  column, and a pinned session's pin now stands before its agent icon, so the icons do too.
 
 ## [0.4.9] - 2026-11-27
 

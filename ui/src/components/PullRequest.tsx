@@ -39,7 +39,9 @@ export function PullBadge({ project, task }: { project: string; task: Task }) {
             aria-label={pullTooltip(pull, words)}
             onClick={() => api.taskPullOpen(project, task.name, null).catch(report)}
         >
-            #{pull.number}
+            {/* Left out in a narrow sidebar, where the number alone stands for it (#500). */}
+            <span className="pull-hash">#</span>
+            {pull.number}
         </button>
     );
 }
