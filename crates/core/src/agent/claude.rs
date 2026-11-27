@@ -30,6 +30,7 @@ use crate::returned::Taking;
 
 mod apps;
 mod screens;
+mod tokens;
 
 /// How much of the process's stderr is kept for [`AgentEvent::Exited`].
 const STDERR_TAIL_CHARS: usize = 2000;
@@ -430,6 +431,7 @@ async fn read_events(
     });
     let mut lines = BufReader::new(stdout).lines();
     let mut point = None;
+    let mut counts = tokens::Counts::default();
     while let Ok(Some(line)) = lines.next_line().await {
         let parsed = serde_json::from_str::<Value>(&line).ok();
         for question in parsed.as_ref().map_or_else(Vec::new, questions_after) {
@@ -438,6 +440,7 @@ async fn read_events(
         let mut new_events = parsed.as_ref().map_or_else(Vec::new, |message| {
             let mut said: Vec<AgentEvent> = resume_point(message, &mut point).into_iter().collect();
             said.extend(parse_message(message, &pending));
+            counts.read(message, &mut said);
             said
         });
         let (app_questions, app_events) = parsed
@@ -1017,6 +1020,8 @@ fn parse_message(message: &Value, pending: &Pending) -> Vec<AgentEvent> {
             result: kind_of(message, "result").map(String::from),
             cost_usd: message.get("total_cost_usd").and_then(Value::as_f64),
             duration_ms: None,
+            // What the turn's requests used is counted as they stream (`tokens`).
+            tokens: None,
         }],
         "prompt_suggestion" => parse_suggestion(message).into_iter().collect(),
         // The replies to our own control requests that are of use.

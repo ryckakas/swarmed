@@ -681,7 +681,8 @@ export type StatusItem =
     | "cost"
     | "agent"
     | "worktree"
-    | "duration";
+    | "duration"
+    | "tokens";
 
 /**
  * How the agents' tool calls show in a conversation: each on its own line, the ones that follow
@@ -1230,6 +1231,11 @@ export type AgentEvent =
     | { type: "text"; text: string }
     /** A piece of a reply still being written; the whole reply follows as `text`. */
     | { type: "text_delta"; text: string }
+    /**
+     * The tokens the turn under way has used so far, and which way they go now; published as
+     * they change and never stored. A sub-agent's are its own, inside `sub`.
+     */
+    | { type: "turn_tokens"; tokens: Tokens; phase: TokenPhase }
     | { type: "tool_use"; id: string; name: string; input: unknown }
     | {
           type: "tool_result";
@@ -1387,6 +1393,11 @@ export type AgentEvent =
           cost_usd: number | null;
           /** How long the turn took, in milliseconds; absent from turns recorded before it was. */
           duration_ms?: number | null;
+          /**
+           * The tokens the session's own agent used in the turn, its sub-agents' left out.
+           * Absent where the agent did not say, and from turns recorded before it was kept.
+           */
+          tokens?: Tokens;
       }
     | { type: "exited"; code: number | null; stderr: string }
     | {
@@ -1448,6 +1459,20 @@ export type AgentEvent =
 
 /** How far along something an agent left running is. */
 export type BackgroundState = "running" | "completed" | "failed" | "stopped";
+
+/** The tokens a turn used: what the model had to read anew, and what it wrote. */
+export interface Tokens {
+    /** What each request held that the model read anew: all of it but what came from the cache. */
+    input: number;
+    /** What it wrote: replies, thinking and tool calls. */
+    output: number;
+}
+
+/**
+ * Which way a running turn's tokens go: a request out and being read, its answer coming in,
+ * or neither, while a tool runs.
+ */
+export type TokenPhase = "prompt" | "response" | "between";
 
 /** One thing an agent left running behind its turn, as last heard of. */
 export interface BackgroundTask {

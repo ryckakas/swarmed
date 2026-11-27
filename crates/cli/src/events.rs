@@ -35,10 +35,14 @@ pub(crate) async fn run(core: &Core) -> Result<()> {
 
 /// The line an event is printed as: its session, or `-` for one that belongs to none, then
 /// what happened, and the session's status if the event changed it. Nothing for the pieces of
-/// a reply, whose whole follows.
+/// a reply, whose whole follows, nor for the tokens a turn has used so far, a sub-agent's
+/// too, whose totals the turn's end says.
 fn line_of(published: &SessionEvent) -> Option<String> {
     let said = match &published.event {
-        AgentEvent::TextDelta { .. } => return None,
+        AgentEvent::TextDelta { .. } | AgentEvent::TurnTokens { .. } => return None,
+        AgentEvent::Sub { event, .. } if matches!(**event, AgentEvent::TurnTokens { .. }) => {
+            return None;
+        }
         AgentEvent::Renamed { title } => format!("renamed: {title}"),
         AgentEvent::Marked { colour, label } => match colour {
             Some(colour) => format!("marked {}: {label}", colour.as_str()),
@@ -66,6 +70,7 @@ fn kind_of(event: &AgentEvent) -> String {
 #[cfg(test)]
 mod tests {
     use swarmed_core::SessionStatus;
+    use swarmed_core::agent::{TokenPhase, Tokens};
 
     use super::*;
 
@@ -98,5 +103,18 @@ mod tests {
             text: "a".to_string(),
         };
         assert_eq!(line_of(&published(4, piece)), None);
+        let so_far = AgentEvent::TurnTokens {
+            tokens: Tokens {
+                input: 1_200,
+                output: 80,
+            },
+            phase: TokenPhase::Response,
+        };
+        assert_eq!(line_of(&published(4, so_far.clone())), None);
+        let sub = AgentEvent::Sub {
+            parent: "toolu_agent".to_string(),
+            event: Box::new(so_far),
+        };
+        assert_eq!(line_of(&published(4, sub)), None);
     }
 }

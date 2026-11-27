@@ -8,7 +8,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde_json::Value;
 use swarmed_core::agent::{
     AgentEvent, Asked, Auth, Effort, McpServerInfo, PLAN_TOOL, RemoteState, ScreenRow,
-    ScreenSection, Supervision,
+    ScreenSection, Supervision, Tokens,
 };
 use swarmed_core::{
     Attached, BackgroundCount, Core, SESSION_ENV, Session, SessionEvent, SessionOptions,
@@ -1133,12 +1133,16 @@ pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
             resets_at.unwrap_or_default()
         )),
         AgentEvent::TurnDone {
-            is_error, cost_usd, ..
+            is_error,
+            cost_usd,
+            tokens,
+            ..
         } => {
             let outcome = if *is_error { "stopped" } else { "done" };
+            let used = tokens.map_or_else(String::new, |tokens| format!(", {}", used(tokens)));
             Some(cost_usd.map_or_else(
-                || format!("— {outcome}"),
-                |cost| format!("— {outcome} (cost so far ${cost:.4})"),
+                || format!("— {outcome}{used}"),
+                |cost| format!("— {outcome}{used} (cost so far ${cost:.4})"),
             ))
         }
         AgentEvent::Exited {
@@ -1155,6 +1159,41 @@ pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
             command, questions, ..
         } => Some(asked(command, questions)),
         _ => described_by_core(event),
+    }
+}
+
+/// What a turn used, as the window says it: its tokens in all, then what of them it read anew
+/// and what it wrote.
+fn used(tokens: Tokens) -> String {
+    let all = tokens.input + tokens.output;
+    format!(
+        "{} tokens ({} in, {} out)",
+        short(all),
+        short(tokens.input),
+        short(tokens.output)
+    )
+}
+
+/// A token count as people say it, as the window's `formatTokens` says it: 937, 29.6k, 123k,
+/// 1.2M.
+fn short(tokens: u64) -> String {
+    let unit = |size: u64, unit: &str| {
+        // Whole units from a hundred on, else tenths: rounded in integers, as no float can
+        // say a count wrongly.
+        if tokens >= 100 * size {
+            return format!("{}{unit}", (tokens + size / 2) / size);
+        }
+        let tenths = (tokens * 10 + size / 2) / size;
+        if tenths.is_multiple_of(10) {
+            format!("{}{unit}", tenths / 10)
+        } else {
+            format!("{}.{}{unit}", tenths / 10, tenths % 10)
+        }
+    };
+    match tokens {
+        0..1_000 => tokens.to_string(),
+        1_000..1_000_000 => unit(1_000, "k"),
+        _ => unit(1_000_000, "M"),
     }
 }
 
@@ -1339,6 +1378,7 @@ mod tests {
             result: None,
             cost_usd: None,
             duration_ms: None,
+            tokens: None,
         };
         let lines = shown(&[
             init("opus"),
@@ -1411,6 +1451,7 @@ mod tests {
             result: None,
             cost_usd: None,
             duration_ms: None,
+            tokens: None,
         };
         let exited = |code| AgentEvent::Exited {
             code,
@@ -1435,10 +1476,47 @@ mod tests {
             result: None,
             cost_usd: Some(0.0123),
             duration_ms: None,
+            tokens: None,
         };
         assert_eq!(
             describe(&done).as_deref(),
             Some("— done (cost so far $0.0123)")
         );
+    }
+
+    #[test]
+    fn a_finished_turn_says_the_tokens_it_used() {
+        let done = AgentEvent::TurnDone {
+            is_error: false,
+            result: None,
+            cost_usd: Some(0.0094),
+            duration_ms: None,
+            tokens: Some(Tokens {
+                input: 43_790,
+                output: 97,
+            }),
+        };
+        assert_eq!(
+            describe(&done).as_deref(),
+            Some("— done, 43.9k tokens (43.8k in, 97 out) (cost so far $0.0094)")
+        );
+    }
+
+    #[test]
+    fn a_token_count_is_said_as_people_say_it() {
+        let said = [
+            (0, "0"),
+            (937, "937"),
+            (1_000, "1k"),
+            (1_049, "1k"),
+            (1_250, "1.3k"),
+            (29_640, "29.6k"),
+            (99_960, "100k"),
+            (123_456, "123k"),
+            (1_200_000, "1.2M"),
+        ];
+        for (tokens, words) in said {
+            assert_eq!(short(tokens), words, "{tokens}");
+        }
     }
 }

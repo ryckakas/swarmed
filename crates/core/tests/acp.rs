@@ -76,6 +76,7 @@ fn untimed(events: &[AgentEvent]) -> Vec<AgentEvent> {
             result,
             cost_usd,
             duration_ms: None,
+            tokens: None,
         },
         other => other,
     };
@@ -130,6 +131,7 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
         result: None,
         cost_usd: Some(0.5),
         duration_ms: None,
+        tokens: None,
     };
     let said = AgentEvent::UserMessage {
         text: "hello".into(),
@@ -305,6 +307,7 @@ async fn an_interrupt_cancels_the_turn_and_an_agent_error_ends_it() {
         result: None,
         cost_usd: None,
         duration_ms: None,
+        tokens: None,
     };
     assert_eq!(untimed(&rest), [text("working"), stopped]);
 

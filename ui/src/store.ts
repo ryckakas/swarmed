@@ -33,7 +33,7 @@ import { changesHeard, oneMoreHeard, queuesAnswered } from "./queue";
 import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
 import { type ReviewComment, withComment } from "./review";
-import { type ScrollSpot, withoutScrolls } from "./scrollSpot";
+import { type ScrollSpot, withoutPlaces } from "./scrollSpot";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { heard, readFrom, type SetupSeen } from "./setup";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
@@ -53,6 +53,7 @@ import {
     withSession,
 } from "./tree";
 import { turnsBegan } from "./turns";
+import { type RunningTokens, runningCount, withTurnTokens } from "./turnTokens";
 import { unlessSame } from "./unchanged";
 
 /** The parts the settings are divided into, in the order their tabs are listed. */
@@ -197,6 +198,12 @@ interface State {
     closeSub(): void;
     /** When each session's running turn began, as seen from this window. */
     turnBegan: Record<number, number>;
+    /**
+     * The tokens each running turn has used so far, by the transcript it shows in
+     * (`scrollKey`): a session's own, and each sub-agent's under its session. Published as they
+     * change and never stored, so only what this window has heard.
+     */
+    turnTokens: Record<string, RunningTokens>;
     /** Goes up each time an agent reports something it left running starting or ending. */
     backgroundHeard: number;
     /**
@@ -780,13 +787,14 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         events: without(state.events, sessionIds),
         subAgents: without(state.subAgents, sessionIds),
         turnBegan: without(state.turnBegan, sessionIds),
+        turnTokens: withoutPlaces(state.turnTokens, sessionIds),
         claudeTerminals: without(state.claudeTerminals, sessionIds),
         queues: without(state.queues, sessionIds),
         queuesHeard: without(state.queuesHeard, sessionIds),
         drafts: without(state.drafts, sessionIds),
         recalls: without(state.recalls, sessionIds),
         appContexts: without(state.appContexts, sessionIds),
-        scrolls: withoutScrolls(state.scrolls, sessionIds),
+        scrolls: withoutPlaces(state.scrolls, sessionIds),
         workersShown: withoutIds(state.workersShown, sessionIds),
         subView: of(state.subView),
         terminalCommand: of(state.terminalCommand),
@@ -841,7 +849,7 @@ function closed(state: State, sessionId: number): Partial<State> {
         drafts: without(state.drafts, [sessionId]),
         recalls: without(state.recalls, [sessionId]),
         appContexts: without(state.appContexts, [sessionId]),
-        scrolls: withoutScrolls(state.scrolls, [sessionId]),
+        scrolls: withoutPlaces(state.scrolls, [sessionId]),
         workersShown: withoutIds(state.workersShown, [sessionId]),
     };
 }
@@ -1121,6 +1129,7 @@ export const useStore = create<State>((set, get) => ({
     editCommitDraft: (taskId, message) =>
         set((state) => ({ commitDrafts: withCommitDraft(state.commitDrafts, taskId, message) })),
     turnBegan: {},
+    turnTokens: {},
     backgroundHeard: 0,
     accountUsage: null,
     hookLines: {},
@@ -1372,6 +1381,11 @@ export const useStore = create<State>((set, get) => ({
         if (published.event.type === "queue") {
             return get().setQueue(published.session_id, published.event.messages);
         }
+        // Nor is a running count of tokens: it stands beside the activity line, many times a
+        // second while an answer comes in.
+        if (runningCount(published) !== null) {
+            return set((state) => ({ turnTokens: withTurnTokens(state.turnTokens, published) }));
+        }
         const reading = loading.get(published.session_id);
         if (reading) {
             heardWhileReading(reading, published.event);
@@ -1381,6 +1395,7 @@ export const useStore = create<State>((set, get) => ({
             events: appendEvent(state.events, published),
             subAgents: withSubAgents(state.subAgents, published),
             edits: countEdit(state, published),
+            turnTokens: withTurnTokens(state.turnTokens, published),
         }));
     },
     setAgent: (api, sessionId, agent) =>
@@ -1621,7 +1636,8 @@ export function connect(api: Api): () => void {
     // After dropped events nothing on screen can be trusted: forget the transcripts and reload.
     const reload = () => {
         const { selectedSessionId, open } = useStore.getState();
-        useStore.setState({ events: {}, accountUsage: null });
+        // A turn's end may be among what was missed, and with it the end of its running count.
+        useStore.setState({ events: {}, accountUsage: null, turnTokens: {} });
         readAccountUsage(api);
         void refresh(api);
         if (selectedSessionId !== null) {

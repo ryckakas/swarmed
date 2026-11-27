@@ -127,21 +127,21 @@ export function rowAtTop(count: number, topOf: (index: number) => number, top: n
     return found;
 }
 
-/** What the store keeps a transcript's spot under: its session, and its sub-agent if it is one's. */
+/**
+ * What the store keeps a transcript's spot under, and the tokens of the turn under way in it:
+ * its session, and its sub-agent if it is one's.
+ */
 export function scrollKey(sessionId: number, subAgent: string | null = null): string {
     return subAgent === null ? String(sessionId) : `${sessionId}/${subAgent}`;
 }
 
-/** `scrolls` without the spots of sessions `sessionIds`, sub-agents' included; the same object if it had none. */
-export function withoutScrolls(
-    scrolls: Record<string, ScrollSpot>,
-    sessionIds: number[],
-): Record<string, ScrollSpot> {
+/**
+ * `kept` without what it keeps by `scrollKey` for sessions `sessionIds`, sub-agents' included;
+ * the same object if it had none.
+ */
+export function withoutPlaces<T>(kept: Record<string, T>, sessionIds: number[]): Record<string, T> {
     const gone = new Set(sessionIds.map(String));
-    const keys = Object.keys(scrolls);
-    const kept = keys.filter((key) => !gone.has(key.split("/")[0] ?? key));
-    if (kept.length === keys.length) {
-        return scrolls;
-    }
-    return Object.fromEntries(kept.map((key) => [key, scrolls[key] ?? FOLLOWING]));
+    const entries = Object.entries(kept);
+    const left = entries.filter(([key]) => !gone.has(key.split("/")[0] ?? key));
+    return left.length === entries.length ? kept : Object.fromEntries(left);
 }

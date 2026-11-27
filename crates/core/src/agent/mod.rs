@@ -392,6 +392,16 @@ pub enum AgentEvent {
         /// The next few characters.
         text: String,
     },
+    /// The tokens the turn under way has used so far, across its requests, and which way they
+    /// go now. Published as they change and never stored, like [`AgentEvent::TextDelta`]: the
+    /// turn's end records its totals. A sub-agent's are its own, under [`AgentEvent::Sub`].
+    TurnTokens {
+        /// So far. The output of an answer still coming in is estimated from its length until
+        /// the agent says what it came to.
+        tokens: Tokens,
+        /// Which way they go.
+        phase: TokenPhase,
+    },
     /// The agent calls a tool.
     ToolUse {
         /// Matches the later [`AgentEvent::ToolResult`].
@@ -668,6 +678,10 @@ pub enum AgentEvent {
         /// turns recorded before it was.
         #[serde(default)]
         duration_ms: Option<u64>,
+        /// The tokens the session's own agent used in the turn, its sub-agents' left out.
+        /// Absent where the agent did not say, and from turns recorded before it was kept.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tokens: Option<Tokens>,
     },
     /// The agent process ended. Nothing follows.
     Exited {
@@ -1002,6 +1016,28 @@ impl RemoteState {
             Self::Starting | Self::On | Self::Reconnecting | Self::Paused
         )
     }
+}
+
+/// The tokens a turn used: what the model had to read anew, and what it wrote.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tokens {
+    /// What each request held that the model read anew: all of it but what it read from the
+    /// cache, which every request of a turn sends again.
+    pub input: u64,
+    /// What it wrote: replies, thinking and tool calls.
+    pub output: u64,
+}
+
+/// Which way a running turn's tokens go at the moment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenPhase {
+    /// A request has gone out and nothing of its answer has come back yet: it is being read.
+    Prompt,
+    /// The answer is coming in.
+    Response,
+    /// Between requests: a tool runs, or the turn is about to end.
+    Between,
 }
 
 /// How far along something an agent left running is.

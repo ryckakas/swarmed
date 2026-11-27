@@ -41,6 +41,8 @@ pub enum StatusItem {
     Worktree,
     /// How long the session's agent has worked: its turns added up.
     Duration,
+    /// The tokens the session's agent has used: its turns added up, the running one too.
+    Tokens,
 }
 
 impl StatusItem {
@@ -104,7 +106,7 @@ impl Core {
     ///
     /// The script runs with `sh -c` in the task's worktree and gets a JSON object on standard
     /// input: `session`, `task` and `project`, with the model, cost and context window use
-    /// last reported.
+    /// last reported, and the tokens the last turn used.
     pub async fn status_line(&self, session_id: i64) -> Result<Option<String>> {
         let settings = self.settings()?;
         let command = settings.status_command.trim();
@@ -126,9 +128,11 @@ impl Core {
             Some(AgentEvent::Init { model, .. }) => Some(model),
             _ => session.model.clone(),
         };
-        let cost = match store.latest_event(session_id, "turn_done")? {
-            Some(AgentEvent::TurnDone { cost_usd, .. }) => cost_usd,
-            _ => None,
+        let (cost, turn_tokens) = match store.latest_event(session_id, "turn_done")? {
+            Some(AgentEvent::TurnDone {
+                cost_usd, tokens, ..
+            }) => (cost_usd, tokens),
+            _ => (None, None),
         };
         let context = match store.latest_event(session_id, "context_usage")? {
             Some(AgentEvent::ContextUsage { used, max, .. }) => json!({ "used": used, "max": max }),
@@ -138,7 +142,7 @@ impl Core {
             "session": {
                 "id": session.id, "title": session.title, "agent": session.agent,
                 "model": model, "supervision": session.supervision, "status": session.status,
-                "cost_usd": cost, "context": context,
+                "cost_usd": cost, "context": context, "turn_tokens": turn_tokens,
             },
             "task": { "name": task.name, "branch": task.branch, "worktree": task.worktree_path },
             "project": project.map(|p| json!({ "name": p.name, "repo": p.repo().ok() })),

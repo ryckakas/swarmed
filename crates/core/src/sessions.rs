@@ -145,6 +145,7 @@ impl SessionStatus {
             | AgentEvent::ContextUsage { .. }
             | AgentEvent::TerminalShared { .. }
             | AgentEvent::TextDelta { .. }
+            | AgentEvent::TurnTokens { .. }
             | AgentEvent::RateLimit { .. }
             | AgentEvent::ExtraUsage { .. }
             | AgentEvent::UsageLimits { .. }
@@ -1625,6 +1626,7 @@ impl Core {
             result: Some("the agent was no longer running".to_string()),
             cost_usd: None,
             duration_ms: None,
+            tokens: None,
         };
         self.live.note(&self.store, id, ended)
     }
@@ -2102,11 +2104,16 @@ enum Standing {
 }
 
 /// Whether `event` is only ever shown, and not part of what a session keeps: the pieces of a
-/// reply, whose whole follows; a queue; and what only tells front ends to read something again.
+/// reply, whose whole follows; the tokens a turn has used so far, a sub-agent's too, whose
+/// totals its end records; a queue; and what only tells front ends to read something again.
 fn shown_only(event: &AgentEvent) -> bool {
+    if let AgentEvent::Sub { event, .. } = event {
+        return matches!(**event, AgentEvent::TurnTokens { .. });
+    }
     matches!(
         event,
         AgentEvent::TextDelta { .. }
+            | AgentEvent::TurnTokens { .. }
             | AgentEvent::Queue { .. }
             | AgentEvent::ConfigChanged { .. }
             | AgentEvent::Deleted
@@ -2633,6 +2640,7 @@ impl Live {
                 result,
                 cost_usd,
                 duration_ms,
+                tokens,
             } => {
                 let took = turns
                     .remove(&session_id)
@@ -2642,6 +2650,7 @@ impl Live {
                     result,
                     cost_usd,
                     duration_ms: duration_ms.or(took),
+                    tokens,
                 }
             }
             AgentEvent::Exited { .. } => {
@@ -2937,14 +2946,19 @@ async fn record_and_publish(
 /// Whether an event of a run that another has taken the place of changes nothing and is
 /// dropped: its end, and what it says back. What it reports of Remote Control too, which is
 /// about a connection that went with it: kept, it would stand as the session's latest word
-/// on the one the run in its place has.
+/// on the one the run in its place has. And the tokens its turn used so far, its sub-agents'
+/// too: with that turn's end dropped, nothing would take them off the screen.
 fn dropped_when_late(event: &AgentEvent) -> bool {
+    if let AgentEvent::Sub { event, .. } = event {
+        return matches!(**event, AgentEvent::TurnTokens { .. });
+    }
     matches!(
         event,
         AgentEvent::TurnDone { .. }
             | AgentEvent::Exited { .. }
             | AgentEvent::Heard { .. }
             | AgentEvent::RemoteControl { .. }
+            | AgentEvent::TurnTokens { .. }
     )
 }
 
@@ -3157,6 +3171,30 @@ mod tests {
         assert!(dropped_when_late(&failed));
         assert!(dropped_when_late(&AgentEvent::Heard { text: "hi".into() }));
         assert!(!dropped_when_late(&AgentEvent::Text { text: "hi".into() }));
+    }
+
+    #[test]
+    fn the_tokens_a_turn_has_used_so_far_are_only_shown_a_sub_agents_too() {
+        let so_far = AgentEvent::TurnTokens {
+            tokens: crate::agent::Tokens {
+                input: 1_200,
+                output: 80,
+            },
+            phase: crate::agent::TokenPhase::Response,
+        };
+        let of_sub = |event: AgentEvent| AgentEvent::Sub {
+            parent: "toolu_agent".into(),
+            event: Box::new(event),
+        };
+        assert!(shown_only(&so_far));
+        assert!(shown_only(&of_sub(so_far.clone())));
+        // What a sub-agent says is kept, as ever.
+        let words = of_sub(AgentEvent::Text { text: "hi".into() });
+        assert!(!shown_only(&words));
+        // A run another took the place of says nothing of its turn's tokens.
+        assert!(dropped_when_late(&so_far));
+        assert!(dropped_when_late(&of_sub(so_far)));
+        assert!(!dropped_when_late(&words));
     }
 
     #[test]

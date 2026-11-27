@@ -789,6 +789,7 @@ fn done(is_error: bool, result: Option<&str>) -> AgentEvent {
         result: result.map(String::from),
         cost_usd: Some(0.0),
         duration_ms: None,
+        tokens: None,
     }
 }
 

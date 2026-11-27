@@ -212,6 +212,27 @@ Other agents have no Remote Control. `swarmed session remote-control <id>` does 
 command line for as long as it runs. With `--off` it keeps later runs of the agent from turning
 it on; a session the app has running stays reachable until it is turned off there.
 
+### The tokens a turn uses
+
+While a Claude Code turn runs, the line under it that says what the agent is doing also counts
+the tokens the turn has used so far ("↓ 12.4k tokens"). The arrow says which way they go: up
+while a request goes out and is read, down while its answer comes in, and both ways, still,
+between requests, while a tool runs. Point at it for the two figures apart.
+
+- **What counts:** what each request held that the model read anew, and what it wrote. A turn
+  sends the whole conversation again with every request, most of it read from the cache; that
+  part is left out, or a turn of ten tool calls would count it ten times. A turn's first
+  request after a while, or after Claude Code started, finds no cache, so it counts high.
+- **While an answer comes in,** what it has written is estimated from its length, about four
+  characters a token, until Claude Code says what it came to as the answer ends.
+- **A sub-agent counts on its own,** in its own pane, and is not in its session's count.
+- **When the turn ends,** its line says what it used ("Turn finished in 12s, 3.4k tokens"), and so does
+  `swarmed session send`. The status line's **Tokens** piece adds up the session's turns, the
+  running one too.
+
+Other agents say nothing of the kind while they work: the Agent Client Protocol only proposes
+a count at a turn's end, without saying what its input counts, so they show none.
+
 ## Any other agent
 
 Any agent that speaks the [Agent Client Protocol](https://agentclientprotocol.com) can be added
