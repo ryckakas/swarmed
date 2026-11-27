@@ -5033,9 +5033,16 @@ code {
     font-size: var(--text-xs);
 }
 
+/*
+ * As tall as three waiting messages of three lines, then it scrolls under its head. Never more
+ * than a part of the window either, so the transcript keeps its room whatever waits.
+ */
 .queue-list {
+    max-height: min(9lh + 8 * var(--space-1), 30vh);
     margin: 0;
     padding: var(--space-1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     list-style: none;
 }
 
@@ -5070,9 +5077,17 @@ code {
     background: var(--raised);
 }
 
-/* The words let a press through to the button under them; their links alone take it. */
+/*
+ * The words let a press through to the button under them; their links alone take it. Three
+ * lines of them at most, with an ellipsis: the whole text is in the edit box.
+ */
 .queue-words {
     position: relative;
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
     pointer-events: none;
 }
 
@@ -5152,9 +5167,11 @@ code {
     color: var(--text);
 }
 
+/* Eight lines at most, as it opens and as it is dragged, then it scrolls inside itself. */
 .queue-edit {
     display: block;
     width: 100%;
+    max-height: calc(8lh + 2 * var(--space-1) + 2px);
     padding: var(--space-1) var(--space-2);
     border: 1px solid var(--focus);
     border-radius: 8px;
