@@ -7,10 +7,12 @@ import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import type { MathShown } from "../api/types";
+import { copiedText, textOf } from "../codeText";
 import { HTML_LANGUAGE, splitPendingView, VIEW_LANGUAGE } from "../htmlview";
 import { ISSUE_SCHEMA } from "../issueHtml";
 import { KATEX_OPTIONS, mathText, REMARK_MATH_OPTIONS, remarkMathAlone } from "../math";
 import { useStore } from "../store";
+import { Copyable } from "./Copyable";
 import { HtmlView, ViewPending } from "./HtmlView";
 import { Link } from "./Link";
 
@@ -85,21 +87,37 @@ export function AgentMarkdown({ text, math, views }: AgentProps) {
     );
 }
 
-/** The text inside rendered Markdown, however deeply it is wrapped. */
-function textOf(node: ReactNode): string {
-    if (typeof node === "string" || typeof node === "number") {
-        return String(node);
-    }
-    if (Array.isArray(node)) {
-        return node.map(textOf).join("");
-    }
-    return isValidElement<{ children?: ReactNode }>(node) ? textOf(node.props.children) : "";
+type PreProps = ComponentProps<"pre"> & { node?: unknown };
+
+/**
+ * A code block, with a button that copies its code as written (`copiedText`). Every block in
+ * text drawn here goes through it, whatever the settings say of views. A long line scrolls it
+ * sideways, so it is a stop for the keyboard, which scrolls it, just before its button.
+ */
+function CodeBlock({ children, node: _node, ...rest }: PreProps) {
+    return (
+        <Copyable text={copiedText(children)}>
+            {/* biome-ignore lint/a11y/useSemanticElements: the box that scrolls is the pre, which keeps the code's spaces */}
+            <pre
+                {...rest}
+                role="region"
+                aria-label="Code"
+                // biome-ignore lint/a11y/noNoninteractiveTabindex: WebKit gives a box that scrolls no stop of its own
+                tabIndex={0}
+            >
+                {children}
+            </pre>
+        </Copyable>
+    );
 }
 
-/** A code block: shown as a view if it is marked as one, else as the code it is. */
-function Pre({ children, node: _node, ...rest }: ComponentProps<"pre"> & { node?: unknown }) {
-    const code = isValidElement<{ className?: string; children?: ReactNode }>(children)
-        ? children
+/**
+ * A code block where views are on: shown as a view if it is marked as one, which is no code to
+ * copy, else as the code it is.
+ */
+function Pre(props: PreProps) {
+    const code = isValidElement<{ className?: string; children?: ReactNode }>(props.children)
+        ? props.children
         : null;
     const classes = code?.props.className?.split(" ") ?? [];
     if (code && classes.includes(`language-${VIEW_LANGUAGE}`)) {
@@ -108,11 +126,11 @@ function Pre({ children, node: _node, ...rest }: ComponentProps<"pre"> & { node?
     if (code && classes.includes(`language-${HTML_LANGUAGE}`)) {
         return (
             <HtmlCode html={textOf(code.props.children)}>
-                <pre {...rest}>{children}</pre>
+                <CodeBlock {...props} />
             </HtmlCode>
         );
     }
-    return <pre {...rest}>{children}</pre>;
+    return <CodeBlock {...props} />;
 }
 
 /**
@@ -146,7 +164,25 @@ function ImageLink({ src, alt }: ComponentProps<"img"> & { node?: unknown }) {
     return <Link href={src}>[{said}]</Link>;
 }
 
-const COMPONENTS = { a: Link };
+/**
+ * A table, in a box that scrolls sideways when the table is wider than the text around it, so
+ * that the transcript never does, and a stop for the keyboard, which scrolls it. The table
+ * itself stays a table, as screen readers read one.
+ */
+function Table({ node: _node, ...rest }: ComponentProps<"table"> & { node?: unknown }) {
+    return (
+        <section
+            className="prose-table"
+            aria-label="Table"
+            // biome-ignore lint/a11y/noNoninteractiveTabindex: WebKit gives a box that scrolls no stop of its own
+            tabIndex={0}
+        >
+            <table {...rest} />
+        </section>
+    );
+}
+
+const COMPONENTS = { a: Link, table: Table, pre: CodeBlock };
 const VIEW_COMPONENTS = { ...COMPONENTS, pre: Pre };
 const UNTRUSTED_COMPONENTS = { ...COMPONENTS, img: ImageLink };
 

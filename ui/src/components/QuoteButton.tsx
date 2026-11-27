@@ -136,8 +136,8 @@ function spotIn(frame: HTMLElement): Spot | null {
 
 /**
  * Where the Quote button stands, following the selection: placed again when it changes, when
- * the pointer is let go after selecting, and when the transcript scrolls. Not while the pointer
- * is held, so that it does not chase a selection being made.
+ * the pointer is let go after selecting, and when the transcript or a box in it scrolls. Not
+ * while the pointer is held, so that it does not chase a selection being made.
  */
 function useSpot(frame: RefObject<HTMLDivElement | null>, scroller: RefObject<HTMLElement | null>) {
     const [spot, setSpot] = useState<Spot | null>(null);
@@ -155,15 +155,18 @@ function useSpot(frame: RefObject<HTMLDivElement | null>, scroller: RefObject<HT
             place();
         };
         const scrolling = scroller.current;
+        // Caught on the way down, so that a box inside the transcript scrolling sideways (a
+        // table, a code block, a formula) places it again too: a scroll does not bubble up.
+        const watch = { passive: true, capture: true };
         document.addEventListener("selectionchange", place);
         document.addEventListener("pointerdown", onDown);
         document.addEventListener("pointerup", onUp);
-        scrolling?.addEventListener("scroll", place, { passive: true });
+        scrolling?.addEventListener("scroll", place, watch);
         return () => {
             document.removeEventListener("selectionchange", place);
             document.removeEventListener("pointerdown", onDown);
             document.removeEventListener("pointerup", onUp);
-            scrolling?.removeEventListener("scroll", place);
+            scrolling?.removeEventListener("scroll", place, watch);
         };
     }, [frame, scroller]);
     return spot;

@@ -164,3 +164,13 @@ export function PickIcon() {
 export function PowerIcon() {
     return <path d="M8 2v6M5 4.2a5 5 0 1 0 6 0" />;
 }
+
+/** Two sheets, one in front of the other: a copy. */
+export function CopyIcon() {
+    return (
+        <>
+            <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+            <path d="M10.5 3.5V3A1.5 1.5 0 0 0 9 1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5" />
+        </>
+    );
+}

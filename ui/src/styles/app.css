@@ -209,6 +209,30 @@ code {
     padding: var(--space-2) 0 var(--space-6);
 }
 
+/*
+ * The rows draw some things shorter the narrower the sidebar is (#500), by the room they have:
+ * this one's width, which a scroll bar that takes room leaves out. The scroller's own width as a
+ * container would count the scroll bar in.
+ *
+ * The steps are measured in its `em`, made of what a row's room goes to where they start, in
+ * the shares measured there: icons and buttons for the most part, which a layout enlarges more
+ * than its text (`--icon-zoom`), then spacing, and a little text. That is 13px in classic, the
+ * text's size, and 16.9px in senior, so the same steps hold in both and follow a custom
+ * layout's icons and spacing. Icons smaller or spacing tighter than classic's count as
+ * classic's, since they save little room there, and it is never smaller than the text. The
+ * rows themselves are set at the text's size again.
+ */
+.sidebar-rows {
+    --rows-icons: calc(9.1px * max(var(--icon-zoom, 1), 1));
+    --rows-spacing: calc(0.3 * max(var(--space-2), 8px));
+    container: sidebar / inline-size;
+    font-size: max(var(--text-sm), 0.1 * var(--text-sm) + var(--rows-icons) + var(--rows-spacing));
+}
+
+.sidebar-rows > * {
+    font-size: var(--text-sm);
+}
+
 /* With the task panel open the window has a third column. */
 .app:has(> .task-panel) {
     /* As wide as asked for, as long as the conversation keeps a readable width. */
@@ -1403,8 +1427,10 @@ code {
     border-top: 1px solid var(--line);
 }
 
+/* Starts from what its name keeps (`.project-title`), and shrinks only when nothing else can. */
 .project-name {
-    flex: 1;
+    flex: 1 1 auto;
+    width: min-content;
     min-width: 0;
     color: var(--sidebar-repository-colour, var(--bright));
     /* Halfway between the app's text and what stands out a little: 14px in classic. */
@@ -1413,7 +1439,11 @@ code {
     letter-spacing: 0.01em;
 }
 
-/* The repository's name folds its tasks away and brings them back. */
+/*
+ * The repository's name folds its tasks away and brings them back. It cuts what it holds short,
+ * as a task's does: pointed at in a narrow sidebar, its name gives its room to the buttons
+ * after it, and must not be drawn over them.
+ */
 .project-toggle {
     display: flex;
     align-items: center;
@@ -1426,10 +1456,23 @@ code {
     font: inherit;
     letter-spacing: inherit;
     text-align: left;
+    overflow: hidden;
 }
 
-.project-title {
-    min-width: 0;
+/*
+ * A repository's or a task's name keeps a few characters and its ellipsis, and grows to its
+ * whole length where there is room (#500). Its heading (`.project-name`, `.task-name`) starts
+ * from as wide as its icons and those few characters, and is the one thing on the row that
+ * shrinks: what follows it gives way first, in a narrow sidebar step by step (below), and
+ * only when nothing more can does the name go below those few characters, so that the row is
+ * never wider than the sidebar. While the row is pointed at, the buttons that show then take
+ * the name's room, all of it if need be, as since #492: the user is at that row, and its
+ * title names it.
+ */
+:is(.project-title, .task-title) {
+    flex: 1 0 auto;
+    width: 4ch;
+    max-width: max-content;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1551,6 +1594,7 @@ code {
 }
 
 .row-head:hover .row-note,
+.row-head:focus-within .row-note,
 .row-note:focus-visible {
     opacity: 1;
 }
@@ -1630,6 +1674,18 @@ code {
 
 .row-head:not(:hover, :focus-within) .row-highlight:not([aria-expanded="true"]),
 .session-line:not(:hover, :focus-within) .row-highlight:not([aria-expanded="true"]) {
+    display: none;
+}
+
+/*
+ * So do the other buttons that only matter under the pointer: the pin of a row not pinned, and
+ * a repository's or a task's note with nothing in it, its cloud, issues and environments (#500).
+ * A pinned row's pin and a note that holds something stay, as what they say. Each is still a
+ * tab stop with its name: Tab reaches the row's name first, which brings them back.
+ */
+.row-head:not(:hover, :focus-within) .row-note:not([data-has="true"]),
+.row-head:not(:hover, :focus-within) .row-pin:not([data-pinned="true"]),
+.session-line:not(:hover, :focus-within) .row-pin:not([data-pinned="true"]) {
     display: none;
 }
 
@@ -1726,14 +1782,10 @@ code {
     stroke-linejoin: round;
 }
 
-.task-title {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
+/* Starts from what its name keeps (`.task-title`), and shrinks only when nothing else can. */
 .task-name {
-    flex: 1;
+    flex: 1 1 auto;
+    width: min-content;
     min-width: 0;
     color: var(--sidebar-task-colour, var(--text));
     font-family: var(--font-mono);
@@ -1758,7 +1810,13 @@ code {
     overflow: hidden;
 }
 
+/* Shares the room with the name as the name does (`.task-title`), down to a few characters. */
 .task-flag {
+    flex: 1 0 auto;
+    width: 3ch;
+    max-width: max-content;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--clay);
     font-family: var(--font-ui);
 }
@@ -1834,6 +1892,195 @@ code {
     stroke-width: 1.4;
 }
 
+/*
+ * In a narrow sidebar a task's row draws what it shows shorter, step by step, so that its name
+ * keeps a few characters and its + its column (#500). Each step holds from where it starts down
+ * to the narrowest sidebar, and where one step starts, every step before it holds too:
+ *   1. the pull request's badge leaves out its #: the number and its colour stay;
+ *   2. the task's icon goes: the chevron still folds it, and its group says what kind it is;
+ *   3. the issue's badge leaves out its number: the ring stays, and opens the issue;
+ *   4. on a row with badges, a pinned pin and a note that holds something take no room until
+ *      the row is pointed at or focused, as the buttons that only matter there already do.
+ * What is left out is still in each one's name and title. The browser's badge, work left
+ * running, never goes. The widths are in the rows' own `em` (`.sidebar-rows`): in classic,
+ * 19.5em is 254px of room, in senior 329px.
+ */
+@container sidebar (max-width: 19.5em) {
+    .pull-hash {
+        display: none;
+    }
+
+    .pull-badge {
+        padding-inline: 3px;
+    }
+}
+
+@container sidebar (max-width: 18.6em) {
+    .task > .row-head .row-icon {
+        display: none;
+    }
+}
+
+@container sidebar (max-width: 17.25em) {
+    .issue-number {
+        display: none;
+    }
+
+    .issue-badge {
+        padding-inline: 3px;
+    }
+
+    .task
+        > .row-head:has(.issue-badge, .pull-badge):not(:hover, :focus-within)
+        :is(.row-pin[data-pinned="true"], .row-note[data-has="true"]) {
+        display: none;
+    }
+}
+
+/*
+ * Pointed at or focused, a row shows the buttons that only matter then, and its name gives
+ * them its room first. In a narrow sidebar that is not enough beside a task's badges, or
+ * beside a session's mark, continuation or parent: then these take no room even so, in this
+ * order (#500):
+ *   on a task with badges, its cloud below 19.5em, then a note with nothing in it below 16.5em;
+ *   on a session with one of those, its pin while not pinned below 17.25em; with two, that pin
+ *   and its highlight below 19.5em.
+ * A pinned pin stays, as what it says: the session's title gives it its room, short of the
+ * narrowest line with all three of those (below). Each that goes is still a tab stop with its
+ * name, out of sight, and shows over the start of the name (`--over-name`, in the button's own
+ * units) while it has the keyboard, or its palette is open. With the pointer they are reached
+ * otherwise: ⌘D pins and ⌘⇧H highlights the open session or the focused row, ⌘⇧N opens the
+ * note of the open session's task, and the session's header hands work to the cloud.
+ */
+.row-head {
+    --over-name: calc((2 * var(--space-2) + 13px * var(--icon-zoom, 1)) / var(--button-zoom, 1));
+}
+
+/* A session's title starts after where its row starts, its tendril if it is nested, its status
+   and their gap (`.session-row`), however deep it is. */
+.session-line {
+    --over-name: calc(
+        (var(--row-start) + var(--row-tendril) + var(--row-status) + var(--space-2)) /
+        var(--button-zoom, 1)
+    );
+}
+
+@container sidebar (max-width: 19.5em) {
+    .task > .row-head:has(.issue-badge, .pull-badge) .row-cloud {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: var(--over-name);
+        z-index: 1;
+        margin-block: auto;
+    }
+
+    .task > .row-head:has(.issue-badge, .pull-badge) .row-cloud:not(:focus-visible) {
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+}
+
+@container sidebar (max-width: 16.5em) {
+    .task > .row-head:has(.issue-badge, .pull-badge) .row-note:not([data-has="true"], .row-cloud) {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: var(--over-name);
+        z-index: 1;
+        margin-block: auto;
+    }
+
+    .task
+        > .row-head:has(.issue-badge, .pull-badge)
+        .row-note:not([data-has="true"], .row-cloud, :focus-visible) {
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+}
+
+@container sidebar (max-width: 17.25em) {
+    .session-line:has(.session-mark, .session-continues, .parent-link)
+        .row-pin:not([data-pinned="true"]) {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: var(--over-name);
+        z-index: 1;
+        margin-block: auto;
+    }
+
+    .session-line:has(.session-mark, .session-continues, .parent-link)
+        .row-pin:not([data-pinned="true"], :focus-visible) {
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+}
+
+@container sidebar (max-width: 19.5em) {
+    .session-line:is(
+            :has(.session-mark):has(.session-continues, .parent-link),
+            :has(.session-continues):has(.parent-link)
+        )
+        :is(.row-pin:not([data-pinned="true"]), .row-highlight) {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: var(--over-name);
+        z-index: 1;
+        margin-block: auto;
+    }
+
+    .session-line:is(
+            :has(.session-mark):has(.session-continues, .parent-link),
+            :has(.session-continues):has(.parent-link)
+        )
+        :is(.row-pin:not([data-pinned="true"]), .row-highlight):not(
+            :focus-visible,
+            [aria-expanded="true"]
+        ) {
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+
+    /* Placed by the line, so that its palette still opens under the line's end. */
+    .session-line:is(
+            :has(.session-mark):has(.session-continues, .parent-link),
+            :has(.session-continues):has(.parent-link)
+        )
+        .highlight-wrap {
+        position: static;
+    }
+}
+
+/*
+ * With all three beside it, whom it works for, a mark and a continuation, the narrowest line
+ * has no room even for a pinned pin once its title is gone: that one goes out of sight too,
+ * as the others do, and ⌘D or Tab still reach it.
+ */
+@container sidebar (max-width: 15.5em) {
+    .session-line:has(.session-mark):has(.session-continues):has(.parent-link)
+        .row-pin[data-pinned="true"] {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: var(--over-name);
+        z-index: 1;
+        margin-block: auto;
+    }
+
+    .session-line:has(.session-mark):has(.session-continues):has(.parent-link)
+        .row-pin[data-pinned="true"]:not(:focus-visible) {
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+    }
+}
+
 .hint {
     padding: 2px var(--space-4) 2px 49px;
     color: var(--faint);
@@ -1904,6 +2151,8 @@ code {
    colour the layout gives sessions is theirs whatever they are doing; one that waits on you,
    or has an answer you have not read, is still drawn at least as heavy as the signal needs. */
 .session-line {
+    /* Its status, before its title (`.session-row`, `--over-name`). */
+    --row-status: calc(13px * var(--icon-zoom, 1));
     display: flex;
     align-items: center;
     /* The bar that turns pollen when a session needs you; transparent holds its place. */
@@ -1935,15 +2184,25 @@ code {
     font-weight: max(600, var(--sidebar-session-weight, 400));
 }
 
+/*
+ * As wide as it takes to show a few characters of its title and an ellipsis, and as much wider
+ * as the line has room for (#500). Short of room, a mark gives way first (`.session-mark`,
+ * which shrinks a thousand times as fast); only once it is down to its colour does the title
+ * go below those few characters, so that the line is never wider than the sidebar. That width
+ * is added up from the parts before the title, since the container leaves its content out of
+ * its size: where it starts (`--row-start`, set in for a nested one), its status, a nested
+ * one's tendril (`--row-tendril`), and their gaps, which its list sets (`.sessions > li`).
+ */
 .session-row {
     /* Its role's chip goes when it is too narrow for it (`.role-chip`). */
     container: session-row / inline-size;
-    flex: 1;
+    flex: 1 1
+        calc(var(--row-start) + var(--row-tendril) + var(--row-status) + 2 * var(--space-2) + 4ch);
     min-width: 0;
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 5px var(--space-2) 5px 9px;
+    padding: 5px var(--space-2) 5px var(--row-start);
     border: 0;
     background: none;
     color: inherit;
@@ -1992,10 +2251,15 @@ code {
     white-space: nowrap;
 }
 
-/* A mark on a session: a colour an agent or the user gave it, and a few words if it has any. */
+/*
+ * A mark on a session: a colour an agent or the user gave it, and a few words if it has any.
+ * Short of room, its words give way before the title's last few characters do, down to the
+ * colour alone (#500); its words stay in its title and its name.
+ */
 .session-mark {
     --mark: var(--muted);
-    flex: none;
+    flex: 0 1000 auto;
+    min-width: calc(14px + 7px * var(--icon-zoom, 1));
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
@@ -2040,6 +2304,29 @@ code {
     font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     line-height: 1.4;
+}
+
+/*
+ * In a narrow sidebar the clock alone, and sooner beside a mark or whom the session works for:
+ * the time is in its title and its name (#500). At the narrowest, a pinned pin on such a line
+ * takes no room until the line is pointed at or focused, as a task's does beside its badges;
+ * then it shows, and the title gives it its room.
+ */
+@container sidebar (max-width: 22em) {
+    .session-line:has(.session-mark, .parent-link) .session-continues > span {
+        display: none;
+    }
+}
+
+@container sidebar (max-width: 17.25em) {
+    .session-continues > span {
+        display: none;
+    }
+
+    .session-line:has(.session-mark, .session-continues, .parent-link):not(:hover, :focus-within)
+        .row-pin[data-pinned="true"] {
+        display: none;
+    }
 }
 
 .session-continues:hover,
@@ -2225,8 +2512,21 @@ code {
     fill: currentColor;
 }
 
-/* In the sidebar the marks form a column at the rows' right edge. */
-.session-row .provider-mark {
+/*
+ * In the sidebar the marks form a column at the rows' right edge: a session's is the last thing
+ * on its row before what shows on approach, after whom it works for, its mark and its
+ * continuation. As tall as the row, so a press above or below the icon opens the session too.
+ */
+.row-agent {
+    flex: none;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    margin-right: var(--space-2);
+    cursor: pointer;
+}
+
+.row-agent .provider-mark {
     opacity: 0.85;
 }
 
@@ -2332,9 +2632,36 @@ code {
     stroke: var(--muted);
 }
 
-/* A session sits under the one it works for, one step in per level, down to the deepest drawn. */
-.sessions li[data-nested="true"] .session-row {
-    padding-left: calc(9px + var(--space-4) * var(--depth, 1));
+/*
+ * A session sits under the one it works for, one step in per level, down to the deepest drawn.
+ * In a narrow sidebar the steps are shorter, so that a deep one still has room for its title.
+ */
+.sessions {
+    --nest-step: var(--space-4);
+}
+
+@container sidebar (max-width: 19.5em) {
+    .sessions {
+        --nest-step: var(--space-2);
+    }
+}
+
+@container sidebar (max-width: 15.5em) {
+    .sessions {
+        --nest-step: var(--space-1);
+    }
+}
+
+/* Where a session's title starts, which its line and its row both read (`.session-row`,
+   `--over-name`): set in by its depth, after a nested one's tendril. */
+.sessions > li {
+    --row-start: 9px;
+    --row-tendril: 0px;
+}
+
+.sessions > li[data-nested="true"] {
+    --row-start: calc(9px + var(--nest-step) * var(--depth, 1));
+    --row-tendril: calc(11px * var(--icon-zoom, 1) + var(--space-2));
 }
 
 /* What a session is for, short, after its title: quiet, so the title stays what reads first. */
@@ -2350,8 +2677,10 @@ code {
 }
 
 /* A row too narrow for its title and the chip, nested deep or in a narrow sidebar, keeps the
-   title: the chip goes, and the role is still in the session's header. */
-@container session-row (max-width: 15em) {
+   title: the chip goes, and the role is still in the session's header. Measured on the row's
+   button, which the agent's icon comes after: 13.4em there is 15em with the icon and its gap
+   in classic (21px there, 1.6em at the row's size). */
+@container session-row (max-width: 13.4em) {
     .role-chip {
         display: none;
     }
@@ -2382,9 +2711,16 @@ code {
     cursor: default;
 }
 
+/* In a narrow sidebar its number alone: its title and its name still say whom it works for. */
+@container sidebar (max-width: 17.25em) {
+    .parent-for {
+        display: none;
+    }
+}
+
 /* Sub-agents an agent has at work: under their session, set in, and gone when they are done. */
 .sub-agents {
-    margin: 0 0 2px calc(9px + var(--space-4));
+    margin: 0 0 2px calc(9px + var(--nest-step, var(--space-4)));
     padding: 0;
     list-style: none;
     border-left: 1px dashed var(--line);
@@ -2392,7 +2728,7 @@ code {
 
 /* Under a session set in itself, as far in again. */
 .sessions li[data-nested="true"] > .sub-agents {
-    margin-left: calc(9px + var(--space-4) * (var(--depth, 1) + 1));
+    margin-left: calc(9px + var(--nest-step) * (var(--depth, 1) + 1));
 }
 
 .sub-agent-row {
@@ -3789,10 +4125,15 @@ code {
     font-weight: 600;
 }
 
+/*
+ * A word breaks inside itself only where it would overflow the line. Not `anywhere`, which
+ * counts a break between any two letters when a table sizes its columns, so that a narrow
+ * column was squeezed until its short words broke in the middle (#477).
+ */
 .prose {
     font-size: var(--text-md);
     line-height: 1.55;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
 }
 
 .prose > * + * {
@@ -3981,6 +4322,88 @@ code {
     overflow-x: auto;
 }
 
+/*
+ * A code block, or a tool call's body, with the button that copies it in its top right corner.
+ * The button floats over the block, outside the part that scrolls, so it stays in the corner of
+ * what is seen and never moves a line. Out of sight until the block is pointed at or the
+ * keyboard reaches the button, and for a moment after a press, while it says what came of it.
+ */
+.copyable {
+    position: relative;
+}
+
+.copy-corner {
+    position: absolute;
+    top: var(--space-1);
+    /* Clear of the block's scroll bar, where one takes room (`Copyable`). */
+    right: calc(var(--space-1) + var(--bar, 0px));
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    opacity: 0;
+    user-select: none;
+}
+
+.copyable:hover > .copy-corner,
+.copy-corner:focus-within,
+.copy-corner[data-said] {
+    opacity: 1;
+}
+
+.copy-button {
+    display: grid;
+    place-items: center;
+    padding: var(--space-1);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--muted);
+}
+
+.copy-button:hover,
+.copy-button:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.copy-button svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.copy-said {
+    padding: 1px var(--space-2);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--muted);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    line-height: 1.4;
+}
+
+.copy-said:empty {
+    display: none;
+}
+
+.copy-corner[data-said="refused"] .copy-said {
+    color: var(--clay);
+}
+
+/*
+ * A table's column is as wide as its longest word, so a long path can make the table wider
+ * than the reply: then it scrolls sideways in a box of its own (`Table` in `Markdown.tsx`),
+ * and the transcript never does.
+ */
+.prose-table {
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
 .prose table {
     border-collapse: collapse;
 }
@@ -4130,6 +4553,16 @@ code {
     max-height: 24em;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+/* A call's body with its copy button: the box takes the body's margins, so the button sits in
+   the body's corner. */
+.tool-copyable {
+    margin: 0 var(--space-3) var(--space-2);
+}
+
+.tool-copyable > .tool-body {
+    margin: 0;
 }
 
 .aside,
@@ -4787,7 +5220,7 @@ code {
     gap: 2px;
 }
 
-.html-code pre {
+.html-code > .copyable {
     justify-self: stretch;
 }
 

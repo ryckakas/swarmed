@@ -45,6 +45,12 @@ notice adds its line under Unreleased.
   (`role_defaults`) starts every new session with a role on them, such as a reviewer on Fable
   at medium effort, whoever starts it: you or an agent. A model or effort chosen for the
   session wins. Agents cannot change these.
+- **Code blocks and tool calls can be copied with one press.** Pointing at a code block in an
+  agent's reply, a plan, a sub-agent's conversation or an issue shows a copy button in its top
+  right corner, which the keyboard reaches with Tab too. It copies the code as written: no
+  fence, no language name, no colours, and no newline left at its end. An opened tool call's
+  input and result have the same button. It says **Copied** for a moment, or that the copy did
+  not go through, and pressing it selects nothing, so the Quote button stays away.
 
 ### Fixed
 
@@ -52,6 +58,28 @@ notice adds its line under Unreleased.
   from the command line for a session whose agent runs in the app is passed on to that agent
   within a second, as a change in the session's header would be, and the command says whether it
   was passed on or is taken when the agent next starts.
+- **Tables in replies no longer break short words in the middle.** A column of a table in an
+  agent's reply, a plan or an issue is at least as wide as its longest word, so a heading such
+  as `Task` or a name in code such as `own-links` breaks only at a space or a hyphen. A table
+  wider than the conversation, such as one with a long path in it, scrolls sideways on its own,
+  and the conversation does not. A long address in a sentence still breaks at the edge of the
+  line.
+- **A session's agent icon is the last thing on its row in the sidebar.** It comes after whom
+  the session works for ("for #123"), its mark and its time to go on by itself, so the icons of
+  a task's sessions stand in one column, and a role sits right beside "for #123". A press on the
+  icon still opens the session.
+- **A narrow sidebar no longer scrolls sideways, and every name keeps a few letters.** The
+  buttons a row shows only under the pointer (pin, note, cloud, issues, environments) take no
+  room until it is pointed at or reached with Tab, in classic as in senior. The narrower the
+  sidebar, the shorter a row draws what follows its name, step by step: a pull request's number
+  without its #, then no task icon, then an issue's ring without its number, then a pinned pin
+  and a filled note that wait for the pointer; a session's mark shortens its words, and its time
+  to go on shows only its clock. Pointed at in a sidebar narrower than its default, a task's row
+  with badges leaves out its cloud and then an empty note, and a session's row beside a mark,
+  its time to go on or "for #123" leaves out its pin, unless it is pinned, and then its
+  highlight. Tab still reaches each of them, and so do shortcuts: ⌘D pins, ⌘⇧H highlights, ⌘⇧N
+  opens the task's note, and the session's header hands work to the cloud. Every + stays in
+  one column, and a pinned session's pin now stands before its agent icon, so the icons do too.
 
 ## [0.4.9] - 2026-11-27
 
