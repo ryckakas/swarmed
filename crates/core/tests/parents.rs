@@ -255,6 +255,45 @@ async fn a_session_started_from_a_shell_is_held_to_what_its_starter_may_start() 
 }
 
 #[tokio::test]
+async fn a_session_started_from_a_shell_is_its_starter_s_to_close_and_one_the_user_set_is_not() {
+    let fx = fixture();
+    let core = core_with_tasks(&fx).await;
+    let not_yours = |result: Result<(), Error>| {
+        assert!(
+            matches!(result, Err(Error::Peers(ref reason)) if reason.contains("not yours")),
+            "{result:?}"
+        );
+    };
+    let agent = new_session(&core, "one");
+    // One the user started and set to work for the agent stays the user's.
+    let users = new_session(&core, "two");
+    core.session_set_parent(users.id, Some(agent.id))
+        .expect("works for it");
+    not_yours(core.peer_close(agent.id, users.id));
+
+    // One its agent started from its shell is its own, moved away and back or not.
+    let started = new_session(&core, "two");
+    core.session_parent_from_start(started.id, agent.id)
+        .expect("works for it");
+    let other = new_session(&core, "one");
+    core.session_set_parent(started.id, Some(other.id))
+        .expect("moved");
+    not_yours(core.peer_close(other.id, started.id));
+    not_yours(core.peer_close(agent.id, started.id));
+    core.session_set_parent(started.id, Some(agent.id))
+        .expect("moved back");
+    core.peer_close(agent.id, started.id).expect("closes it");
+    assert_eq!(
+        core.sessions_closed("demo", "two")
+            .expect("lists")
+            .iter()
+            .map(|session| session.id)
+            .collect::<Vec<_>>(),
+        [started.id]
+    );
+}
+
+#[tokio::test]
 async fn a_deleted_parent_leaves_those_that_worked_for_it_with_none() {
     let fx = fixture();
     let core = core_with_tasks(&fx).await;
