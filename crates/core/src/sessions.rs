@@ -1269,11 +1269,12 @@ impl Core {
     ) -> Result<(SessionSpec, RepoloreUse)> {
         let settings = self.settings()?;
         let mut mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
-        let own = self.own_mcp_servers()?;
+        let mut own = self.own_mcp_servers()?;
+        // Before any is left out by name, so that every other repolore is seen.
+        let repolore = self.repolore_use(&session.agent, &task, &mcp_servers, &mut own);
         // One set up here goes before another agent's of the same name.
         mcp_servers.retain(|shared| own.iter().all(|server| server.name != shared.name));
         mcp_servers.extend(own);
-        let repolore = self.repolore_use(&session.agent, &task, &mcp_servers);
         // The user's own browser servers act on the task's browser, through the session's
         // address, which its agent and what it runs also find in a variable.
         let browser = self.browser_for_agent(&session, &task, &mut mcp_servers);
@@ -2381,12 +2382,10 @@ impl Live {
         self.commands.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The sessions whose agent runs here on a repolore other than the built-in, by id.
-    pub(crate) fn holding_repolore(&self) -> Vec<i64> {
+    /// The sessions whose agent runs here on `repolore`, by id, oldest first.
+    pub(crate) fn running_on(&self, repolore: RepoloreUse) -> Vec<i64> {
         let commands = self.commands();
-        let held = commands
-            .iter()
-            .filter(|(_, run)| run.repolore == RepoloreUse::Elsewhere);
+        let held = commands.iter().filter(|(_, run)| run.repolore == repolore);
         let mut ids: Vec<i64> = held.map(|(id, _)| *id).collect();
         ids.sort_unstable();
         ids

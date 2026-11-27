@@ -10,10 +10,13 @@
 //! - `repolore version`: `repolore X.Y.Z` on the first line. Every version answers it, so it
 //!   is what tells whether the rest can be asked.
 //! - `repolore doctor --json [--offline]`: one JSON object on stdout, whatever the exit code.
-//!   It is read leniently: a field that is missing, or not of the kind expected, counts as
-//!   empty, and one Swarmed does not know is passed over. `--offline` asks neither GitHub nor
-//!   `claude mcp get`; the registrations are still read from their files.
+//!   It counts as an answer only with its `checks` and `registrations` as lists: an object
+//!   without them would read as nothing in the way. Past that it is read leniently: a field
+//!   that is missing, or not of the kind expected, counts as empty, and one Swarmed does not
+//!   know is passed over. `--offline` asks neither GitHub nor `claude mcp get`; the
+//!   registrations are still read from their files.
 //! - `repolore server status --json`: the shared server of a home, the `server` of the doctor.
+//!   It counts as an answer only with `running` true or false.
 //! - `repolore copy <folder>`: a copy of the user's setup in an empty folder, or why not on
 //!   the last line of its error output. It cleans up after itself, and has no time limit.
 //! - `repolore session-start --hours 12`: a refresh in the background. It returns at once.
@@ -157,14 +160,21 @@ impl Repolore {
             (&["doctor", "--json", "--offline"], OFFLINE_LIMIT)
         };
         let said = self.ask(home, args, limit).await?;
-        serde_json::from_str(said.out.trim()).map_err(|_| unread("doctor --json", &said))
+        let lists = |answer: &Value| {
+            let list = |key| answer.get(key).is_some_and(Value::is_array);
+            list("checks") && list("registrations")
+        };
+        let asked = "doctor --json";
+        read_answer(&said, asked, "its checks and registrations", lists)
     }
 
     /// How the shared server of `home` stands.
     pub(crate) async fn server_status(&self, home: Home<'_>) -> Result<ServerStatus, String> {
         let args = ["server", "status", "--json"];
         let said = self.ask(home, &args, QUICK_LIMIT).await?;
-        serde_json::from_str(said.out.trim()).map_err(|_| unread("server status --json", &said))
+        let running = |answer: &Value| answer.get("running").is_some_and(Value::is_boolean);
+        let asked = "server status --json";
+        read_answer(&said, asked, "whether its server runs", running)
     }
 
     /// Copies the user's own setup into `folder`, which has to be empty or not there yet. The
@@ -239,8 +249,23 @@ fn unread(asked: &str, said: &Said) -> String {
     }
 }
 
+/// What `said` printed as the answer to `asked`, if it is JSON that `answers`: else why not,
+/// naming `wanted`, what it lacks.
+fn read_answer<T: DeserializeOwned>(
+    said: &Said,
+    asked: &str,
+    wanted: &str,
+    answers: impl Fn(&Value) -> bool,
+) -> Result<T, String> {
+    let answer: Value = serde_json::from_str(said.out.trim()).map_err(|_| unread(asked, said))?;
+    if !answers(&answer) {
+        return Err(format!("`repolore {asked}` answered without {wanted}"));
+    }
+    serde_json::from_value(answer).map_err(|_| unread(asked, said))
+}
+
 /// A field as it is, or empty if it is not of the kind expected.
-fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
+pub(crate) fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(
     deserializer: D,
 ) -> Result<T, D::Error> {
     let value = Value::deserialize(deserializer)?;
@@ -421,7 +446,7 @@ impl Page {
         &self.address
     }
 
-    /// Ends it, with whatever it started.
+    /// Ends it, with whatever it started, if it still runs.
     pub(crate) fn end(self) {
         end(self.child);
     }
@@ -451,8 +476,12 @@ fn first_line(stdout: ChildStdout) -> mpsc::Receiver<String> {
 
 /// Ends a process that leads a group of its own, with everything in the group: asked first,
 /// then killed if it has not gone after a moment. Waited for on a thread of its own, so that
-/// nothing waits here.
-fn end(child: Child) {
+/// nothing waits here. One that has gone already is sent nothing: its id may be another's by
+/// now.
+fn end(mut child: Child) {
+    if !matches!(child.try_wait(), Ok(None)) {
+        return;
+    }
     let group = format!("-{}", child.id());
     signal("-TERM", &group);
     drop(std::thread::spawn(move || wind_down(child, &group)));
@@ -523,7 +552,8 @@ mod tests {
             "checks": [
                 {"name": "config", "ok": true, "warning": false, "detail": "fine", "fix": null},
                 "not a check",
-                {"name": "model", "ok": true, "warning": true, "detail": "slow"}
+                {"name": "model", "ok": true, "warning": true, "detail": "slow"},
+                {"name": "github", "ok": false, "warning": false, "detail": 404, "fix": ["x"]}
             ],
             "server": {"running": true, "pid": 42, "version": "0.5.1", "relays": 2},
             "registrations": [{"client": "claude", "client_name": "Claude Code",
@@ -539,12 +569,39 @@ mod tests {
             Some("2026-11-20T10:00:00Z")
         );
         let checks: Vec<&str> = doctor.checks.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(checks, ["config", "model"]);
+        // One with an odd field is kept: dropped, a failing check would read as one passed.
+        assert_eq!(checks, ["config", "model", "github"]);
+        assert!(!doctor.checks[2].ok && doctor.checks[2].detail.is_empty());
         assert!(doctor.checks[1].warning && doctor.checks[1].fix.is_none());
         let registration = &doctor.registrations[0];
         assert_eq!(registration.client, "claude");
         assert_eq!(registration.remove_text, "");
         assert_eq!(registration.remove.as_deref().map(<[String]>::len), Some(4));
+    }
+
+    #[test]
+    fn an_answer_counts_only_with_what_it_is_asked_for() {
+        let said = |out: &str| Said {
+            out: out.to_string(),
+            last_error: None,
+        };
+        let lists = |answer: &Value| answer.get("checks").is_some_and(Value::is_array);
+        let read =
+            |out: &str| read_answer::<Doctor>(&said(out), "doctor --json", "its checks", lists);
+        assert!(read(r#"{"checks": []}"#).is_ok());
+        assert_eq!(
+            read("{}").map(|_| ()),
+            Err("`repolore doctor --json` answered without its checks".to_string())
+        );
+        assert!(read(r#"{"checks": "none"}"#).is_err());
+        assert!(read("not json").is_err());
+        let running = |answer: &Value| answer.get("running").is_some_and(Value::is_boolean);
+        let server = |out: &str| {
+            read_answer::<ServerStatus>(&said(out), "server status --json", "it", running)
+        };
+        assert!(server(r#"{"running": false}"#).is_ok());
+        assert!(server(r#"{"pid": 7, "relays": 2}"#).is_err());
+        assert!(server(r#"{"running": "yes"}"#).is_err());
     }
 
     #[test]

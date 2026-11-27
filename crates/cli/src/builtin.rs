@@ -1,7 +1,9 @@
 //! `swarmed mcp builtin`: Swarmed's built-in MCP servers, repolore so far.
 //!
 //! The command never opens repolore's page: that is the app's, which ends it as it quits.
-//! `status` prints the line that opens it from a terminal instead.
+//! `status` prints the line that opens it from a terminal instead. Nor does it restart the
+//! sessions that keep the old server running: their agents run in the app's process, which
+//! alone can stop them.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -25,11 +27,9 @@ pub(crate) enum BuiltinCommand {
         full: bool,
     },
     /// Take out one of repolore's registrations elsewhere, by the key `status` lists it under.
-    /// Only Claude Code's and Codex's own remove commands are run; the rest are your steps.
+    /// Only Claude Code's and Codex's own remove commands that belong to no folder are run;
+    /// the rest are your steps.
     Remove { key: String },
-    /// Stop the agents of the idle sessions that still use the old repolore. Each starts again
-    /// with its next message.
-    Restart,
     /// Move your setup from before to the Trash, once the built-in is on and passes its check.
     TrashOld,
 }
@@ -60,7 +60,6 @@ pub(crate) async fn run(core: &Core, command: Option<BuiltinCommand>) -> Result<
             let removed = core.builtin_mcp_remove_registration(REPOLORE, &key, &hook_line);
             vec![removed.await?]
         }
-        BuiltinCommand::Restart => vec![core.builtin_mcp_restart_sessions(REPOLORE).await?],
         BuiltinCommand::TrashOld => vec![core.builtin_mcp_trash_old(REPOLORE).await?],
     };
     view.iter().for_each(show);
@@ -127,8 +126,8 @@ fn show_index(view: &BuiltinMcpView) {
     }
 }
 
-/// What else there is of repolore: the setup from before, its registrations, its server, the
-/// sessions that use it, and the hook in Claude Code's settings.
+/// What else there is of repolore: the setup from before, its registrations, its server, and
+/// the hook in Claude Code's settings.
 fn show_elsewhere(view: &BuiltinMcpView) {
     if let Some(existing) = &view.existing {
         let indexed = if existing.indexed {
@@ -166,10 +165,6 @@ fn show_elsewhere(view: &BuiltinMcpView) {
             "old server\tpid {pid}\t{} relay(s)",
             server.relays
         ));
-    }
-    for held in &view.sessions {
-        let idle = if held.idle { "idle" } else { "busy" };
-        say(&format!("held\t{}\t{idle}\t{}", held.id, held.title));
     }
     if view.hook {
         say(

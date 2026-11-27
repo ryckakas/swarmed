@@ -262,7 +262,7 @@ pub struct Core {
     /// (`stylesheet.rs`).
     stylesheet_left_out: std::sync::atomic::AtomicBool,
     /// The built-in repolore's page, while this Swarmed runs it (`builtin_mcp.rs`).
-    repolore_page: Mutex<Option<repolore::Page>>,
+    repolore_page: Mutex<builtin_mcp::PageSlot>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -313,7 +313,7 @@ impl Core {
             merging: merging::Merging::default(),
             browsers: Arc::default(),
             stylesheet_left_out: std::sync::atomic::AtomicBool::new(false),
-            repolore_page: Mutex::new(None),
+            repolore_page: Mutex::default(),
         })
     }
 

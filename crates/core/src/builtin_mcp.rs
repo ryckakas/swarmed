@@ -20,30 +20,38 @@
 //! Registrations come from repolore's doctor, which knows every client repolore registers
 //! with, and from Swarmed's own readers of Claude Code, its plugins, Codex, OpenCode and
 //! `mcp.toml`. Each is taken out with its own remove command, shown before it runs: Swarmed
-//! runs only one of repolore's doctor, found again by its key, and only one of Claude Code's
-//! or Codex's own programs. Anything else is a step for the user. Nothing is written into an
-//! agent's files, and a `repolore session-start` hook in Claude Code's settings is pointed
-//! out, never edited.
+//! runs only one of repolore's doctor, found again by its key, and only Claude Code's or
+//! Codex's own that belongs to no folder (`remover`): a folder's would run in none. Anything
+//! else is a step for the user. Nothing is written into an agent's files, and a `repolore
+//! session-start` hook in Claude Code's settings is pointed out, never edited.
 //!
 //! **Whether it stands clear** is stored (`builtin_mcp` in the database, beside whether it is
 //! turned on), so that a session starts without asking repolore anything: no Python runs
-//! then. Every reading that got its answers stores it; one that got none leaves it as it was
-//! and says why in `problem`. At a session's start the gate is cheap: turned on, clear,
-//! `repolore-mcp` there, and no server like repolore in Swarmed's own readers. A registration
-//! that comes back in one of those stops the built-in at once; one in another client, at the
-//! next reading. Nothing reads on a timer.
+//! then. Every reading that got its answers stores it; one that got none, or an answer
+//! without what it is asked for, leaves it as it was and says why in `problem`. Turning on
+//! or off forgets it, so that what a reading found while it was off gives no session the
+//! built-in. At a session's start the gate is cheap: turned on, clear, `repolore-mcp` there,
+//! and no server like repolore in Swarmed's own readers. A registration that comes back in
+//! one of those stops the built-in at once; one in another client, at the next reading.
+//! Nothing reads on a timer. A repository's own repolore, in its `.mcp.json`, is no
+//! registration of the user's: a session there gets that one and not the built-in
+//! (`repolore_use`), and the row stays as it is.
 //!
 //! **Held sessions** are the sessions running here whose agent got a repolore other than the
 //! built-in (`RepoloreUse`, kept with the run in `sessions.rs`): they keep the old server
 //! running until they end, and the idle ones can be stopped to start again on their next
 //! message. A session that starts with the built-in has repolore refresh its index if one is
-//! due (`session-start`), which takes the place of the hook users add to Claude Code.
+//! due (`session-start`), which takes the place of the hook users add to Claude Code. What
+//! Claude Code said of the built-in (`status`) is read from such a session alone, the newest
+//! running here: another's `repolore` may be the old one.
 //!
 //! **The page**, `repolore ui`, is started by the Swarmed that keeps the house alone
-//! (`presence.rs`), one at a time, and ended as that one leaves. Its address carries a token:
-//! it stays in memory, never in a view, an error or a log. The old setup's folders can be
-//! moved to the Trash once the built-in is on and passes its check, as a step the user takes;
-//! never a folder that is, holds or is inside Swarmed's data directory.
+//! (`presence.rs`), one at a time, and ended as that one leaves; one started as it leaves,
+//! or as the built-in is turned off, is ended at once. Nothing is held while it starts. Its
+//! address carries a token: it stays in memory, never in a view, an error or a log. The old
+//! setup's folders can be moved to the Trash once the built-in is on and every check of a
+//! check made then passed, as a step the user takes; never a folder that is, holds or is
+//! inside Swarmed's data directory.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -52,6 +60,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::agent::AgentEvent;
 use crate::agent_setup::find_program;
 use crate::agents::CLAUDE;
 use crate::error::{Error, Result};
@@ -71,9 +80,6 @@ pub const REPOLORE: &str = "repolore";
 
 /// Swarmed's built-in servers, by name.
 const BUILTINS: &[&str] = &[REPOLORE];
-
-/// The programs a registration's remove command may start with for Swarmed to run it.
-const REMOVERS: &[&str] = &["claude", "codex"];
 
 /// How far along a built-in server is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -216,20 +222,26 @@ pub struct HeldSession {
     pub idle: bool,
 }
 
-/// One check of repolore's doctor.
+/// One check of repolore's doctor. Every field is read leniently, so that a check is never
+/// lost for a field that is odd: a failing one lost would read as a check that passed.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DoctorCheck {
     /// What was checked.
+    #[serde(deserialize_with = "repolore::lenient")]
     pub name: String,
     /// Whether it passed.
+    #[serde(deserialize_with = "repolore::lenient")]
     pub ok: bool,
     /// Whether what it found is worth a warning, though it passed: repolore writes a warning
     /// with `ok` true.
+    #[serde(deserialize_with = "repolore::lenient")]
     pub warning: bool,
     /// What it found.
+    #[serde(deserialize_with = "repolore::lenient")]
     pub detail: String,
     /// repolore's fix for it, if it has one.
+    #[serde(deserialize_with = "repolore::lenient")]
     pub fix: Option<String>,
 }
 
@@ -238,6 +250,14 @@ impl DoctorCheck {
     fn failed(&self) -> bool {
         !self.ok
     }
+}
+
+/// repolore's page while this Swarmed runs it, and whether Swarmed is leaving, after which
+/// none is kept: one would outlive it.
+#[derive(Debug, Default)]
+pub(crate) struct PageSlot {
+    page: Option<Page>,
+    leaving: bool,
 }
 
 /// Which repolore a session's agent was started with.
@@ -460,10 +480,30 @@ fn client_name(client: &str) -> &str {
     }
 }
 
-/// The program a remove command starts with, if Swarmed may run it.
+/// The program a registration's remove command `argv` starts with, if Swarmed runs it itself:
+/// Claude Code's `mcp remove` of the user's own servers, its `plugin uninstall`, and Codex's
+/// `mcp remove`. Claude Code's other scopes, or none named, belong to a folder, and the
+/// command would run in none: they are the user's step, as is any other command.
 fn remover(argv: &[String]) -> Option<&str> {
-    let first = argv.first().map(String::as_str);
-    first.filter(|program| REMOVERS.contains(program))
+    let words: Vec<&str> = argv.iter().map(String::as_str).collect();
+    let scope = scope_of(words.get(1..).unwrap_or_default());
+    let runs = match words.as_slice() {
+        ["claude", "mcp", "remove", _, ..] => scope == Some("user"),
+        ["claude", "plugin", "uninstall", _, ..] => scope.is_none_or(|scope| scope == "user"),
+        ["codex", "mcp", "remove", _, ..] => true,
+        _ => false,
+    };
+    argv.first().map(String::as_str).filter(|_| runs)
+}
+
+/// The scope a command's arguments name: `-s X`, `--scope X` or `--scope=X`.
+fn scope_of<'a>(args: &[&'a str]) -> Option<&'a str> {
+    let named = |pair: &&[&str]| matches!(pair.first(), Some(&("-s" | "--scope")));
+    let after = args
+        .windows(2)
+        .find(named)
+        .and_then(|pair| pair.get(1).copied());
+    after.or_else(|| args.iter().find_map(|arg| arg.strip_prefix("--scope=")))
 }
 
 /// A command's words on one line, to show.
@@ -601,8 +641,11 @@ fn trashable(view: &BuiltinMcpView) -> Result<Vec<PathBuf>> {
     if view.state != BuiltinState::On {
         return refuse("only once the built-in repolore is on");
     }
-    let failed = view.checks.iter().any(DoctorCheck::failed);
-    if view.problem.is_some() || view.checked.is_none() || failed {
+    if let Some(problem) = &view.problem {
+        return refuse(&format!("not every answer came: {problem}"));
+    }
+    let failed = view.checks.is_empty() || view.checks.iter().any(DoctorCheck::failed);
+    if view.checked.is_none() || failed {
         return refuse("only once its check passes");
     }
     if view.old_server.is_some() {
@@ -753,8 +796,9 @@ impl Core {
 
     /// Takes out repolore's registration `key` with its own remove command, which goes to
     /// `sink` as it runs. The command is never one a front end hands over: it is the one
-    /// repolore's doctor lists under that key now, and only if it is Claude Code's or Codex's
-    /// own. Any other is the user's step, and the error says it.
+    /// repolore's doctor lists under that key now, and only if it is one of Claude Code's or
+    /// Codex's own that belongs to no folder (`remover`). Any other is the user's step, and
+    /// the error says it.
     pub async fn builtin_mcp_remove_registration(
         &self,
         name: &str,
@@ -823,21 +867,53 @@ impl Core {
         if !self.store().builtin_mcp_row(name)?.0 {
             return Err(Error::Mcp(format!("turn {name} on first")));
         }
-        let mut page = lock(&self.repolore_page);
-        if let Some(running) = page.as_mut()
-            && running.alive()
-        {
-            return show(running.address());
-        }
-        if let Some(gone) = page.take() {
-            gone.end();
+        if let Some(address) = self.page_running() {
+            return show(&address);
         }
         let repolore = Repolore::find(&self.tool_dirs)
             .ok_or_else(|| Error::Mcp(format!("{name} is not installed")))?;
+        // Started with nothing held: it can take a while, and every view asks whether a page
+        // runs, as does turning it off and quitting.
         let started = Page::start(&repolore, &self.paths.repolore_home()).map_err(Error::Mcp)?;
-        let shown = show(started.address());
-        *page = Some(started);
-        shown
+        let address = self.page_kept(started)?;
+        show(&address)
+    }
+
+    /// The address of the page this Swarmed runs, if it still runs. One that has gone is
+    /// forgotten.
+    fn page_running(&self) -> Option<String> {
+        let mut slot = lock(&self.repolore_page);
+        if let Some(page) = slot.page.as_mut()
+            && page.alive()
+        {
+            return Some(page.address().to_string());
+        }
+        slot.page = None;
+        None
+    }
+
+    /// Keeps the page `started`, and says where the page is: another's, if one was started
+    /// meanwhile, and `started` is ended. So is it if the built-in was turned off meanwhile, or
+    /// Swarmed is leaving, which would leave it running after Swarmed. Whether it is on is
+    /// read with the page held, so that turning off, which ends the page after it writes, ends
+    /// this one or is seen here.
+    fn page_kept(&self, started: Page) -> Result<String> {
+        let mut slot = lock(&self.repolore_page);
+        let on = self.store().builtin_mcp_row(REPOLORE)?.0;
+        if slot.leaving || !on {
+            started.end();
+            let why = "it was turned off, or Swarmed is quitting";
+            return Err(Error::Mcp(format!("repolore's page was not opened: {why}")));
+        }
+        if let Some(running) = slot.page.as_mut()
+            && running.alive()
+        {
+            started.end();
+            return Ok(running.address().to_string());
+        }
+        let address = started.address().to_string();
+        slot.page = Some(started);
+        Ok(address)
     }
 
     /// Moves the user's setup from before to the Trash: only once the built-in is on, passes
@@ -883,24 +959,30 @@ impl Core {
     }
 
     /// Which repolore the agent of a session on `agent` in `task` starts with, given the
-    /// servers `given`: the built-in, one of its own or another agent's, or none.
+    /// other agents' servers `shared` and the ones set up here, `own`: the built-in, one of its
+    /// own or another's, or none. A repolore of the agent's own, a repository's `.mcp.json`
+    /// one among them, or another agent's goes before the built-in, which is then taken out
+    /// of `own`: never two at once. The gate (`builtin_repolore`) reads no repository's file.
     pub(crate) fn repolore_use(
         &self,
         agent: &str,
         task: &Task,
-        given: &[McpServer],
+        shared: &[McpServer],
+        own: &mut Vec<McpServer>,
     ) -> RepoloreUse {
-        if given.iter().any(is_builtin) {
-            return RepoloreUse::Builtin;
-        }
+        let other = |server: &McpServer| repolore_like(server) && !is_builtin(server);
         // Its own configuration is read only when what it is given does not tell already.
         let has = || {
             self.agent_own_servers(agent, task)
                 .iter()
                 .any(repolore_like)
         };
-        if given.iter().any(repolore_like) || has() {
+        if shared.iter().chain(own.iter()).any(other) || has() {
+            own.retain(|server| !is_builtin(server));
             return RepoloreUse::Elsewhere;
+        }
+        if own.iter().any(is_builtin) {
+            return RepoloreUse::Builtin;
         }
         RepoloreUse::None
     }
@@ -915,7 +997,16 @@ impl Core {
 
     /// Ends repolore's page, if this Swarmed started it.
     pub(crate) fn repolore_page_end(&self) {
-        if let Some(page) = lock(&self.repolore_page).take() {
+        if let Some(page) = lock(&self.repolore_page).page.take() {
+            page.end();
+        }
+    }
+
+    /// Ends repolore's page as Swarmed leaves, and has none started from now on.
+    pub(crate) fn repolore_page_leave(&self) {
+        let mut slot = lock(&self.repolore_page);
+        slot.leaving = true;
+        if let Some(page) = slot.page.take() {
             page.end();
         }
     }
@@ -924,7 +1015,7 @@ impl Core {
     /// with whether it stands clear stored when the answers say.
     async fn builtin_view(&self, name: &str, full: bool) -> Result<BuiltinMcpView> {
         let (turned_on, stored) = self.store().builtin_mcp_row(name)?;
-        let mut view = self.view_without_answers(name)?;
+        let mut view = self.view_without_answers(name);
         let found = Repolore::find(&self.tool_dirs).filter(|_| self.repolore_installed());
         let Some(repolore) = found else {
             view.state = state_of(Facts::default());
@@ -954,9 +1045,9 @@ impl Core {
     }
 
     /// What is known of the built-in `name` without asking repolore.
-    fn view_without_answers(&self, name: &str) -> Result<BuiltinMcpView> {
-        let status = self.mcp_statuses()?.remove(name);
-        Ok(BuiltinMcpView {
+    fn view_without_answers(&self, name: &str) -> BuiltinMcpView {
+        let status = self.builtin_status(name);
+        BuiltinMcpView {
             name: name.to_string(),
             state: BuiltinState::Missing,
             version: None,
@@ -976,7 +1067,7 @@ impl Core {
             status,
             page_open: self.repolore_page_open(),
             problem: None,
-        })
+        }
     }
 
     /// What repolore says: its version, then, if it is one Swarmed takes, the doctor of the
@@ -1126,9 +1217,27 @@ impl Core {
         }
     }
 
+    /// What Claude Code said of the built-in `name` as the newest session running here that
+    /// was given it started; none if none did. Never another session's, whose `repolore` may
+    /// be a registration of its own.
+    fn builtin_status(&self, name: &str) -> Option<String> {
+        let given = self.live.running_on(RepoloreUse::Builtin);
+        given.iter().rev().find_map(|id| self.status_in(*id, name))
+    }
+
+    /// What session `id`'s agent said of the server `name` as it started, if it did.
+    fn status_in(&self, id: i64, name: &str) -> Option<String> {
+        let init = self.store().latest_event(id, "init").ok().flatten();
+        let Some(AgentEvent::Init { mcp_servers, .. }) = init else {
+            return None;
+        };
+        let server = mcp_servers.into_iter().find(|server| server.name == name);
+        server.map(|server| server.status)
+    }
+
     /// The sessions running here on a repolore other than the built-in.
     fn held_sessions(&self) -> Vec<HeldSession> {
-        let ids = self.live.holding_repolore();
+        let ids = self.live.running_on(RepoloreUse::Elsewhere);
         let sessions = ids.into_iter().filter_map(|id| self.session(id).ok());
         let held = |session: crate::Session| HeldSession {
             id: session.id,
@@ -1140,7 +1249,8 @@ impl Core {
 
     /// Whether repolore's page runs, started by this Swarmed.
     fn repolore_page_open(&self) -> bool {
-        lock(&self.repolore_page).as_mut().is_some_and(Page::alive)
+        let mut slot = lock(&self.repolore_page);
+        slot.page.as_mut().is_some_and(Page::alive)
     }
 }
 
@@ -1198,11 +1308,12 @@ impl Store {
         Ok(row.unwrap_or((false, false)))
     }
 
-    /// Turns the built-in `name` on or off. Off, it is no longer known to be clear.
+    /// Turns the built-in `name` on or off. Either way it is no longer known to be clear: what
+    /// a reading found while it was off is old by now, so the reading that follows says again,
+    /// and until then no session is given it.
     fn builtin_mcp_turn(&self, name: &str, on: bool) -> Result<()> {
         let sql = "INSERT INTO builtin_mcp (name, turned_on) VALUES (?1, ?2)
-                   ON CONFLICT (name) DO UPDATE
-                   SET turned_on = ?2, clear = CASE WHEN ?2 THEN clear ELSE 0 END";
+                   ON CONFLICT (name) DO UPDATE SET turned_on = ?2, clear = 0";
         self.conn.execute(sql, params![name, on])?;
         Ok(())
     }
@@ -1334,6 +1445,11 @@ mod tests {
         let folders = trashable(&on()).expect("may go");
         assert_eq!(folders, [PathBuf::from("/old/repolore")]);
         let refused = |view: BuiltinMcpView| trashable(&view).map_err(|e| e.to_string());
+        let unchecked_list = BuiltinMcpView {
+            checks: Vec::new(),
+            ..on()
+        };
+        assert!(refused(unchecked_list).is_err_and(|e| e.contains("check passes")));
         let mut failing = on();
         failing.checks[0].ok = false;
         assert!(refused(failing).is_err_and(|e| e.contains("check passes")));
@@ -1346,7 +1462,7 @@ mod tests {
             problem: Some("no answer".into()),
             ..on()
         };
-        assert!(refused(problem).is_err_and(|e| e.contains("check passes")));
+        assert!(refused(problem).is_err_and(|e| e.contains("not every answer came: no answer")));
         let waiting = BuiltinMcpView {
             state: BuiltinState::Waiting,
             ..on()
@@ -1455,13 +1571,19 @@ mod tests {
             registration(
                 "claude",
                 "local",
-                Some(&["claude", "mcp", "remove", "repolore"]),
-                "",
+                Some(&["claude", "mcp", "remove", "repolore", "-s", "local"]),
+                "Run it in /Users/me/project.",
             ),
             registration(
                 "claude",
                 "local",
-                Some(&["claude", "mcp", "remove", "repolore"]),
+                Some(&["claude", "mcp", "remove", "repolore", "--scope=local"]),
+                "",
+            ),
+            registration(
+                "claude",
+                "plugin",
+                Some(&["claude", "plugin", "uninstall", "repolore@repolore"]),
                 "",
             ),
             registration(
@@ -1492,6 +1614,7 @@ mod tests {
                 "claude:user:repolore",
                 "claude:local:repolore",
                 "claude:local:repolore:2",
+                "claude:plugin:repolore",
                 "codex:user:repolore",
                 "opencode:user:repolore",
                 "cursor:user:repolore",
@@ -1499,27 +1622,95 @@ mod tests {
             ]
         );
         let runs: Vec<bool> = shown.iter().map(|shown| shown.runs_here).collect();
-        assert_eq!(runs, [true, true, true, false, false, false, false]);
+        assert_eq!(runs, [true, false, false, true, false, false, false, false]);
         assert_eq!(
             shown[0].command.as_deref(),
             Some("claude mcp remove repolore -s user")
         );
         assert_eq!(shown[0].step, None);
         assert_eq!(shown[0].client, "Claude Code");
+        // A folder's own is the user's step, with the command to run there.
         assert_eq!(
-            shown[4].step.as_deref(),
+            shown[1].step.as_deref(),
+            Some("Run it in /Users/me/project.")
+        );
+        assert!(shown[1].command.is_some());
+        assert!(shown[2].step.is_some());
+        assert_eq!(
+            shown[5].step.as_deref(),
             Some("Delete it from opencode.json.")
         );
-        assert_eq!(shown[4].command, None);
-        assert_eq!(shown[5].command.as_deref(), Some("sh -c \"rm -rf ~\""));
+        assert_eq!(shown[5].command, None);
+        assert_eq!(shown[6].command.as_deref(), Some("sh -c \"rm -rf ~\""));
         assert!(
-            shown[5]
+            shown[6]
                 .step
                 .as_deref()
                 .is_some_and(|step| step.contains("yourself"))
         );
-        assert_eq!(shown[6].client, "Swarmed");
-        assert_eq!(shown[6].step.as_deref(), Some("Remove `lore` from there."));
+        assert_eq!(shown[7].client, "Swarmed");
+        assert_eq!(shown[7].step.as_deref(), Some("Remove `lore` from there."));
+    }
+
+    #[test]
+    fn only_removals_that_belong_to_no_folder_are_run() {
+        let runs = |argv: &[&str]| {
+            let argv: Vec<String> = argv.iter().map(ToString::to_string).collect();
+            remover(&argv).map(String::from)
+        };
+        let claude = Some("claude".to_string());
+        assert_eq!(
+            runs(&["claude", "mcp", "remove", "repolore", "-s", "user"]),
+            claude
+        );
+        assert_eq!(
+            runs(&["claude", "mcp", "remove", "-s", "user", "repolore"]),
+            claude
+        );
+        assert_eq!(
+            runs(&["claude", "mcp", "remove", "repolore", "--scope", "user"]),
+            claude
+        );
+        assert_eq!(
+            runs(&["claude", "mcp", "remove", "repolore", "--scope=user"]),
+            claude
+        );
+        assert_eq!(
+            runs(&["claude", "plugin", "uninstall", "repolore@repolore"]),
+            claude
+        );
+        assert_eq!(
+            runs(&["codex", "mcp", "remove", "repolore"]),
+            Some("codex".to_string())
+        );
+        for refused in [
+            &["claude", "mcp", "remove", "repolore"][..],
+            &["claude", "mcp", "remove", "repolore", "-s", "local"],
+            &["claude", "mcp", "remove", "repolore", "--scope", "project"],
+            &[
+                "claude",
+                "plugin",
+                "uninstall",
+                "repolore@repolore",
+                "--scope",
+                "local",
+            ],
+            &["claude", "mcp", "remove"],
+            &["claude", "-p", "remove everything", "-s", "user"],
+            &["codex", "exec", "rm -rf ~"],
+            &[
+                "/usr/local/bin/claude",
+                "mcp",
+                "remove",
+                "repolore",
+                "-s",
+                "user",
+            ],
+            &["opencode", "mcp", "remove", "repolore"],
+            &[],
+        ] {
+            assert_eq!(runs(refused), None, "{refused:?}");
+        }
     }
 
     #[test]

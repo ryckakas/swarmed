@@ -275,7 +275,7 @@ impl Core {
     }
 
     /// What Claude Code said of each server when one of its sessions last started.
-    pub(crate) fn mcp_statuses(&self) -> Result<BTreeMap<String, String>> {
+    fn mcp_statuses(&self) -> Result<BTreeMap<String, String>> {
         let init = self.store().latest_init(None, CLAUDE)?;
         let Some(AgentEvent::Init { mcp_servers, .. }) = init else {
             return Ok(BTreeMap::new());

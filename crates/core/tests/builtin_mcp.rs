@@ -23,7 +23,7 @@ which=old
 if [ -n "$REPOLORE_HOME" ]; then which=builtin; fi
 case "$1" in
   version) cat "$state/version" ;;
-  doctor) cat "$state/doctor-$which.json" 2>/dev/null || echo '{}' ;;
+  doctor) cat "$state/doctor-$which.json" 2>/dev/null || echo '{"checks": [], "registrations": []}' ;;
   server) cat "$state/server-$which.json" 2>/dev/null || echo '{"running": false}' ;;
   copy)
     if [ -f "$state/copy-fails" ]; then
@@ -33,6 +33,7 @@ case "$1" in
     fi
     mkdir -p "$2" && echo "repos = []" > "$2/repolore.toml" ;;
   session-start) ;;
+  ui) echo $$ > "$state/ui-pid"; echo "http://127.0.0.1:9/?token=secret"; exec sleep 60 ;;
   *) exit 2 ;;
 esac
 "#;
@@ -338,6 +339,22 @@ async fn registrations_taken_out(stand: &Stand, core: &Core, opencode: String) {
     assert_eq!(gone.state, BuiltinState::Waiting);
 }
 
+/// A server answer without whether it runs is no answer: it is said, and the row stays on.
+async fn an_answer_without_what_was_asked_changes_nothing(stand: &Stand, core: &Core) {
+    stand.write("server-old.json", r#"{"pid": 4242, "relays": 1}"#);
+    let unsure = core
+        .builtin_mcp_check(REPOLORE, false)
+        .await
+        .expect("checks");
+    assert_eq!(unsure.state, BuiltinState::On);
+    let problem = unsure.problem.unwrap_or_default();
+    assert!(
+        problem.contains("answered without whether its server runs"),
+        "{problem}"
+    );
+    stand.write("server-old.json", r#"{"running": false}"#);
+}
+
 /// Nothing left elsewhere and the old server stopped: on, with its checks. Then off again.
 async fn on_then_off(stand: &Stand, core: &Core) {
     let home = stand.home();
@@ -353,6 +370,8 @@ async fn on_then_off(stand: &Stand, core: &Core) {
     assert_eq!(on.built_at.as_deref(), Some("2026-11-20T10:00:00Z"));
     assert_eq!(on.checks.len(), 2);
     assert!(on.old_server.is_none());
+
+    an_answer_without_what_was_asked_changes_nothing(stand, core).await;
 
     // Off again: its home stays, and its page cannot be opened.
     let off = core
@@ -417,18 +436,48 @@ async fn sessions_are_given_the_built_in_only_while_no_other_repolore_is_about()
     // Off: no repolore at all.
     let first = started(&core);
     assert_eq!(said(&core, first, "mcp: repolore").await, "none");
+    a_clear_from_before_counts_for_nothing(&stand, &core).await;
+    let second = on_gives_the_built_in(&stand, &core).await;
+    a_repository_of_its_own_goes_first(&core).await;
+    registered_again(&stand, &core, second).await;
+}
 
-    // On and clear: the built-in, run from its program with its home, and a refresh is started.
+/// What a reading found while it was off counts for nothing once it is turned on: with no
+/// answer from the reading after, no session is given it.
+async fn a_clear_from_before_counts_for_nothing(stand: &Stand, core: &Core) {
+    // Off, with nothing in its way: stored as clear.
+    assert_eq!(status(core).await.state, BuiltinState::Off);
+    stand.write("doctor-builtin.json", "{}");
     let on = core
         .builtin_mcp_turn_on(REPOLORE, false)
         .await
         .expect("turns on");
+    assert_eq!(on.state, BuiltinState::Waiting, "{on:?}");
+    let problem = on.problem.unwrap_or_default();
+    assert!(
+        problem.contains("answered without its checks and registrations"),
+        "{problem}"
+    );
+    let session = started(core);
+    assert_eq!(said(core, session, "mcp: repolore").await, "none");
+    core.session_stop(session);
+    stand.write("doctor-builtin.json", &doctor(false, &[], &stand.home()));
+}
+
+/// On and clear: the built-in, run from its program with its home, and a refresh is started.
+/// Says the session given it.
+async fn on_gives_the_built_in(stand: &Stand, core: &Core) -> i64 {
+    let home = stand.home();
+    let on = core
+        .builtin_mcp_check(REPOLORE, false)
+        .await
+        .expect("checks");
     assert_eq!(on.state, BuiltinState::On, "{on:?}");
     assert!(home.is_dir());
-    let second = started(&core);
+    let session = started(core);
     let program = stand.tools.join("repolore-mcp");
     assert_eq!(
-        said(&core, second, "mcp: repolore").await,
+        said(core, session, "mcp: repolore").await,
         program.to_string_lossy()
     );
     let refresh = format!(
@@ -436,21 +485,41 @@ async fn sessions_are_given_the_built_in_only_while_no_other_repolore_is_about()
         home.display()
     );
     assert!(
-        noted(&stand, "calls", &refresh).await,
+        noted(stand, "calls", &refresh).await,
         "{}",
         stand.read("calls")
     );
-    assert_eq!(status(&core).await.sessions, []);
+    assert_eq!(status(core).await.sessions, []);
+    session
+}
 
-    // repolore registered with Claude Code again: new sessions go without the built-in at once,
-    // the row waits, and the session that has the old one is held.
+/// A repository's own repolore, in its `.mcp.json`, goes before the built-in: the session gets
+/// no second one and is held, while the row stays on, since no registration is the user's.
+async fn a_repository_of_its_own_goes_first(core: &Core) {
+    let worktree = core.task("demo", "one").expect("there").1.worktree_path;
+    let file = worktree.join(".mcp.json");
+    let own = serde_json::json!({ "mcpServers": { "lore": { "command": "repolore-mcp" } } });
+    std::fs::write(&file, own.to_string()).expect("test setup");
+    let session = started(core);
+    assert_eq!(said(core, session, "mcp: repolore").await, "none");
+    let view = status(core).await;
+    assert_eq!(view.state, BuiltinState::On);
+    let held: Vec<i64> = view.sessions.iter().map(|held| held.id).collect();
+    assert_eq!(held, [session]);
+    core.session_stop(session);
+    std::fs::remove_file(file).expect("test setup");
+}
+
+/// repolore registered with Claude Code again: new sessions go without the built-in at once,
+/// the row waits, and the session that has the old one is held until it is restarted.
+async fn registered_again(stand: &Stand, core: &Core, given: i64) {
     let claude_config = serde_json::json!({
         "mcpServers": { "lore": { "command": "/Users/me/.local/bin/repolore-mcp" } }
     });
     std::fs::write(&stand.fx.paths.claude_config, claude_config.to_string()).expect("test setup");
-    let third = started(&core);
-    assert_eq!(said(&core, third, "mcp: repolore").await, "none");
-    let waiting = status(&core).await;
+    let third = started(core);
+    assert_eq!(said(core, third, "mcp: repolore").await, "none");
+    let waiting = status(core).await;
     assert_eq!(waiting.state, BuiltinState::Waiting);
     let found: Vec<&str> = waiting
         .registrations
@@ -472,5 +541,38 @@ async fn sessions_are_given_the_built_in_only_while_no_other_repolore_is_about()
         .expect("restarts");
     assert_eq!(restarted.sessions, []);
     assert!(!core.running_sessions().contains(&third));
-    assert!(core.running_sessions().contains(&second));
+    assert!(core.running_sessions().contains(&given));
+}
+
+#[tokio::test]
+async fn a_page_started_as_swarmed_leaves_is_ended_not_kept() {
+    let stand = Stand::new();
+    stand.install("repolore", REPOLORE_SCRIPT);
+    stand.install("repolore-mcp", "#!/bin/sh\nexit 0\n");
+    stand.write("version", "repolore 0.5.1\n");
+    let core = stand.core().await;
+    let on = core
+        .builtin_mcp_turn_on(REPOLORE, false)
+        .await
+        .expect("turns on");
+    assert_eq!(on.state, BuiltinState::On, "{on:?}");
+    core.leave().await;
+    // Started, then ended at once: nothing is opened, and nothing outlives Swarmed.
+    let refused = core.builtin_mcp_open(REPOLORE).map_err(|e| e.to_string());
+    assert!(refused.is_err_and(|e| e.contains("not opened") && !e.contains("token")));
+    let pid = stand.read("ui-pid");
+    let gone = || {
+        let asked = std::process::Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stderr(std::process::Stdio::null())
+            .status();
+        !asked.is_ok_and(|status| status.success())
+    };
+    let mut waited = 0;
+    while !gone() && waited < 200 {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        waited += 1;
+    }
+    assert!(gone(), "the page's process {pid} still runs");
+    assert!(!status(&core).await.page_open);
 }
