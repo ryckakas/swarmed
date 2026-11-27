@@ -15,6 +15,11 @@
 //! is not read-only at a question there, whatever its allow rules say. The two that start a
 //! session are the exception in plan mode, where the user is asked about each start: what it
 //! starts changes files, and nothing of a plan was approved yet.
+//!
+//! Tried with Claude Code 2.1.332: in plan mode it holds such a tool at a question before it
+//! reads the allow rules (`planModeWriteFloor`), and runs it once the permission prompt allows
+//! it. Its model calls an MCP tool there only when told it may (`KEPT_FROM_CHANGES`), and an
+//! edit there is asked about, not refused.
 
 use serde::Serialize;
 
@@ -176,7 +181,8 @@ pub(crate) const TABLE: &str = "\
 | Checks | that the parts fit together and land in order | that each implementer's report matches the plan |
 | Reports to | the user | its architect, or the user |";
 
-/// The role called `name`, if there is one.
+/// The role called `name`, if there is one. A name no role here has, such as a newer
+/// Swarmed's role, counts as no role wherever rules apply.
 #[must_use]
 pub(crate) fn find(name: &str) -> Option<&'static Role> {
     ROLES.iter().find(|role| role.name == name)

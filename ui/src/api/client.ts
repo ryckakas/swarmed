@@ -412,7 +412,7 @@ export interface Api {
      * login's when it is empty. Rejected with git's reason when git would not take it.
      */
     branchExample(prefix: string): Promise<string>;
-    /** The installed app's version, such as `0.1.0`. */
+    /** The installed app's version, such as `0.1.0`: the app crate's, which is the workspace's. */
     version(): Promise<string>;
     /** Where updating Swarmed stands. */
     updateState(): Promise<UpdateState>;

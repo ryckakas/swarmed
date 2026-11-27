@@ -9,7 +9,8 @@
 //! The files go back to the checkpoint taken before the message (`checkpoints.rs`), after the
 //! worktree as it is now has been kept, so that they can be put back. Nothing is tried that
 //! cannot be done safely: while any agent could write to the worktree, or a rebase or a merge
-//! is under way in it, it is refused. Commits stay on the branch.
+//! is under way in it, it is refused. Commits stay on the branch. Claude Code's own
+//! `rewind_files` is never used: the files go back the same way whatever the agent.
 
 use std::collections::HashSet;
 use std::ops::Range;

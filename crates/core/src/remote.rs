@@ -12,6 +12,9 @@
 //! for a session that wants it turns it on, attached to the same session on claude.ai: after
 //! a change of settings, when the next message starts it, or when Swarmed itself starts again
 //! ([`Core::remote_controls_resume`]).
+//!
+//! Not every change made there is heard here: a permission mode changed on claude.ai is not
+//! reported, and the model is only after the turn. Views show there as code.
 
 use std::sync::Mutex;
 

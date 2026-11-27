@@ -219,6 +219,7 @@ export interface ViewTheme {
 // scrollbar goes, and it all starts again: the view flickers between two layouts. So the
 // scrollbar is never shown, and one along the bottom of a view that is too wide is counted into
 // the height. The host says so when it stops following a view, which may then scroll again.
+// Test a change here in Safari with "Always show scroll bars": Chromium does not show the loop.
 //
 // Last, a click on a web or mail link is handed to the host, which shows the address and opens
 // it in the user's browser once they agree. The frame cannot go there itself: it may not leave

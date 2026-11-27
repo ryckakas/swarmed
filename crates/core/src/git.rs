@@ -1,4 +1,7 @@
 //! Git access by shelling out to the `git` binary.
+//!
+//! A list of unknown length, of paths or branches, is read NUL-separated (`-z`). A command on a
+//! repository's worktree records goes through `on_worktrees` (`worktrees_lock` says why).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

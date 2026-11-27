@@ -90,15 +90,52 @@ import type {
 } from "./types";
 
 // Sample data and a scripted agent, for working on the UI in a browser where there is no Tauri
-// shell. The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>`
-// asks permission first, `ask` puts questions, `delegate` starts sub-agents, `show` answers
-// with an HTML view, `warn <percent>` ends its turn with a usage warning for the weekly window
-// that full (`warn <percent> <seconds>`: one that resets that soon), `limit <seconds>` ends its
-// turn refused by a 5-hour limit that resets that soon, `slow` runs until interrupted,
+// shell (`pnpm dev`). The README's screenshot and GIF are of this sample data, never of
+// anyone's real projects.
+//
+// The agent behaves like the core's FakeBackend: plain text is echoed, `run: <command>` asks
+// permission first, `ask` puts questions (`ask one`: one), `delegate` starts sub-agents
+// (`delegate background`: one in the background), `show` answers with an HTML view,
+// `warn <percent>` ends its turn with a usage warning for the weekly window that full
+// (`warn <percent> <seconds>`: one that resets that soon), `limit <seconds>` ends its turn
+// refused by a 5-hour limit that resets that soon, `slow` runs until interrupted,
 // `long: <command>` runs a command the turn waits on until it is sent to the background or
-// stopped, `screenshot` checks a page in a browser, whose last call returns an image, `app`
-// calls an MCP tool whose server attached an app to it, and `browse` opens the task's
-// browser with `show_browser` and acts in its own tab there.
+// stopped, `switch <branch>` moves the worktree to a new branch, `elsewhere: <title>` renames
+// the session as another Swarmed would, saying only `tree_changed`, `screenshot` checks a page
+// in a browser, whose last call returns an image, `app` calls an MCP tool whose server
+// attached an app to it (`mockApps.ts`), and `browse` opens the task's browser with
+// `show_browser` and acts in its own tab there, which the pane goes to. In plan mode it
+// presents a plan.
+//
+// What the sample data holds, to check the UI against:
+// - "A very long conversation" has 2,000 messages, for checking scroll speed.
+// - bonsai-lint's "Plan the rule engine" is answered with a table (`ENGINE_PLAN`).
+// - `fix-login-redirect`'s pull request has a check running that fails 15 seconds after the
+//   window opens (`CHECK_FAILS_AFTER`), as the core's follower would say it (`pull_read`,
+//   `pull_changed`), and a required check that holds a merge back (`mockMerging.ts`). Its
+//   first message holds an address, a code span and two paths, one in the worktree that opens
+//   and one from home that does not. A session of it is at work, so a rewind there takes no
+//   files back (`mockRewind.ts`: a busy session is refused too).
+// - `rule-docs` has a pull request closed without merging, #90.
+// - Removing `invoice-export` is refused over unsaved work, and `shop-142` over a session
+//   another Swarmed runs.
+// - `invoice-export`'s first session answered with formulas in every form math is drawn from
+//   (`VAT_ANSWER`). Its second is idle with a sub-agent at work and a dev server left running;
+//   stopping them from the Background list changes its mark.
+// - A new task's setup (`mockSetups.ts`) is quick in storefront's `staging`, never shown on
+//   storefront's own (nothing to run, so it ends within `SETUP_GRACE`), half a minute in
+//   bonsai-lint, and killed the first time in fsum, then fine when run again.
+// - GitHub issues (`mockIssues.ts`): storefront's and bonsai-lint's, `shop-142` started for
+//   #142, #428's text with HTML GitHub draws and HTML it does not and one comment hidden on
+//   GitHub, and none for fsum, which is not on GitHub, with why. `#` offers: `mockGithub.ts`.
+// - bonsai-lint's `rule-engine` holds an architect with sessions working for it three levels
+//   deep, and `rule-docs` a planner working for it from another task (`mockParents.ts`), each
+//   with a role (`mockRoles.ts`).
+// - The task whose stack runs has its browser running too, a made-up shop drawn on a canvas
+//   that Pick outlines and picks from (`mockBrowser.ts`): an address with `console` logs a
+//   line, `alert` opens a dialog, `refused` fails, and a browser program with `missing` in it
+//   offers to install one. With `browser_display` set to window, a browser started from then
+//   on shows the window panel, and one already running offers to start again in a window.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>

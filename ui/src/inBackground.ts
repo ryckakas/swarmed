@@ -1,5 +1,6 @@
 // What the sidebar's marks say of work a session's agent left running in the background
-// (#420). Pure, so it can be tested.
+// (#420). Pure, so it can be tested. What runs is drawn moving, since what is still runs
+// nothing: a grub per sub-agent at work, or for commands a thread that creeps round.
 
 import type { BackgroundCount, SessionStatus } from "./api/types";
 

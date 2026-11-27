@@ -6,7 +6,8 @@
 //! repository are in one file in the data directory, a repository's own in a file beside its
 //! configuration. The files are plain TOML, meant to be written by hand or by an agent asked to
 //! add a button. The core only keeps them: a front end sends the prompt, or types the command
-//! into the session's terminal, when the button is pressed.
+//! into the session's terminal, when the button is pressed. A command runs where the user sees
+//! it and can answer it, never out of sight.
 
 use std::path::PathBuf;
 

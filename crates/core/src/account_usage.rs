@@ -12,7 +12,8 @@
 //!
 //! Only the user asking brings the figures up to date between turns: the session's own Claude
 //! Code is asked, and its answer is recorded in the session, with nothing in the conversation.
-//! Nothing asks on its own, on a timer or when a figure is looked at.
+//! Nothing asks on its own, on a timer or when a figure is looked at: the user's choice, so
+//! that looking costs nothing.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -563,6 +564,8 @@ impl UsageHeard {
     /// Takes in an event session `session_id` recorded, and returns the usage now if the
     /// event changed it. Only Claude Code reports usage: the Agent Client Protocol has no
     /// message for an account's limits, and another agent's would be another account's.
+    /// Reports are told apart by agent, not by sign-in: a session the command line runs with
+    /// `--auth inherit` on another account's sign-in counts as the same account.
     pub(crate) fn hear(
         &self,
         store: &Mutex<Store>,

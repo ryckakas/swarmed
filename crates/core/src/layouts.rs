@@ -6,6 +6,9 @@
 //! here before it is kept, so that neither a hand-edited file nor an agent can leave the app
 //! unreadable: numbers have ranges, colours are `#rrggbb`, and text must stand out from what
 //! it is written on. A file that fails the check is refused as a whole and nothing changes.
+//! A new field gets its range here, a line in `layout_schema`, and a line in the UI's
+//! `customLayout.ts`. Agents save a layout through `configure` at once, which is safe only
+//! because a layout cannot hide or move anything: keep it so.
 //!
 //! A key the layout does not know is refused when it is saved, and left out and named when
 //! the file is read: two Swarmeds of different versions can share one data directory, and a

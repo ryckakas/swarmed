@@ -2,11 +2,13 @@
 //!
 //! The user types in the terminal as in any other. What happened there since the agent's last
 //! turn travels with the user's next message, so the agent can act on a command it asked for
-//! without the user pasting anything.
+//! without the user pasting anything. Its output is published and never stored, and nothing
+//! gives an agent a way to type into it.
 //!
 //! A session on Claude Code can also open Claude Code itself in a terminal of its own, on the
 //! screen of a command that has one only there, such as `/vim`. It runs as the user would
-//! start it, with their own sign-in, and nothing it shows is given to the agent.
+//! start it, with their own sign-in, and nothing it shows is given to the agent: a screen such
+//! as `/usage-credits` shows a balance and card digits.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -534,6 +536,10 @@ impl Core {
     /// slash. One the session opened on the same command and that still runs is shown as it
     /// stands; any other is replaced. It starts in the task's worktree as the user would start
     /// it, with their own sign-in. Nothing it shows is given to the agent.
+    ///
+    /// It is a new conversation, never the session's: resuming that would put two Claude Codes
+    /// on one conversation. In a new worktree it first asks whether to trust the folder, which
+    /// is the user's to answer.
     ///
     /// Must be called from within a tokio runtime.
     pub fn claude_terminal_open(

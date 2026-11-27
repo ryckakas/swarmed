@@ -1,5 +1,6 @@
 //! A task's files as they lie in its worktree: one folder at a time, for a front end to walk
-//! through, and a way to open one of them in the user's editor.
+//! through, and a way to open one of them in the user's editor. Swarmed shows no file's
+//! contents itself: that is the editor's job.
 
 use std::path::{Path, PathBuf};
 

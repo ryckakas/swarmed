@@ -1,5 +1,11 @@
 //! The commands the UI can call. Each one forwards to `swarmed-core` and adds nothing, apart
 //! from the three that update the app itself, which forward to `update.rs`.
+//!
+//! Tauri runs a command that is not `async` on the thread that also serves the window. So one
+//! that reads much (a whole conversation, a search, the costs), asks git or the keychain, or
+//! waits on an agent runs off it, as `#[tauri::command(async)]` or an `async fn`. Commands
+//! whose order matters (what is typed into a terminal, what is sent, queued or answered) stay
+//! on it: the main thread runs them one by one, in the order they came.
 #![allow(
     clippy::needless_pass_by_value,
     reason = "Tauri hands commands their arguments, `State` included, by value"

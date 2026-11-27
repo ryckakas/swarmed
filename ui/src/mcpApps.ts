@@ -444,7 +444,8 @@ export function initializeResult(
 /**
  * The key a yes to load an app that reaches the network is remembered by: its server and what
  * it reaches. The same server's apps that reach the same places are shown without asking
- * again until Swarmed quits; one that reaches anywhere else asks.
+ * again until Swarmed quits; one that reaches anywhere else asks. Kept in memory only, the
+ * user's choice.
  */
 export function consentKey(server: string, reaches: readonly string[]): string {
     return JSON.stringify([server, [...reaches].sort()]);

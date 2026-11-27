@@ -1,6 +1,7 @@
 //! Calls the app's commands the way the UI does, by name with JSON arguments, on Tauri's mock
 //! runtime. The argument names here are the ones `ui/src/api/tauri.ts` sends: if a command's
-//! parameters are renamed, this is where it shows.
+//! parameters are renamed, this is where it shows. Every command gets a call here: nobody can
+//! look inside the native window from CI.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;

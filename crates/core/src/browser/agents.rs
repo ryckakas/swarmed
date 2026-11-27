@@ -6,7 +6,8 @@
 //! did not set up. Claude Code is handed a pointed copy of each of its own browser servers in
 //! the file it takes servers from, under the same name, which takes the place of its own
 //! (tried with Claude Code 2.1.332, plugins' `plugin:<plugin>:<server>` included). Any other
-//! agent has the servers Swarmed hands it pointed; its own configuration is not touched.
+//! agent has the servers Swarmed hands it pointed; its own configuration is not touched, and
+//! codex-acp keeps its own server of a name over one handed to it under that name.
 
 use std::sync::{Arc, Weak};
 use std::time::Duration;

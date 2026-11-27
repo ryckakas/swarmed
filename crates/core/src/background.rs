@@ -42,7 +42,8 @@ pub struct BackgroundTask {
     pub summary: Option<String>,
     /// The tool call that started it, for a sub-agent: what opens its conversation.
     pub tool_use_id: Option<String>,
-    /// Whether what it printed can be read, with [`Core::session_background_output`].
+    /// Whether what it printed can be read, with [`Core::session_background_output`]. Only
+    /// Claude Code names a file for it: ACP agents name none.
     pub output: bool,
     /// Whether it can be stopped, with [`Core::session_stop_background`]. Not what an agent
     /// offers no way to stop, such as a shell OpenCode left running.

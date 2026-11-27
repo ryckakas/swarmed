@@ -22,7 +22,10 @@
 //!
 //! This is the one part of the app crate that decides something: the updater is the window's,
 //! and the core links no HTTP client. What it decides is in [`step`] and [`progress_step`],
-//! which are pure and tested here.
+//! which are pure and tested here: add to those rather than to the code around them.
+//!
+//! The plugin's own commands are in no capability: the window reaches updating through
+//! `update_state`, `update_check` and `update_restart` alone.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

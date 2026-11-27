@@ -382,7 +382,10 @@ interface State {
     /** The repository or task the user asked to remove, until they confirm or think again. */
     removing: RemoveTarget | null;
     askToRemove(target: RemoveTarget | null): void;
-    /** The removals under way, each by what names it: closing the dialog stops none. */
+    /**
+     * The removals under way, each by what names it: closing the dialog stops none, and asking
+     * again starts no second one.
+     */
     removals: string[];
     removalBegun(key: string): void;
     removalEnded(key: string): void;
@@ -402,7 +405,10 @@ interface State {
     queues: Record<number, QueuedMessage[]>;
     /** Per session, how many changes of its queue were heard: what `queueAnswer` goes by. */
     queuesHeard: Record<number, number>;
-    /** Takes a change of a session's queue, as the core published it. */
+    /**
+     * Takes a change of a session's queue, as the core published it. Never what the core
+     * answers when asked, which goes through `queueAnswer`.
+     */
     setQueue(sessionId: number, messages: QueuedMessage[]): void;
     /**
      * Takes what the core answers that a session's queue holds, unless a change of it is heard
@@ -438,7 +444,8 @@ interface State {
     clearReview(taskId: number): void;
     /**
      * Each task's pull request by the task's id, as the core last read it: from the tree, and
-     * from each reading it publishes since. `null` for none.
+     * from each reading it publishes since. `null` for none. The window never asks `gh` on a
+     * timer: the core follows them (`following.rs`), and opening a task's panel asks once.
      */
     pulls: Record<number, Pull | null>;
     /** Asks again for a task's pull request. Not hearing back changes nothing. */
