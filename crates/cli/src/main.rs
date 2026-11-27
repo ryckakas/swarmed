@@ -1085,6 +1085,10 @@ async fn usage(core: &Core) -> Result<()> {
     say(&format!("images\t{}", bytes(usage.images_bytes)));
     say(&format!("checkpoints\t{}", bytes(usage.checkpoints_bytes)));
     say(&format!("browsers\t{}", bytes(usage.browsers_bytes)));
+    // The built-in repolore's home, once there is one.
+    if usage.repolore_bytes > 0 {
+        say(&format!("repolore\t{}", bytes(usage.repolore_bytes)));
+    }
     for worktree in &usage.worktrees {
         let size = worktree
             .bytes
