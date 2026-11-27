@@ -16,11 +16,11 @@ use swarmed_core::{
     AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, AppCsp, AppShown, Attached,
     BackgroundOutput, BackgroundTask, BranchChoices, BrowserGo, BrowserSetup, BrowserState,
     Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, ConsoleLine, Core, Costs,
-    CustomLayout, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing, FirstSession,
-    GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList, KeyInput, McpServerInput,
-    McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, MouseInput, NewTaskOptions,
-    PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, ROLES, Reachable,
-    RemoveOptions, RewindCheck, RewindDone, Role, SearchHit, Session, SessionOptions,
+    CustomLayout, Descendant, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
+    FirstSession, GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList, KeyInput,
+    McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, MouseInput,
+    NewTaskOptions, PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, ROLES,
+    Reachable, RemoveOptions, RewindCheck, RewindDone, Role, SearchHit, Session, SessionOptions,
     SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming,
     TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats,
     Unpublished, Usage, UsageAsk, Viewport, hooks,
@@ -368,16 +368,33 @@ pub(crate) async fn task_remove<R: Runtime>(
 }
 
 /// Puts a task away: stops its agents and its stack, closes its sessions if the settings say
-/// to, and lists it with the done ones. Returns what went wrong on the way, to be said.
+/// to, and lists it with the done ones; with `close_workers`, also closes the sessions of other
+/// tasks that work for its sessions. Returns what went wrong on the way, to be said: the
+/// window reads the tree again for the sessions it closed.
 #[tauri::command]
 pub(crate) async fn task_done<R: Runtime>(
     app: AppHandle<R>,
     core: CoreState<'_>,
     project: String,
     name: String,
+    close_workers: bool,
 ) -> Command<Vec<String>> {
     let sink = hook_sink(&app, &project, &name);
-    Ok(core.task_done(&project, &name, &sink).await?)
+    let done = core
+        .task_done(&project, &name, close_workers, &sink)
+        .await?;
+    Ok(done.notes)
+}
+
+/// The open sessions of other tasks that work for a task's sessions, however far down: those
+/// putting it away closes when asked to.
+#[tauri::command(async)]
+pub(crate) fn task_descendants_elsewhere(
+    core: CoreState<'_>,
+    project: String,
+    name: String,
+) -> Command<Vec<Descendant>> {
+    Ok(core.task_descendants_elsewhere(&project, &name)?)
 }
 
 /// Brings a put away task back to the others.
@@ -1721,9 +1738,22 @@ pub(crate) fn session_set_role(
     Ok(core.session_set_role(id, role.as_deref())?)
 }
 
+/// Closes a session, and with `with_workers` the open sessions that work for it, however far
+/// down. Returns the sessions closed.
 #[tauri::command]
-pub(crate) fn session_close(core: CoreState<'_>, id: i64) -> Command<()> {
-    Ok(core.session_close(id)?)
+pub(crate) fn session_close(core: CoreState<'_>, id: i64, with_workers: bool) -> Command<Vec<i64>> {
+    Ok(core.session_close(id, with_workers)?)
+}
+
+/// The sessions that work for a session, however far down and in whichever task; the closed
+/// ones too with `closed`.
+#[tauri::command(async)]
+pub(crate) fn session_descendants(
+    core: CoreState<'_>,
+    id: i64,
+    closed: bool,
+) -> Command<Vec<Descendant>> {
+    Ok(core.session_descendants(id, closed)?)
 }
 
 /// Deletes a session and its conversation for good.

@@ -84,7 +84,7 @@ async fn a_screenshot_is_kept_in_the_sessions_folder_and_listed_on_its_result() 
         Err(Error::NotPastedImage(_))
     ));
 
-    core.session_close(session.id).expect("closes");
+    core.session_close(session.id, false).expect("closes");
     assert!(images[0].exists());
     core.session_delete(session.id).expect("deletes");
     assert!(!folder.exists());

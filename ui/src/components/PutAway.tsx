@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { api } from "../api";
-import type { Task } from "../api/types";
+import type { Descendant, Task } from "../api/types";
+import { alsoCloseElsewhereSaid, workerRows } from "../closing";
 import { doneSaid, offersPutAway, putAwayDoes } from "../putAway";
 import { useStore } from "../store";
 import { usePull } from "../usePull";
 import { useWords } from "../useWords";
+import { useAsked, useWorkersKey, WorkersToClose } from "./CloseWorkers";
+import { Dialog } from "./Dialog";
 
 interface Target {
     project: string;
@@ -30,7 +33,8 @@ function useOnce() {
 
 /**
  * Puts a task away: its agents and its stack stopped, and listed with the done ones. Nothing is
- * deleted, so it asks nothing first. `onDone` is told once it went.
+ * deleted, so it asks nothing first, unless sessions of other tasks work for its sessions: then
+ * it asks whether to close those too. `onDone` is told once it went.
  */
 export function PutAwayButton(
     props: Target & { label?: string; primary?: boolean; onDone?(): void },
@@ -39,21 +43,113 @@ export function PutAwayButton(
     const settings = useStore((state) => state.settings);
     const putAway = useStore((state) => state.putAway);
     const { busy, run } = useOnce();
+    const [asking, setAsking] = useState<Descendant[] | null>(null);
+    const put = (closeWorkers: boolean) =>
+        run(async () => {
+            await putAway(api, project, task.name, closeWorkers);
+            setAsking(null);
+            onDone?.();
+        }, "Not put away");
     const press = () =>
         run(async () => {
-            await putAway(api, project, task.name);
+            const elsewhere = await api.taskDescendantsElsewhere(project, task.name);
+            if (elsewhere.length > 0) {
+                setAsking(elsewhere);
+                return;
+            }
+            await putAway(api, project, task.name, false);
             onDone?.();
         }, "Not put away");
     return (
-        <button
-            type="button"
-            className={primary ? "button button-primary" : "button"}
-            disabled={busy}
-            title={putAwayDoes(settings)}
-            onClick={() => void press()}
+        <>
+            <button
+                type="button"
+                className={primary ? "button button-primary" : "button"}
+                disabled={busy}
+                title={putAwayDoes(settings)}
+                onClick={() => void press()}
+            >
+                {busy ? "Putting away…" : (label ?? "Put away")}
+            </button>
+            {asking && (
+                <PutAwayAsk
+                    project={project}
+                    task={task}
+                    under={asking}
+                    busy={busy}
+                    onPut={(closeWorkers) => void put(closeWorkers)}
+                    onClose={() => setAsking(null)}
+                />
+            )}
+        </>
+    );
+}
+
+interface AskProps {
+    project: string;
+    task: Task;
+    /**
+     * The open sessions of other tasks that work for its sessions, as the core listed them when
+     * the button was pressed.
+     */
+    under: Descendant[];
+    busy: boolean;
+    onPut(closeWorkers: boolean): void;
+    onClose(): void;
+}
+
+/**
+ * Asks before a task is put away while sessions of other tasks work for its sessions: they are
+ * listed, read again while the dialog is open whenever who works for whom changes, and a tick
+ * box, unticked to begin with, closes them too. Their tasks stay.
+ */
+function PutAwayAsk({ project, task, under: first, busy, onPut, onClose }: AskProps) {
+    const words = useWords();
+    const settings = useStore((state) => state.settings);
+    const projects = useStore((state) => state.projects);
+    const [ticked, setTicked] = useState(false);
+    const again = useWorkersKey((all) => all.find((one) => one.name === project));
+    const ask = () => api.taskDescendantsElsewhere(project, task.name);
+    const under = useAsked(String(task.id), again, ask, first);
+    const rows = workerRows(under, projects, task.id);
+    const { task: taskWord, tasks } = words.terms;
+    return (
+        <Dialog
+            title={`Put this ${taskWord} away?`}
+            size="medium"
+            closeOnBackdrop={!ticked}
+            busy={busy}
+            onClose={onClose}
+            dismiss="Keep it"
+            actions={
+                <button
+                    type="button"
+                    className="button button-primary"
+                    onClick={() => onPut(ticked && rows.length > 0)}
+                >
+                    {busy ? "Putting away…" : "Put away"}
+                </button>
+            }
         >
-            {busy ? "Putting away…" : (label ?? "Put away")}
-        </button>
+            <p className="dialog-subject">{task.name}</p>
+            <p>{putAwayDoes(settings)}</p>
+            {rows.length > 0 && (
+                <>
+                    <WorkersToClose
+                        heading={`In other ${tasks}, working for its ${words.session}s:`}
+                        rows={rows}
+                        label={alsoCloseElsewhereSaid(rows.length, words)}
+                        ticked={ticked}
+                        disabled={busy}
+                        onTick={setTicked}
+                    />
+                    <p>
+                        Their {tasks} are not put away either way: ticked, only these{" "}
+                        {words.session}s are closed.
+                    </p>
+                </>
+            )}
+        </Dialog>
     );
 }
 

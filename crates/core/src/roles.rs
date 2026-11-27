@@ -19,10 +19,23 @@
 use serde::Serialize;
 
 use crate::Core;
-use crate::agent::{AgentEvent, Supervision};
+use crate::agent::{AgentEvent, Effort, Supervision};
 use crate::error::{Error, Result};
 use crate::parents::{self, Relations};
 use crate::sessions::Session;
+
+/// What a session made with a role starts on where nothing else was chosen for it: the role's
+/// defaults in the user's settings (`Settings::role_defaults`), the model only where the
+/// session's agent offers it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Defaults {
+    /// The role's model, if the agent offers it.
+    pub(crate) model: Option<String>,
+    /// The role's effort.
+    pub(crate) effort: Option<Effort>,
+    /// The role's model, where the agent does not offer it and it was passed over.
+    pub(crate) passed_over: Option<String>,
+}
 
 /// A role a session can have: what its agent is for, and what it keeps to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -463,6 +476,30 @@ impl Core {
             self.supervise(session.id, supervision)?;
         }
         Ok(())
+    }
+
+    /// The model and effort the user's settings give `role`'s sessions on `agent` ([`Defaults`]):
+    /// nothing for no role or a role with none. A model the agent does not offer is passed
+    /// over, and the session starts as if the role had none: on the model of the agent that
+    /// started it, or the agent's own default.
+    pub(crate) fn role_defaults(&self, role: Option<&Role>, agent: &str) -> Result<Defaults> {
+        let Some(role) = role else {
+            return Ok(Defaults::default());
+        };
+        let mut settings = self.settings()?;
+        let Some(chosen) = settings.role_defaults.remove(role.name) else {
+            return Ok(Defaults::default());
+        };
+        let offered = |model: &String| self.agents_now().models(agent).contains(model);
+        let (model, passed_over) = match chosen.model {
+            Some(model) if !offered(&model) => (None, Some(model)),
+            model => (model, None),
+        };
+        Ok(Defaults {
+            model,
+            effort: chosen.effort,
+            passed_over,
+        })
     }
 
     /// What becomes of the plan of session `id` that the user approved, if its role changes no

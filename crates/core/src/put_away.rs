@@ -10,6 +10,9 @@
 //!   what they say. Remote Control is turned off and continuations are cancelled, since
 //!   either would start an agent again by itself. Nothing is deleted: the worktree, the
 //!   branch, the notes and every conversation stay.
+//! - **Sessions of other tasks** that work for its sessions are left alone, unless the user
+//!   asks to close them too (`close_workers`, #470). Only those sessions are closed then;
+//!   their tasks stay. A rule never asks.
 //! - **Coming back.** [`Core::task_undone`] brings a task back, and so does what works on it
 //!   again: reopening one of its sessions, starting one of its agents (which a message to one
 //!   of its sessions does), or starting its stack. When it came back is kept
@@ -38,6 +41,7 @@ use crate::account_usage::seconds_now;
 use crate::agent::AgentEvent;
 use crate::error::{Error, Result};
 use crate::hooks::OutputSink;
+use crate::parents::deepest_first;
 use crate::pulls::PullState;
 use crate::sessions::{Session, is_busy_status};
 use crate::settings::Settings;
@@ -86,6 +90,25 @@ impl DoneWhy {
             _ => Self::Hand,
         }
     }
+}
+
+/// How a task is put away: why, and whether the sessions of other tasks that work for its
+/// sessions are closed with it.
+#[derive(Debug, Clone, Copy)]
+struct PutAway {
+    why: DoneWhy,
+    close_workers: bool,
+}
+
+/// What putting a task away did ([`Core::task_done`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TaskDone {
+    /// The sessions of other tasks that worked for its sessions and were closed with it, the
+    /// deepest first. None unless asked for, and none for a task that was done already.
+    pub workers_closed: Vec<i64>,
+    /// What went wrong on the way, to be said: a `stop` that failed, or a stack that would not
+    /// end.
+    pub notes: Vec<String>,
 }
 
 /// The user's rules for putting tasks away by themselves: after how many days, for each rule
@@ -223,17 +246,27 @@ impl Core {
     /// Puts a task away: stops its agents and its stack, closes its sessions if the settings
     /// say to, and lists it with the done ones. Nothing is deleted, and it comes back with
     /// [`Core::task_undone`] or once something works on it again. Returns what went wrong on
-    /// the way, to be said: a `stop` that failed, or a stack that would not end. Refused for
-    /// a chat, while another Swarmed runs one of its agents ([`Error::RunsElsewhere`]) and
-    /// while it is being set up. A task done already is left as it is.
+    /// the way, to be said, and the sessions it closed ([`TaskDone`]). Refused for a chat,
+    /// while another Swarmed runs one of its agents ([`Error::RunsElsewhere`]) and while it is
+    /// being set up. A task done already is left as it is, and nothing is closed for it.
+    ///
+    /// With `close_workers`, the open sessions of other tasks that work for its sessions,
+    /// however far down ([`Core::task_descendants_elsewhere`]), are closed first, the deepest
+    /// first; their tasks stay as they are. Refused, with nothing closed or stopped, while
+    /// another Swarmed runs one of those too.
     pub async fn task_done(
         &self,
         project: &str,
         name: &str,
+        close_workers: bool,
         sink: OutputSink<'_>,
-    ) -> Result<Vec<String>> {
+    ) -> Result<TaskDone> {
         let (project, task) = self.repo_task(project, name)?;
-        self.put_away(&project, &task, DoneWhy::Hand, sink).await
+        let how = PutAway {
+            why: DoneWhy::Hand,
+            close_workers,
+        };
+        self.put_away(&project, &task, how, sink).await
     }
 
     /// Brings a done task back to the others. Nothing is started: its agents start with the
@@ -257,21 +290,30 @@ impl Core {
         self.bring_back(task)
     }
 
-    /// Puts `task` away for `why`, as [`Core::task_done`] says.
+    /// Puts `task` away as `how` says, as [`Core::task_done`] does.
     async fn put_away(
         &self,
         project: &Project,
         task: &Task,
-        why: DoneWhy,
+        how: PutAway,
         sink: OutputSink<'_>,
-    ) -> Result<Vec<String>> {
+    ) -> Result<TaskDone> {
         if task.done_at.is_some() {
-            return Ok(Vec::new());
+            return Ok(TaskDone::default());
         }
-        let ids = self.store().session_ids(task.id)?;
+        let workers = if how.close_workers {
+            deepest_first(&self.descendants_elsewhere(task)?)
+        } else {
+            Vec::new()
+        };
+        let mut ids = self.store().session_ids(task.id)?;
+        ids.extend(&workers);
         self.none_run_elsewhere(&ids)?;
         if matches!(self.setting_up(task), Some(SettingUp::Here { .. })) {
             return Err(Error::SetupRunning(task.name.clone()));
+        }
+        for worker in &workers {
+            self.close_one(*worker)?;
         }
         let close = self.settings()?.put_away_closes_sessions;
         // Read first: the store is let go before the loop, which records in it.
@@ -283,17 +325,23 @@ impl Core {
         let mut notes = notes;
         notes.extend(self.stop_stack(project, &config, task, sink).await);
         notes.extend(self.stop_browser(task.id).await);
-        if self.store().task_set_done(task.id, seconds_now(), why)? {
+        if self
+            .store()
+            .task_set_done(task.id, seconds_now(), how.why)?
+        {
             self.live.publish_apart(AgentEvent::TreeChanged);
         }
-        Ok(notes)
+        Ok(TaskDone {
+            workers_closed: workers,
+            notes,
+        })
     }
 
     /// Stops session `id`'s agent for good, as a put away task's: closed with `close`, else
     /// left open with nothing that would start its agent again by itself.
     fn session_put_away(&self, id: i64, close: bool) -> Result<()> {
         if close {
-            return self.session_close(id);
+            return self.close_one(id);
         }
         self.remote_control_closing(id)?;
         continuation::cancel(&self.store, &self.live, id)?;
@@ -369,7 +417,12 @@ impl Core {
         if self.works_on(task, elsewhere)? {
             return Ok(None);
         }
-        let done = self.put_away(project, task, why, &unsaid).await;
+        // A rule closes nothing outside the task: only the user can ask for that.
+        let how = PutAway {
+            why,
+            close_workers: false,
+        };
+        let done = self.put_away(project, task, how, &unsaid).await;
         Ok(done.ok().map(|_| why))
     }
 

@@ -111,16 +111,26 @@ pub(crate) fn fields<T: DeserializeOwned + Default>(table: toml::Table) -> (T, P
 /// A table of named entries, each read on its own: one that cannot be read is left out, and a
 /// key an entry does not know is left out of it. Both are said.
 pub(crate) fn entries<T: DeserializeOwned>(table: toml::Table) -> (BTreeMap<String, T>, Problems) {
+    entries_at(table, "")
+}
+
+/// [`entries`] of a table that stands under `at` in its file, such as `role_defaults` in the
+/// settings: what is said names each entry by where it stands.
+pub(crate) fn entries_at<T: DeserializeOwned>(
+    table: toml::Table,
+    at: &str,
+) -> (BTreeMap<String, T>, Problems) {
     let mut problems = Vec::new();
     let mut read = BTreeMap::new();
     for (name, value) in table {
-        match read_as::<T>(value, &name) {
+        let name_at = path_of(at, &name);
+        match read_as::<T>(value, &name_at) {
             Ok((entry, unknown)) => {
                 problems.extend(unknown);
                 read.insert(name, entry);
             }
             Err(why) => problems.push(format!(
-                "`{name}` could not be read ({why}), so it is left out."
+                "`{name_at}` could not be read ({why}), so it is left out."
             )),
         }
     }
