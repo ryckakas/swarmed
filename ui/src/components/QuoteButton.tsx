@@ -48,6 +48,11 @@ function wordsOf(selection: Selection, range: Range): string {
         const fence = formula.parentElement?.classList.contains("katex-display") ? "$$" : "$";
         formula.replaceWith(`${fence}${tex}${fence}`);
     }
+    // A view or an app selected along would load again in the page, with its script, and has
+    // no words of its own to give.
+    for (const frame of fragment.querySelectorAll("iframe")) {
+        frame.remove();
+    }
     // Laid out out of sight, so that the words keep the line breaks the window shows.
     const holder = document.createElement("div");
     holder.style.position = "fixed";
@@ -60,8 +65,17 @@ function wordsOf(selection: Selection, range: Range): string {
     return words;
 }
 
-/** What the window's selection quotes, into which session, and where it lies; `null` for none. */
-function selectedQuote() {
+/** How the words of a selection are read: as the window gives them, or as `wordsOf` does. */
+type Reading = (selection: Selection, range: Range) => string;
+
+/** The selection's words as the window gives them, cheap enough to read at every change. */
+const asShown: Reading = (selection) => selection.toString();
+
+/**
+ * What the window's selection quotes, into which session, and where it lies; `null` for none.
+ * Its words are read by `read` only once the selection is known to lie in one reply.
+ */
+function selectedQuote(read: Reading) {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
         return null;
@@ -69,22 +83,25 @@ function selectedQuote() {
     const range = selection.getRangeAt(0);
     const start = replyOf(range.startContainer);
     const end = replyOf(range.endContainer);
-    // The words as shown, not the reply's Markdown, but a formula as its TeX.
+    if (start === null || start !== end) {
+        return null;
+    }
     const words = quotedWords(
-        wordsOf(selection, range),
-        start?.dataset.key ?? null,
-        end?.dataset.key ?? null,
+        read(selection, range),
+        start.dataset.key ?? null,
+        end.dataset.key ?? null,
     );
-    const sessionId = Number(start?.getAttribute(QUOTE_INTO));
+    const sessionId = Number(start.getAttribute(QUOTE_INTO));
     return words !== null && Number.isInteger(sessionId) ? { sessionId, words, range } : null;
 }
 
 /**
  * Quotes what is selected in one of the agent's replies into its session's message box, and
- * lets go of the selection. Says whether there was anything to quote.
+ * lets go of the selection. Says whether there was anything to quote. The words as shown, not
+ * the reply's Markdown, but each formula as its TeX (`wordsOf`).
  */
 export function quoteSelected(): boolean {
-    const quote = selectedQuote();
+    const quote = selectedQuote(wordsOf);
     if (!quote) {
         return false;
     }
@@ -96,9 +113,13 @@ export function quoteSelected(): boolean {
 /** About as wide and tall as the button, to keep it inside the frame. */
 const BUTTON = { width: 96, height: 28 };
 
-/** Where the button goes for what is selected now, or `null` if it quotes nothing seen here. */
+/**
+ * Where the button goes for what is selected now, or `null` if it quotes nothing seen here.
+ * Asked at every change of the selection and every scroll, so the words are read as shown:
+ * whether there are any is all it needs of them.
+ */
 function spotIn(frame: HTMLElement): Spot | null {
-    const quote = selectedQuote();
+    const quote = selectedQuote(asShown);
     if (!(quote && frame.contains(quote.range.commonAncestorContainer))) {
         return null;
     }
