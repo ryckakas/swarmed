@@ -163,9 +163,10 @@ impl Count {
 
     /// A message of the user's side: a message of the user's said back, which goes out as the
     /// turn's first request, or results of the agent's tools, the last of which sends the next.
+    /// A message said back while tools still run goes out only with their results.
     fn answered(&mut self, message: &Value) {
         let replay = message.get("isReplay").and_then(Value::as_bool) == Some(true);
-        let goes_out = replay || self.last_result_in(message);
+        let goes_out = (replay && self.calls.is_empty()) || self.last_result_in(message);
         if goes_out && self.answering.is_none() {
             self.phase = Some(TokenPhase::Prompt);
         }
@@ -616,6 +617,25 @@ mod tests {
         assert_eq!(
             told(&mut counts, &[said_back()]),
             vec![Vec::<AgentEvent>::new()]
+        );
+    }
+
+    #[test]
+    fn a_message_said_back_while_a_tool_runs_goes_out_only_with_its_result() {
+        let mut counts = Counts::default();
+        let own = None;
+        told(
+            &mut counts,
+            &[start(own, 5, 0, 0), calls(own, "toolu_1"), stop(own)],
+        );
+        let said = told(&mut counts, &[said_back(), result_of(own, "toolu_1")]);
+        assert_eq!(
+            said,
+            vec![
+                // The tool still runs: no request can go out yet.
+                vec![],
+                vec![running(5, 8, TokenPhase::Prompt)],
+            ]
         );
     }
 }
