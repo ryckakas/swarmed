@@ -498,7 +498,7 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
 | not installed | no `repolore` or `repolore-mcp` | **Install**, showing `uv tool install --managed-python --python 3.12 --upgrade 'repolore-mcp>=0.5.1'` before it runs, with `brew install uv &&` first if uv is missing |
 | out of date | older than 0.5.1 | **Update**, with the same command |
 | off | installed, not turned on | **Turn on**; with a setup of yours found, **Copy your existing setup** or **Start fresh** |
-| waiting | turned on, but not given to sessions yet | what is left in its way, each with its step; **Check again** and **Turn off** |
+| waiting | turned on, but not given to sessions yet | what is left in its way, each with its step; **Check again** and **Turn off**, and **Open repolore** while its home is not set up yet, after **Start fresh**, to pick the repositories |
 | on | given to every session started from now on | its checks, when the index was built and last refreshed, what Claude Code last said of it once a session given it has started; **Open repolore**, **Check** and **Turn off** |
 
 - **Copy or start fresh.** A copy runs `repolore copy` into the built-in's home: it keeps your
