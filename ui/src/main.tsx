@@ -4,6 +4,9 @@ import "@fontsource-variable/atkinson-hyperlegible-mono";
 // app's own, which draws on top of it. Copying a formula gives its TeX, not its symbols.
 import "katex/dist/katex.min.css";
 import "katex/contrib/copy-tex";
+// The terminal's stylesheet, here and not with the terminal, which loads later: every stylesheet
+// of the app's own is in place before the user's, which is drawn after them all (`stylesheet.ts`).
+import "@xterm/xterm/css/xterm.css";
 import "./styles/tokens.css";
 import "./styles/palettes.css";
 import "./styles/app.css";

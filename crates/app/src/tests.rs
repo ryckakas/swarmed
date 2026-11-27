@@ -1136,6 +1136,88 @@ fn a_layout_with_a_key_the_app_does_not_know_is_drawn_and_says_so() {
 }
 
 #[test]
+fn the_ui_applies_the_users_stylesheet_only_once_they_said_yes() {
+    let app = app();
+    let none = app.ok("stylesheet", json!({}));
+    assert_eq!(
+        none,
+        json!({ "on": false, "left_out": false, "applied": "", "accepted": "", "file": null,
+            "too_large": false, "changed_at": null, "waiting": false })
+    );
+    let mut settings = app.ok("settings", json!({}));
+    settings["user_stylesheet"] = json!(true);
+    app.ok("set_settings", json!({ "settings": settings }));
+
+    // Saved in Settings, it is the user's, and applied at once.
+    let saved = app.ok("stylesheet_save", json!({ "text": "a { color: red; }" }));
+    assert_eq!(saved["applied"], "a { color: red; }");
+    assert_eq!(saved["waiting"], false);
+    assert!(saved["changed_at"].is_i64(), "{saved}");
+
+    // Changed on disk, it waits for the user's yes, and the window keeps what it had.
+    let path = app.data_dir().join("style.css");
+    std::fs::write(&path, ".deny { display: none; }").expect("writes");
+    let changed = app.ok("stylesheet", json!({}));
+    assert_eq!(
+        (&changed["applied"], &changed["waiting"]),
+        (&json!("a { color: red; }"), &json!(true))
+    );
+    let accepted = app.ok(
+        "stylesheet_accept",
+        json!({ "text": ".deny { display: none; }" }),
+    );
+    assert_eq!(accepted["applied"], ".deny { display: none; }");
+    assert_eq!(accepted["waiting"], false);
+
+    // Left out for this run, whatever the settings say, and taken back.
+    let out = app.ok("stylesheet_left_out", json!({ "leftOut": true }));
+    assert_eq!((&out["on"], &out["applied"]), (&json!(true), &json!("")));
+    let back = app.ok("stylesheet_left_out", json!({ "leftOut": false }));
+    assert_eq!(back["applied"], ".deny { display: none; }");
+
+    // Opened, the file is left as it is; an editor that is not there is said.
+    settings["editor"] = json!("swarmed-no-such-editor");
+    app.ok("set_settings", json!({ "settings": settings }));
+    let failed = app
+        .invoke("stylesheet_open", json!({}))
+        .expect_err("no such editor");
+    assert!(
+        failed
+            .as_str()
+            .is_some_and(|m| m.starts_with("could not open swarmed-no-such-editor")),
+        "{failed}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("reads"),
+        ".deny { display: none; }"
+    );
+}
+
+/// The window's policy is what keeps the user's stylesheet from loading anything: an `@import`
+/// of an address, a remote font or a remote image. It is not to be loosened for it.
+#[test]
+fn the_windows_policy_loads_no_style_font_or_image_from_elsewhere() {
+    let file: Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json is JSON");
+    let policy = file.pointer("/app/security/csp").and_then(Value::as_str);
+    let policy = policy.expect("the window has a policy");
+    let sources = |directive: &str| -> Option<Vec<&str>> {
+        policy.split(';').map(str::trim).find_map(|part| {
+            let mut words = part.split_whitespace();
+            (words.next() == Some(directive)).then(|| words.collect())
+        })
+    };
+    assert_eq!(sources("default-src"), Some(vec!["'self'"]));
+    assert_eq!(
+        sources("style-src"),
+        Some(vec!["'self'", "'unsafe-inline'"])
+    );
+    assert_eq!(sources("img-src"), Some(vec!["'self'", "data:"]));
+    // Fonts fall back to `default-src`.
+    assert_eq!(sources("font-src"), None);
+}
+
+#[test]
 fn the_ui_can_choose_how_often_usage_warnings_are_said() {
     let app = app();
     let mut settings = app.ok("settings", json!({}));
@@ -1288,7 +1370,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
         json!({
             "editor": "code", "terminal_app": "Terminal", "auto_title": true, "theme": "system", "palette": "swarm",
             "style": "colony", "layout": "classic",
-            "text_scale": 100,
+            "text_scale": 100, "user_stylesheet": false,
             "html_views": true, "tool_calls": "folded", "turn_end_lines": true, "math": "standard", "limit_warnings": "frequent", "continue_after_limit": false, "notifications": true, "default_supervision": "auto",
             "max_workers": 6,
             "status_items": ["branch", "changes", "model", "context", "cost"],

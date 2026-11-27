@@ -40,6 +40,9 @@ pub struct Settings {
     pub layout: Layout,
     /// The size of the app's text, in percent of what its layout starts from.
     pub text_scale: u16,
+    /// Whether the window applies the user's own stylesheet, `style.css`, after its own: the
+    /// text they last saved or accepted (`stylesheet.rs`). Not reachable through `configure`.
+    pub user_stylesheet: bool,
     /// How much a new session's agent may do without asking, unless chosen otherwise.
     pub default_supervision: Supervision,
     /// How many open sessions may work for one session, within [`WORKER_LIMITS`].
@@ -284,6 +287,7 @@ impl Default for Settings {
             style: Style::Colony,
             layout: Layout::Classic,
             text_scale: 100,
+            user_stylesheet: false,
             default_supervision: Supervision::Auto,
             max_workers: MAX_SPAWNED,
             role_defaults: BTreeMap::new(),
@@ -607,6 +611,7 @@ mod tests {
             style: Style::Plain,
             layout: Layout::Senior,
             text_scale: 110,
+            user_stylesheet: true,
             default_supervision: Supervision::Ask,
             max_workers: 12,
             role_defaults: BTreeMap::from([(

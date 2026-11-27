@@ -3473,6 +3473,52 @@ code {
     user-select: text;
 }
 
+/* What the window says of the user's own stylesheet: a change on disk waiting for a yes, with
+   the change under it, or a run that leaves it out. */
+.stylesheet-notice {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0 var(--space-6) var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--pollen);
+    background: color-mix(in srgb, var(--pollen) 12%, transparent);
+    user-select: text;
+}
+
+.stylesheet-notice-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.stylesheet-notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.stylesheet-notice-problem {
+    color: var(--clay);
+}
+
+/* Long enough to read a rule or two; a longer change scrolls, but only down: every line wraps,
+   so nothing of one can sit off to the side, out of sight, as the user is asked to accept it. */
+.stylesheet-change {
+    max-height: 16em;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.stylesheet-change .diff-lines {
+    width: auto;
+}
+
+.stylesheet-change .diff-line {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .session {
     flex: 1;
     display: flex;

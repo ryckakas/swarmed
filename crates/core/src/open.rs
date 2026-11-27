@@ -70,6 +70,12 @@ pub(crate) fn file_in_editor(editor: &str, folder: &Path, file: &Path) -> Result
     paths_in_editor(editor, &[folder, file])
 }
 
+/// Opens `file` on its own in the editor the user configured, for a file no folder worth
+/// opening holds, such as the user's stylesheet in the data directory.
+pub(crate) fn lone_file_in_editor(editor: &str, file: &Path) -> Result<()> {
+    paths_in_editor(editor, &[file])
+}
+
 fn paths_in_editor(editor: &str, paths: &[&Path]) -> Result<()> {
     let direct = launch(editor_command(editor, paths)?);
     let Err(error) = direct else {

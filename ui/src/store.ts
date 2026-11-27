@@ -14,6 +14,7 @@ import type {
     SessionSettings,
     Settings,
     SetupProgress,
+    Stylesheet,
     Template,
     TerminalConfig,
     UpdateState,
@@ -36,6 +37,7 @@ import { type ReviewComment, withComment } from "./review";
 import { type ScrollSpot, withoutPlaces } from "./scrollSpot";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { heard, readFrom, type SetupSeen } from "./setup";
+import { answersInOrder, NOTHING_PUT_ASIDE, type StylesheetPutAside } from "./stylesheet";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
     applySessionEvent,
@@ -291,6 +293,22 @@ interface State {
      * with it, or to nothing once it is kept and drawn.
      */
     saveCustomLayout(api: Api, text: string): Promise<string | null>;
+    /** The user's own stylesheet, once read: what the window applies, and what its file holds. */
+    stylesheet: Stylesheet | null;
+    /**
+     * Has the core write `text` as the user's stylesheet and apply it: saved in Settings, it is
+     * theirs. Resolves to what went wrong, or to nothing.
+     */
+    saveStylesheet(api: Api, text: string): Promise<string | null>;
+    /** Applies `text`, the stylesheet's file as the user was shown it when told it changed. */
+    acceptStylesheet(api: Api, text: string): Promise<string | null>;
+    /** Turns the user's stylesheet on or off, as its setting, and reads it again. */
+    useStylesheet(api: Api, on: boolean): Promise<void>;
+    /** Takes back the stylesheet this run left out, or leaves it out with `true`. */
+    leaveStylesheetOut(api: Api, leftOut: boolean): Promise<void>;
+    /** What of the stylesheet's notices the user put aside. In memory only. */
+    stylesheetAside: StylesheetPutAside;
+    putStylesheetAside(aside: Partial<StylesheetPutAside>): void;
     /** The ids of the repositories whose tasks are folded away in the sidebar. */
     folded: number[];
     toggleFolded(projectId: number): void;
@@ -1192,6 +1210,28 @@ export const useStore = create<State>((set, get) => ({
             () => api.customLayoutSave(text),
             (customLayout) => set({ customLayout }),
         ),
+    stylesheet: null,
+    saveStylesheet: (api, text) =>
+        kept(
+            () => takeStylesheet(() => api.stylesheetSave(text)),
+            () => {},
+        ),
+    acceptStylesheet: (api, text) =>
+        kept(
+            () => takeStylesheet(() => api.stylesheetAccept(text)),
+            () => {},
+        ),
+    useStylesheet: (api, on) =>
+        reporting(async () => {
+            await get().changeSettings(api, { user_stylesheet: on });
+            // At once, not at the core's next look at the settings file.
+            await takeStylesheet(() => api.stylesheet());
+        }),
+    leaveStylesheetOut: (api, leftOut) =>
+        reporting(() => takeStylesheet(() => api.stylesheetLeftOut(leftOut))),
+    stylesheetAside: NOTHING_PUT_ASIDE,
+    putStylesheetAside: (aside) =>
+        set((state) => ({ stylesheetAside: { ...state.stylesheetAside, ...aside } })),
     folded: readIds(FOLDED),
     toggleFolded: (projectId) => {
         const folded = toggledId(get().folded, projectId);
@@ -1472,6 +1512,9 @@ function readConfiguration(api: Api) {
         const layout = await api.customLayout();
         useStore.setState((state) => ({ customLayout: unlessSame(state.customLayout, layout) }));
     });
+    // Read whenever a file changed: a change of `style.css` on disk is asked about, never
+    // applied by reading it (`stylesheet.rs`).
+    void reporting(() => takeStylesheet(() => api.stylesheet()));
     void reporting(async () => {
         const config = await api.terminalConfig();
         useStore.setState((state) => ({
@@ -1482,6 +1525,22 @@ function readConfiguration(api: Api) {
         const templates = await api.templates();
         useStore.setState((state) => ({ templates: unlessSame(state.templates, templates) }));
     });
+}
+
+/** Every answer about the user's stylesheet, taken in the order asked (`answersInOrder`). */
+const stylesheetAnswers = answersInOrder();
+
+/**
+ * Asks the core about the user's stylesheet, by reading, saving or accepting it, and keeps the
+ * answer only if none asked for later was kept before it: a read begun before an acceptance
+ * must not put back the stylesheet it replaced.
+ */
+async function takeStylesheet(asked: () => Promise<Stylesheet>) {
+    const read = stylesheetAnswers.ask();
+    const stylesheet = await asked();
+    if (stylesheetAnswers.takes(read)) {
+        useStore.setState((state) => ({ stylesheet: unlessSame(state.stylesheet, stylesheet) }));
+    }
 }
 
 /** The problems with the configuration last said, so that reading it again does not repeat them. */

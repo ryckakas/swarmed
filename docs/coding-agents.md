@@ -579,7 +579,10 @@ line script, or hiding tool calls it can only propose: the change is shown in th
 accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it
 tells an agent the names of an environment's variables, never their values. Nor can it change
 how many sessions may work for one, nor the [roles' models and efforts](#a-roles-model-and-effort):
-an agent must not raise its own ceiling, nor choose what every session of a role costs.
+an agent must not raise its own ceiling, nor choose what every session of a role costs. Nor
+[your own stylesheet](configuration.md#your-own-stylesheet), not even as a proposal: CSS can hide
+anything in the window. An agent that asks is told where `style.css` is, so it can write it for
+you, and the window shows you the change and applies it once you press Apply.
 
 ### How many may work for one
 

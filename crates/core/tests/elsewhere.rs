@@ -414,6 +414,38 @@ async fn an_action_added_elsewhere_has_front_ends_read_the_configuration_again()
 }
 
 #[tokio::test]
+async fn a_stylesheet_accepted_elsewhere_has_front_ends_read_it_again() {
+    let fx = fixture();
+    let (here, there) = two_cores(&fx).await;
+    there.stylesheet_use(true).expect("turns on");
+    there.stylesheet_save("a { color: blue; }").expect("saves");
+    here.notice_others().expect("looks");
+    let mut bus = here.subscribe();
+    std::fs::write(fx.paths.stylesheet(), ".deny { display: none; }").expect("writes");
+    noticed(
+        &here,
+        &mut bus,
+        |event| matches!(&event.event, AgentEvent::ConfigChanged { kind } if kind == "file"),
+    )
+    .await;
+    assert!(here.stylesheet().expect("reads").waiting);
+
+    // Accepted there, which writes no file: here hears of it all the same, and applies it.
+    there
+        .stylesheet_accept(".deny { display: none; }")
+        .expect("accepts");
+    let seen = noticed(&here, &mut bus, |event| {
+        event.session_id == 0
+            && matches!(&event.event, AgentEvent::ConfigChanged { kind } if kind == "file")
+    })
+    .await;
+    assert!(!seen.iter().any(tree_changed), "{seen:?}");
+    let sheet = here.stylesheet().expect("reads");
+    assert!(!sheet.waiting);
+    assert_eq!(sheet.applied, ".deny { display: none; }");
+}
+
+#[tokio::test]
 async fn a_history_read_while_another_core_writes_holds_each_event_once_with_what_follows() {
     let fx = fixture();
     let (here, there) = two_cores(&fx).await;

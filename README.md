@@ -63,10 +63,11 @@ once: each has its own worktree and ports, so they don't step on each other. A d
   chat gets an empty folder of its own and is listed under General. A chat can read and message
   the sessions in your repositories, which can answer it, and when it turns into work, it
   carries on in a new task of a repository with the whole conversation.
-- **Made yours, by hand or by an agent.** Six palettes and a layout of your own sizes, fonts and
-  colours; the terminal and the status line; buttons that send a prompt or run a command; saved
-  prompts, rules for every agent, and environments for setting tasks up. Change them in the app,
-  in their files or with `swarmed`, or ask an agent: it changes the looks at once, and proposes
+- **Made yours, by hand or by an agent.** Six palettes, a layout of your own sizes, fonts and
+  colours, and a stylesheet of your own for the rest; the terminal and the status line; buttons
+  that send a prompt or run a command; saved prompts, rules for every agent, and environments for
+  setting tasks up. Change them in the app, in their files or with `swarmed`, or ask an agent: it
+  changes the looks at once, apart from your stylesheet, which only you change, and proposes
   rules, environments and commands for your yes.
 - **No files of its own in your repository.** Swarmed keeps its configuration and state in a
   folder of its own. The repository gains only the tasks' branches (and an empty first commit

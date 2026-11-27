@@ -7,6 +7,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod keys;
 mod menu;
 mod navigation;
 mod notify;
@@ -268,7 +269,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::session_files_put_back, commands::note, commands::set_note, commands::api_keys,
         commands::set_api_key, commands::delete_api_key, commands::settings,
         commands::config_problems,
-        commands::set_settings, commands::branch_example, commands::custom_layout, commands::custom_layout_save, commands::terminal_config, commands::terminal_config_save, commands::session_new, commands::session_events, commands::session_reachable, commands::project_reachable, commands::project_github_items, commands::project_github_read,
+        commands::set_settings, commands::branch_example, commands::custom_layout, commands::custom_layout_save, commands::stylesheet, commands::stylesheet_save, commands::stylesheet_accept, commands::stylesheet_open, commands::stylesheet_left_out, commands::terminal_config, commands::terminal_config_save, commands::session_new, commands::session_events, commands::session_reachable, commands::project_reachable, commands::project_github_items, commands::project_github_read,
         commands::session_send, commands::session_images_keep, commands::session_image,
         commands::session_image_open, commands::attachments_root,
         commands::session_mark_read, commands::session_queue,
@@ -311,6 +312,8 @@ fn main() {
         let found = tauri::async_runtime::block_on(notify::check());
         return writeln!(std::io::stdout(), "{found}").unwrap_or_default();
     }
+    // Asked first, while the user is surely still holding it as they start Swarmed.
+    let option_held = keys::option_held();
     // Started from the Finder or the Dock, the app has the system's bare `PATH`: ask the
     // user's shell for theirs before anything is looked up or started.
     if !tauri::is_dev() {
@@ -321,6 +324,11 @@ fn main() {
     // ended in the middle of its turn, and would never be anything else. Unless another
     // Swarmed runs beside this one, which the core knows.
     core.arrive().ok();
+    // Held as Swarmed starts, ⌥ leaves the user's stylesheet out until it quits: the way back
+    // to a window whose stylesheet hides the switch that turns it off.
+    if option_held {
+        core.set_stylesheet_left_out(true).ok();
+    }
     let core = Arc::new(core);
     let listening = Arc::clone(&core);
     let leaving = Arc::clone(&core);

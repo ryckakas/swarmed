@@ -629,6 +629,29 @@ export interface SidebarLevel {
 }
 
 /**
+ * The user's own stylesheet, `style.css` in the data directory, as the core reads it. The window
+ * applies only what the user saved in Settings or accepted when told the file changed.
+ */
+export interface Stylesheet {
+    /** Whether the user turned it on (`user_stylesheet`). */
+    on: boolean;
+    /** Whether this run leaves it out all the same: ⌥ was held as Swarmed started. */
+    left_out: boolean;
+    /** What the window applies now; empty while off, left out or without a file. */
+    applied: string;
+    /** The text the user last saved or accepted; empty for none. */
+    accepted: string;
+    /** What the file holds; `null` without a file, or one too large to read. */
+    file: string | null;
+    /** Whether the file is there but too large to be read: nothing of it is applied. */
+    too_large: boolean;
+    /** When the file last changed, in seconds since 1970. */
+    changed_at: number | null;
+    /** Whether the file holds what the user has not accepted: a change on disk, waiting. */
+    waiting: boolean;
+}
+
+/**
  * A layout of the user's own, as the core checked it: whatever it leaves out is drawn as in
  * the layout it starts from. Sizes are in pixels, the rest in percent of the classic layout's.
  */
@@ -720,6 +743,11 @@ export interface Settings {
     layout: Layout;
     /** The size of the app's text, in percent of what its layout starts from. */
     text_scale: number;
+    /**
+     * Whether the window applies the user's own stylesheet after its own: what they last saved
+     * or accepted. Agents cannot change it.
+     */
+    user_stylesheet: boolean;
     /** How much a new session's agent may do without asking, unless chosen otherwise. */
     default_supervision: Supervision;
     /**

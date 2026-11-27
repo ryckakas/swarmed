@@ -25,6 +25,7 @@ In the data directory:
 | `actions.toml`, `projects/<project>.actions.toml` | actions for every repository, and for one |
 | `templates.toml` | saved prompts |
 | `layout.json`, `terminal.json` | the custom layout and the terminal; `swarmed layout schema` and `swarmed terminal schema` print their JSON Schemas |
+| `style.css` | your own stylesheet, applied after the app's own: see [Your own stylesheet](#your-own-stylesheet) |
 | `skills/` | skills of Swarmed's own: see [Coding agents](coding-agents.md) |
 | `notes/` | notes on projects and tasks, readable by you alone |
 | `snapshots/` | snapshots, below, readable by you alone |
@@ -35,7 +36,7 @@ In the data directory:
 | `run/` | stacks' logs and what Swarmed is running |
 
 The app and the `swarmed` command write these. The TOML and JSON files may be edited by hand
-as well.
+as well, and so may `style.css`, whose change the window asks about before applying it.
 
 ### What Swarmed cannot understand
 
@@ -50,7 +51,7 @@ One key Swarmed cannot understand never stops it, whether it is misspelt or writ
 | `projects/<project>.toml` | left out | that key is at its default | an error: the project's tasks cannot be set up, started or removed with their hooks, which there is no telling |
 | `projects/<project>.environments.toml` | left out of that environment | that environment is left out | an error for tasks in its environments |
 
-`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal. A key `layout.json` does not know is left out and named like the others above; see [The custom layout](#the-custom-layout).
+`templates.toml`, the actions, `layout.json` and `terminal.json` affect only their own part: the saved prompts, the action buttons, the custom layout and the terminal. A key `layout.json` does not know is left out and named like the others above; see [The custom layout](#the-custom-layout). A rule of `style.css` the window cannot read costs only that rule, as in any browser; a `style.css` larger than 200 kB is not read, and named, and Settings says so instead of showing it.
 
 ## A project's configuration
 
@@ -466,6 +467,7 @@ Set in the app's Settings, kept in `settings.toml`.
 | `rules` | none | rules every agent is given, in every session |
 | `status_items`, `status_command` | branch, changes, model, context, cost | the status line: built-in pieces (also agent, worktree, duration, tokens), or a script whose first line is shown |
 | `theme`, `palette`, `style`, `layout`, `text_scale` | system, swarm, colony, classic, 100 | how the app looks |
+| `user_stylesheet` | `false` | whether the window applies your own stylesheet, `style.css`; see [Your own stylesheet](#your-own-stylesheet). Shown as Your stylesheet. Agents cannot change it |
 
 A key Swarmed does not know stays in `settings.toml` when the settings are saved, so an older Swarmed beside a newer one does not erase that one's choices. What else happens to what it cannot understand is in [What Swarmed cannot understand](#what-swarmed-cannot-understand).
 
@@ -511,6 +513,54 @@ A level you leave out is drawn as its base draws it, and the repository's name g
 Swarmed refuses a layout it could not draw readably, with the reason, and keeps the one before. Text has to stand out from its background by 4.5 to 1 (3 to 1 for sub-agents, which are drawn quieter, and for the five colours of marks and highlights against the backgrounds the layout gives, the one it gives a task's or a session's row in the sidebar included). A level that gives a colour has to give its background too, or its form a `panel`, which the sidebar is; one that gives a background has to give its colour. The palette's own colours are only known to the window, so nothing could be checked against them.
 
 A key the layout does not know, misspelt or written by a newer Swarmed, is left out when `layout.json` is read and named with the other problems, and the rest of the layout is drawn. Saving a layout with one is refused, so a misspelt key is caught when you save it.
+
+### Your own stylesheet
+
+For what the custom layout has no field for, such as a wider conversation, rounder corners or a
+look of your own for code, `style.css` in the data directory is a stylesheet of your own. Turned
+on in Settings, under Appearance, as Your stylesheet, the window applies it after every
+stylesheet of its own, the custom layout's included, so that it wins where they disagree. Settings
+shows what is applied and saves your edits to it, and Open in editor opens the file in your
+editor: if there is none, it is made first with what you last applied, or with a comment that
+names what you can use. An agent can write it for you too: ask one, and it writes the file,
+which you then apply as below. There is one stylesheet for every layout: a rule meant for
+one says so, as `:root[data-layout="senior"] { … }` does. It is applied to the window only, not
+to the HTML views agents answer with.
+
+What stays from version to version is the app's CSS variables: the colours (`--dusk`, the
+window's background, `--panel`, `--raised`, `--line`, `--text`, `--muted`, `--faint`,
+`--bright`, `--focus`, `--sky` for links, `--pollen`, `--moss`, `--busy`, `--clay`, `--lilac`,
+`--teal`, `--sand`), the fonts (`--font-ui`, `--font-mono`) and sizes (`--text-xs` to
+`--text-xl`, `--space-1` to `--space-8`), and what the root element says is chosen:
+`data-theme` (`dark` or `light`, none when it follows the system), `data-palette` and
+`data-layout` (`classic` or `senior`; a custom layout is drawn as the one it starts from). The
+window's class names change between versions, so a rule that uses one may stop working after an
+update.
+
+It loads nothing from elsewhere. The window's policy lets styles, fonts and images come only from
+the app itself, so an `@import` of an address, a web font or a remote image does not load, and
+the policy is not loosened for this. A font installed on your computer works by its name, and an
+image as a `data:` address.
+
+A stylesheet can hide or fake anything in the window, a permission prompt's Deny button
+included, so Swarmed applies only what you have seen:
+
+- What you save in Settings is yours, and applied at once.
+- A change made to the file anywhere else, in your editor or by an agent, is not applied until
+  you say so. The window keeps applying what you last saved or accepted, and says "Your
+  stylesheet changed on disk", with every line that changed, wrapped so that none runs out of
+  sight, characters that would not show written as their codes, and an Apply button; Settings
+  shows the same above its box. What is applied is the file as it was shown to you. If the file
+  changes again while it is shown, the notice says so and Apply waits a moment before it can be
+  pressed. A file taken away is no stylesheet.
+- Agents cannot change it through Swarmed's own tools: the `configure` tool has nothing for it,
+  not even a proposal for you to accept. An agent that asks is told where the file is, and that
+  you apply what it writes.
+
+If a stylesheet hides the very switch that turns it off, hold ⌥ while Swarmed starts, until its
+window shows: it is left out until Swarmed quits, and the window says so, with a way to turn it
+off or to use it again. From the command line, `swarmed layout stylesheet off` turns it off, and
+`swarmed layout stylesheet on` turns it on again.
 
 ## Environment variables
 

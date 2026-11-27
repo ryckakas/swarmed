@@ -129,7 +129,8 @@ enum Command {
     /// Manage actions: buttons of your own that send a prompt or run a command.
     #[command(subcommand)]
     Action(ActionCommand),
-    /// Show or replace your custom layout: sizes, spacing, fonts and colours of your own.
+    /// Show or replace your custom layout: sizes, spacing, fonts and colours of your own; turn
+    /// your own stylesheet on or off.
     #[command(subcommand)]
     Layout(LayoutCommand),
     /// Show or replace how the terminal looks and behaves: font, cursor, colours and more.

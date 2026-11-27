@@ -20,11 +20,13 @@ import { SearchDialog } from "./components/SearchDialog";
 import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
+import { StylesheetNotice } from "./components/StylesheetNotice";
 import { TaskPanel } from "./components/TaskPanel";
 import { UsageNotice } from "./components/UsageNotice";
 import { drawnLayout } from "./customLayout";
 import { PANEL_WIDTH, sidebarOf, widestPanel } from "./resize";
 import { connect, useStore } from "./store";
+import { drawUserStylesheet } from "./stylesheet";
 import { countUnread, countWaiting } from "./tree";
 import { useHotkeys } from "./useHotkeys";
 
@@ -35,10 +37,13 @@ export function App() {
     const load = useStore((state) => state.load);
     const settings = useStore((state) => state.settings);
     const customLayout = useStore((state) => state.customLayout);
+    const userCss = useStore((state) => state.stylesheet?.applied ?? "");
     useEffect(() => {
         applyAppearance(document.documentElement, settings, customLayout);
         drawCustom(document, customCss(settings, customLayout));
-    }, [settings, customLayout]);
+        // After the custom layout's, so that the user's own wins where they disagree.
+        drawUserStylesheet(document, userCss);
+    }, [settings, customLayout, userCss]);
     // The app's icon counts what waits for the user: questions, and answers not looked at.
     const waiting = useStore((state) => countWaiting(state.projects) + countUnread(state.projects));
     useEffect(() => void api.setBadge(waiting).catch(() => {}), [waiting]);
@@ -75,6 +80,7 @@ export function App() {
                         </button>
                     </div>
                 )}
+                <StylesheetNotice />
                 {load === "ready" && <UsageNotice />}
                 {load === "loading" && <Splash />}
                 {load === "ready" && (
