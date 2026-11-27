@@ -32,6 +32,7 @@ import {
     projectBackground,
     projectStatus,
     projectUnread,
+    saysNoSessions,
 } from "../tree";
 import { newVersion, updateLine } from "../updates";
 import { useNow } from "../useNow";
@@ -491,9 +492,7 @@ function TaskSessions({ project, task }: { project: string; task: Task }) {
     return (
         <>
             <SetupLine task={task} />
-            {task.sessions.length === 0 && !isSettingUp(task) && (
-                <p className="hint">{words.noSessions}</p>
-            )}
+            {saysNoSessions(task) && <p className="hint">{words.noSessions}</p>}
             <ul className="sessions">
                 {nestedSessions(task.sessions).map(({ session, depth }) => (
                     <li

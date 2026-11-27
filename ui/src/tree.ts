@@ -9,6 +9,7 @@ import type {
 } from "./api/types";
 import { addedUp } from "./inBackground";
 import { mentionsAsWords } from "./mentions";
+import { isSettingUp } from "./setup";
 
 // Pure functions over the project tree, kept apart from the store so they can be tested.
 
@@ -357,6 +358,15 @@ export function foldedSummary(task: Task): {
     };
 }
 
+/**
+ * Whether a task says it has no sessions. Not with closed ones, whose line says how it stands:
+ * "nothing spawned yet" would be untrue there. Not while it is set up either, when its progress
+ * shows in its place.
+ */
+export function saysNoSessions(task: Task): boolean {
+    return task.sessions.length === 0 && task.closed === 0 && !isSettingUp(task);
+}
+
 /** `ids` with `id` added if it was missing, removed if it was there. */
 export function toggledId(ids: number[], id: number): number[] {
     return ids.includes(id) ? ids.filter((existing) => existing !== id) : [...ids, id];
@@ -392,6 +402,28 @@ export function stillListed(ids: number[], projects: Project[]): number[] {
         ids,
         ids.filter((id) => !listed.has(id)),
     );
+}
+
+/**
+ * The folded tasks once the tree went from `before` to `after`: a task whose last open session
+ * went, closed or deleted, here or anywhere else, is folded, since all it would show is that it
+ * has none. Only as that happens, so a task the user unfolds again stays unfolded; never a task
+ * `before` did not hold (the first read, a new task), nor one being set up, whose progress shows
+ * under it. The same list if no task was left without a session.
+ */
+export function foldedWhenEmptied(folded: number[], before: Project[], after: Project[]): number[] {
+    const had = new Set(
+        before
+            .flatMap((project) => project.tasks)
+            .filter((task) => task.sessions.length > 0)
+            .map((task) => task.id),
+    );
+    const emptied = after
+        .flatMap((project) => project.tasks)
+        .filter((task) => had.has(task.id) && task.sessions.length === 0 && !isSettingUp(task))
+        .map((task) => task.id)
+        .filter((id) => !folded.includes(id));
+    return emptied.length === 0 ? folded : [...folded, ...emptied];
 }
 
 /**

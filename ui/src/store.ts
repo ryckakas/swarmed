@@ -41,6 +41,7 @@ import {
     applySessionEvent,
     findSession,
     findSessionHome,
+    foldedWhenEmptied,
     mayHaveEdited,
     stillListed,
     taskIdOf,
@@ -814,16 +815,21 @@ function leaving(state: State, sessionIds: number[], project?: string | null): P
     };
 }
 
-/** What changes when a session is closed: it leaves the tree, and the centre if it was there. */
+/**
+ * What changes when a session is closed: it leaves the tree, and the centre if it was there. A
+ * task it leaves with no open session folds.
+ */
 function closed(state: State, sessionId: number): Partial<State> {
     // Put back, it reads its images again; put away, they are not held for it.
     forgetImages([sessionId]);
+    const projects = withoutSession(state.projects, sessionId);
     return {
         ...leaving(state, [sessionId]),
         // Asked about it, the question goes with it; asked about another, that stays.
         closing: state.closing === sessionId ? null : state.closing,
         rewinding: state.rewinding?.sessionId === sessionId ? null : state.rewinding,
-        projects: withoutSession(state.projects, sessionId),
+        projects,
+        foldedTasks: foldedWhenEmptied(state.foldedTasks, state.projects, projects),
         // Put away, it cannot be written to; and its task can go while it is put away.
         drafts: without(state.drafts, [sessionId]),
         recalls: without(state.recalls, [sessionId]),
@@ -842,7 +848,19 @@ function closedAll(state: State, ids: number[]): State {
     return now;
 }
 
-/** What changes when the tree is read again: a session on screen that is not in it has gone. */
+/**
+ * What changes when a session is deleted: it is closed, and nothing of it is kept. Closing comes
+ * second, since forgetting would put back the folds as they were before a task it leaves with no
+ * open session folded.
+ */
+function deleted(state: State, sessionId: number): Partial<State> {
+    return { ...forgotten(state, [sessionId], []), ...closed(state, sessionId) };
+}
+
+/**
+ * What changes when the tree is read again: a session on screen that is not in it has gone, and
+ * a task left with no open session by something this window did not hear of folds.
+ */
 function readAgain(state: State, projects: Project[]): Partial<State> {
     const selected = state.selectedSessionId;
     const gone = selected !== null && !findSession(projects, selected);
@@ -852,7 +870,10 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
         pulls: pullsOf(projects),
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
         newTaskIssues: listedOnly(state.newTaskIssues, projects),
-        foldedTasks: stillListed(state.foldedTasks, projects),
+        foldedTasks: stillListed(
+            foldedWhenEmptied(state.foldedTasks, state.projects, projects),
+            projects,
+        ),
         browserOpen: stillListed(state.browserOpen, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
@@ -1375,11 +1396,7 @@ export const useStore = create<State>((set, get) => ({
     deleteSession: (api, sessionId) =>
         reporting(async () => {
             await api.sessionDelete(sessionId);
-            set((state) => ({
-                ...closed(state, sessionId),
-                ...forgotten(state, [sessionId], []),
-                deleting: null,
-            }));
+            set((state) => ({ ...deleted(state, sessionId), deleting: null }));
             await get().refresh(api);
         }),
     forgetTasks: (taskIds) =>
@@ -1456,10 +1473,7 @@ function heardOfDeletion(api: Api, event: SessionEvent): boolean {
     if (event.event.type !== "deleted") {
         return false;
     }
-    useStore.setState((state) => ({
-        ...closed(state, event.session_id),
-        ...forgotten(state, [event.session_id], []),
-    }));
+    useStore.setState((state) => deleted(state, event.session_id));
     void useStore.getState().refresh(api);
     return true;
 }

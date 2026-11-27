@@ -61,6 +61,12 @@ notice adds its line under Unreleased.
   checks run, a task's browser badge turns slowly while its browser runs, and a sub-agent at
   work in the sidebar is a tiny crawling grub. With reduced motion turned on in the system, each
   stands still as before.
+- **A task folds by itself once its last open session is closed.** Closing or deleting the
+  last open session of a task, yourself, by an agent or from another window, folds the task in
+  the sidebar instead of leaving "No sessions" and the closed line under it. Unfold it to see
+  its closed sessions and reopen one; it stays unfolded until its last open session goes
+  again. A task being set up is left as it is. An unfolded task with only closed sessions no
+  longer says "No sessions" above them.
 - **A task's pull request and issue badges stay put under the pointer.** They now come after the
   task's note and the buttons that only show while the row is pointed at, right before its +, so
   they no longer slide away as you move to press them.
