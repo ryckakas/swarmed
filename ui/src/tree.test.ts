@@ -5,7 +5,6 @@ import { backgroundShown } from "./inBackground";
 import { parentChosen, parentOptions, regroupedSaid } from "./parents";
 import {
     applySessionEvent,
-    childrenOf,
     countBusy,
     countUnread,
     countWaiting,
@@ -468,8 +467,6 @@ describe("whom a session can work for", () => {
         expect(ids(parentChoices(projects, parser))).toEqual([9, 12, 4, 5, 13]);
         const planner = sampled(projects, 9);
         expect(ids(parentChoices(projects, planner))).toEqual([4, 5]);
-        expect(ids(childrenOf(projects, 9))).toEqual([10, 12, 13]);
-        expect(ids(childrenOf(projects, 11))).toEqual([]);
     });
 
     it("is offered in a menu with nobody first and the current one kept", () => {

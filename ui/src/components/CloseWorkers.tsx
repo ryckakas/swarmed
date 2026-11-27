@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useState } from "react";
-import type { Descendant } from "../api/types";
+import type { Descendant, Session } from "../api/types";
 import { atWorkSaid, type WorkerRow } from "../closing";
 import { useWords } from "../useWords";
 import { StatusMark, useStatusLabel } from "./StatusMark";
@@ -74,21 +74,48 @@ export function WorkersToClose({ heading, rows, label, ticked, disabled, onTick 
 
 /** One session of the list: its status, its title, its task if another, and whether at work. */
 function Worker({ row }: { row: WorkerRow }) {
-    const words = useWords();
     const { session, depth, task, atWork } = row;
     const status = useStatusLabel(session.status, session.unread, session.background);
-    const nested = Math.min(depth, DRAWN_DEPTH) - 1;
     return (
-        <li className="close-workers-item" style={{ "--depth": nested } as CSSProperties}>
-            <StatusMark
-                status={session.status}
-                unread={session.unread}
-                background={session.background}
-                label={status}
-            />
-            <span className="close-workers-title">{session.title || words.untitled}</span>
-            {task !== null && <span className="close-workers-task">{task}</span>}
+        <li className="worker-row" style={nestedBy(depth)}>
+            <WorkerParts session={session} task={task} label={status} />
             {atWork && <span className="close-workers-status">{status}</span>}
         </li>
+    );
+}
+
+/** How far in a list of those who work for a session draws one `depth` down: at most so far. */
+export function nestedBy(depth: number): CSSProperties {
+    return { "--depth": Math.min(depth, DRAWN_DEPTH) - 1 } as CSSProperties;
+}
+
+interface PartsProps {
+    session: Session;
+    /** The name of its task, where that is another; else `null`. */
+    task: string | null;
+    /** What its status mark says, where not its own; none for a closed one. */
+    label?: string;
+    closed?: boolean;
+}
+
+/**
+ * A session that works for another, as every list of them draws it: how it is doing (not for a
+ * closed one), its title, and its task where that is another.
+ */
+export function WorkerParts({ session, task, label, closed = false }: PartsProps) {
+    const words = useWords();
+    return (
+        <>
+            {!closed && (
+                <StatusMark
+                    status={session.status}
+                    unread={session.unread}
+                    background={session.background}
+                    {...(label === undefined ? {} : { label })}
+                />
+            )}
+            <span className="worker-title">{session.title || words.untitled}</span>
+            {task !== null && <span className="worker-task">{task}</span>}
+        </>
     );
 }

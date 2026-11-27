@@ -3001,51 +3001,130 @@ code {
     font-size: var(--text-xs);
 }
 
-/* Under the title: the session this one works for, and those that work for it. */
+/*
+ * Under the title: the session this one works for, and everyone who works for it, however far
+ * down and in whichever task (#503), each label beside its list. A long tree scrolls in a space
+ * of its own, so that the conversation keeps the room it needs.
+ */
 .working-with {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-4);
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
     margin-top: var(--space-1);
-}
-
-.working-with-part {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-1);
-    margin: 0;
     color: var(--muted);
     font-size: var(--text-xs);
 }
 
-.working-with-label {
-    margin-right: var(--space-1);
+/* One session that works for another, as every list of them draws it, nested by its depth. */
+.worker-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 2px 0 2px calc(var(--space-4) * var(--depth, 0));
 }
 
-.session-chip {
-    display: inline-flex;
+.worker-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.worker-task {
+    flex: none;
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+.workers-tree {
+    max-height: 11lh;
+    overflow-y: auto;
+}
+
+.workers {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* In a narrow window, what follows the title goes onto a line of its own, not out of sight. */
+.workers .worker-row {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding-block: 0;
+}
+
+/* The line that opens a session: its status, title and task, as wide as they need. */
+.worker-open,
+.worker-closed {
+    display: flex;
+    flex: 0 1 auto;
     align-items: center;
-    gap: var(--space-1);
-    max-width: 32ch;
-    padding: 1px var(--space-2) 1px var(--space-1);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: var(--panel);
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 1px var(--space-1);
+    border: 0;
+    border-radius: 4px;
+    background: none;
     color: var(--text);
     font: inherit;
+    text-align: left;
+}
+
+.worker-open {
     cursor: pointer;
 }
 
-.session-chip:hover,
-.session-chip:focus-visible {
-    border-color: var(--sky);
+.worker-open:hover,
+.worker-open:focus-visible {
+    background: var(--raised);
 }
 
-.session-chip-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
+.worker-closed {
+    color: var(--faint);
+}
+
+.worker-closed .worker-title {
+    color: inherit;
+}
+
+.workers .worker-task {
+    font-size: inherit;
+}
+
+/* Folds those under a line of a long tree, and the closed ones: quiet until pointed at. */
+.workers-toggle {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 1px var(--space-1);
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
+    cursor: pointer;
+}
+
+.workers-toggle:hover,
+.workers-toggle:focus-visible {
+    background: var(--raised);
+    color: var(--text);
+}
+
+.workers-toggle[aria-expanded="true"] .fold-chevron {
+    transform: rotate(90deg);
+}
+
+.workers-closed {
+    margin-left: var(--space-4);
 }
 
 .session-status {
@@ -5963,32 +6042,10 @@ code {
     border-block: 1px solid var(--line);
 }
 
-.close-workers-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-    padding: 2px 0 2px calc(var(--space-4) * var(--depth, 0));
-}
-
-.close-workers-title {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.close-workers-task,
 .close-workers-status {
     flex: none;
-    color: var(--muted);
-    font-size: var(--text-sm);
-}
-
-.close-workers-status {
     color: var(--clay);
+    font-size: var(--text-sm);
 }
 
 .close-workers-tick {

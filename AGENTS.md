@@ -1123,9 +1123,15 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     user's choice is.
   - **Shown:** the sidebar nests to any depth (`nestedSessions`, `parentHere`; `order.rs`
     counts the same siblings), and one whose parent is elsewhere shows `for #N`
-    (`parentElsewhere`). `list_sessions` and `read_session` say it. Deleting a parent leaves
-    its children with none; closing leaves them as they are, unless the user asks to close
-    them too (see closing above).
+    (`parentElsewhere`). The header (`WorkingWith`, `workers.ts`, #503) draws everyone under
+    a session, at any depth and in any task, with each other task's name and pull request
+    badge: which sessions and under whom from the core alone (`session_descendants` with the
+    closed ones, read again when `workersKey` changes), how an open one is doing from the
+    tree. An open one under a closed one is drawn under the nearest open one, naming the
+    closed (`for #N`); the closed are folded below, to reopen; a tree of more than
+    `WHOLE_UP_TO` open lines folds to the direct workers. `list_sessions` and `read_session`
+    say it. Deleting a parent leaves its children with none; closing leaves them as they
+    are, unless the user asks to close them too (see closing above).
 - **A session's role says what it is for** (`roles.rs`, `roles.ts`, `Role.tsx`, #459). A role
   is data (`Role`: name, one-line description, instructions, starting supervision, whether it
   changes files, which roles it may start, its default child), so that roles of the user's own
