@@ -296,6 +296,11 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
     });
     // Keeping images takes a moment: Enter and leaving the box then must not save twice.
     const finishing = useRef(false);
+    // The queue scrolls under its head: the message opened, its files included, is shown whole.
+    const box = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        box.current?.scrollIntoView({ block: "nearest" });
+    }, []);
     const takeImages = usePastedImages(draft.images, (images) => onChange({ ...draft, images }));
     const finish = () => {
         if (finishing.current) {
@@ -341,7 +346,7 @@ function QueueEdit({ sessionId, draft, onChange, onDone, onCancel }: EditProps) 
         }
     };
     return (
-        <div className="queue-editing">
+        <div className="queue-editing" ref={box}>
             <FileChips
                 files={draft.files}
                 onRemove={(file) =>

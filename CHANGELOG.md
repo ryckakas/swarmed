@@ -90,6 +90,11 @@ notice adds its line under Unreleased.
   highlight. Tab still reaches each of them, and so do shortcuts: ⌘D pins, ⌘⇧H highlights, ⌘⇧N
   opens the task's note, and the session's header hands work to the cloud. Every + stays in
   one column, and a pinned session's pin now stands before its agent icon, so the icons do too.
+- **A long waiting message no longer takes the whole conversation.** A message waiting in the
+  queue shows its first three lines, with an ellipsis when there is more, and its files and
+  buttons stay beside it. Press it to see and edit the whole text, in a box that scrolls inside
+  itself. The queue shows about three messages, then scrolls under its heading, so the
+  transcript and the message box stay within reach whatever waits.
 
 ## [0.4.9] - 2026-11-27
 
