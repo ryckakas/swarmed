@@ -424,7 +424,7 @@ async fn a_session_with_a_role_uses_swarmed_s_session_tools_unasked_in_plan_mode
     for tool in [
         "send_message",
         "list_sessions",
-        "spawn_session",
+        "read_session",
         "close_session",
     ] {
         let call = format!("call: mcp__swarmed__{tool}");
@@ -437,13 +437,21 @@ async fn a_session_with_a_role_uses_swarmed_s_session_tools_unasked_in_plan_mode
     let asked = |event: &AgentEvent| matches!(event, AgentEvent::PermissionRequest { .. });
     assert!(!events.iter().any(asked), "never put to the user");
 
-    // Anything else is put to the user as before.
-    core.session_send(reviewer.id, "call: Bash").expect("sends");
-    let (request, tool) = requested(&mut bus).await;
-    assert_eq!(tool, "Bash");
-    core.session_deny(reviewer.id, &request, "Not now.")
-        .expect("denies");
-    turn(&mut bus, reviewer.id).await;
+    // Anything else is put to the user as before, and in plan mode so is starting a session
+    // or a task: a reviewer stays there, so each implementer it starts is the user's to allow.
+    for asked in [
+        "Bash",
+        "mcp__swarmed__spawn_session",
+        "mcp__swarmed__start_task",
+    ] {
+        let call = format!("call: {asked}");
+        core.session_send(reviewer.id, &call).expect("sends");
+        let (request, tool) = requested(&mut bus).await;
+        assert_eq!(tool, asked);
+        core.session_deny(reviewer.id, &request, "Not now.")
+            .expect("denies");
+        turn(&mut bus, reviewer.id).await;
+    }
 
     // And so are the session tools, in a session with no role.
     let plain = new_session(&core, None);
@@ -455,6 +463,42 @@ async fn a_session_with_a_role_uses_swarmed_s_session_tools_unasked_in_plan_mode
     assert_eq!(tool, "mcp__swarmed__send_message");
     core.session_allow(plain.id, &request).expect("allows");
     turn(&mut bus, plain.id).await;
+}
+
+#[tokio::test]
+async fn a_role_starts_sessions_unasked_only_once_its_plan_is_approved() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let planner = new_session(&core, Some("planner"));
+    core.session_start(planner.id, Auth::Subscription)
+        .expect("starts");
+
+    // Still planning: nothing was approved, so the user is asked about each start.
+    let spawn = "call: mcp__swarmed__spawn_session";
+    core.session_send(planner.id, spawn).expect("sends");
+    let (request, tool) = requested(&mut bus).await;
+    assert_eq!(tool, "mcp__swarmed__spawn_session");
+    core.session_allow(planner.id, &request).expect("allows");
+    turn(&mut bus, planner.id).await;
+
+    // Its plan approved, it is out of plan mode, and starting is its work like the rest.
+    approved(&core, &mut bus, planner.id, "build the export").await;
+    assert_eq!(supervision_of(&core, planner.id), Supervision::Auto);
+    for tool in ["spawn_session", "start_task"] {
+        let call = format!("call: mcp__swarmed__{tool}");
+        assert_eq!(
+            answer(&core, &mut bus, planner.id, &call).await,
+            "called it"
+        );
+    }
+    let events = core.session_events(planner.id).expect("reads");
+    let asked = |event: &&AgentEvent| matches!(event, AgentEvent::PermissionRequest { tool_name, .. } if tool_name != PLAN_TOOL);
+    assert_eq!(
+        events.iter().filter(asked).count(),
+        1,
+        "only while planning"
+    );
 }
 
 /// The permission request the agent of a session makes next: its id and the tool it is for.

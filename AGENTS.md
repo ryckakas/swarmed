@@ -1128,13 +1128,19 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     wins. A session a role-holder starts begins from that kept supervision
     (`supervision_without_role`), so an implementer is never held in its planner's plan mode.
     A same-agent fork copies it; a clone onto another agent starts anew under the role.
-  - **Its session tools are never put to the user** (`roles::uses_unasked`,
-    `allowed_unasked` in `sessions.rs`): starting, reading, telling and closing sessions is a
-    role's work, so a permission request for one of Swarmed's session tools (`SESSION_TOOLS`)
-    from a session with a role is allowed at once and never stored, in any supervision. Allow
-    rules cannot do it: Claude Code 2.1.332 holds every MCP tool that is not read-only at a
-    question in plan mode before it reads them (`planModeWriteFloor`), and runs it once the
-    permission prompt allows it. What a role may start is still checked when it starts one.
+  - **Its session tools are not put to the user, but for a start in plan mode**
+    (`roles::uses_unasked`, pure, and `allowed_unasked` in `sessions.rs`): starting, reading,
+    telling and closing sessions is a role's work, so a permission request for one of Swarmed's
+    session tools (`SESSION_TOOLS`) from a session with a role is allowed at once and never
+    stored. Allow rules cannot do it: Claude Code 2.1.332 holds every MCP tool that is not
+    read-only at a question in plan mode before it reads them (`planModeWriteFloor`), and runs
+    it once the permission prompt allows it. The two that start a session (`STARTING_TOOLS`:
+    `spawn_session`, `start_task`) are put to the user while the session is in `Plan`: what
+    they start begins in `supervision_without_role` and changes files, and nothing was
+    approved yet. An architect or a planner starts unasked once its approved plan took it out
+    of plan mode; a reviewer never leaves it, so each implementer it starts is asked about,
+    on purpose: it reads the most that nobody vouches for. What a role may start is still
+    checked when it starts one.
   - **Approving its plan hands it on:** for a role that changes no files, `decide` answers
     `PLAN_TOOL` with a refusal whose reason is `roles::approval` (the role's `approved`: how it
     hands the plan on), recorded as allowed. Allowing would end Claude Code's plan mode with

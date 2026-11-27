@@ -2888,7 +2888,8 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
 
 /// Whether `event` asks to use one of Swarmed's session tools in a session whose role makes
 /// them its work, and was allowed at once instead of being put to the user
-/// ([`roles::uses_unasked`]). Nothing of it is stored: the call and its result are.
+/// ([`roles::uses_unasked`]): all of them out of plan mode, and in it all but the two that
+/// start a session. Nothing of it is stored: the call and its result are.
 fn allowed_unasked(shared: &Shared, id: i64, event: &AgentEvent) -> bool {
     let AgentEvent::PermissionRequest {
         request_id,
@@ -2898,12 +2899,11 @@ fn allowed_unasked(shared: &Shared, id: i64, event: &AgentEvent) -> bool {
     else {
         return false;
     };
-    let role = lock(&shared.store)
-        .session_by_id(id)
-        .ok()
-        .and_then(|session| session.role)
-        .and_then(|role| roles::find(&role));
-    if !roles::uses_unasked(role, tool_name) {
+    let Ok(session) = lock(&shared.store).session_by_id(id) else {
+        return false;
+    };
+    let role = session.role.as_deref().and_then(roles::find);
+    if !roles::uses_unasked(role, session.supervision, tool_name) {
         return false;
     }
     let request_id = request_id.clone();

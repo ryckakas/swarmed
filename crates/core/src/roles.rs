@@ -12,7 +12,9 @@
 //!
 //! Swarmed's session tools are a role's work, so a session with a role uses them without the
 //! user being asked ([`uses_unasked`]), in plan mode too: Claude Code holds every MCP tool that
-//! is not read-only at a question there, whatever its allow rules say.
+//! is not read-only at a question there, whatever its allow rules say. The two that start a
+//! session are the exception in plan mode, where the user is asked about each start: what it
+//! starts changes files, and nothing of a plan was approved yet.
 
 use serde::Serialize;
 
@@ -220,8 +222,10 @@ in your agent's read-only mode where it has no plan mode, either of which keeps 
 files. Swarmed's session tools (`list_sessions`, `read_session`, `send_message`, `spawn_session`, \
 `start_task`, `close_session`) change none of your files and are your role's work, so they are \
 yours to use in that mode, even where it says to run nothing that changes anything, and the user \
-is not asked about them. When the user approves a plan you present, you are told how to hand it \
-on: an approval is never a go-ahead to change anything yourself.";
+is not asked about them, but for one thing: while you are in plan mode the user is asked about \
+each session or task you start (`spawn_session`, `start_task`), since what you start changes \
+files. When the user approves a plan you present, you are told how to hand it on: an approval is \
+never a go-ahead to change anything yourself.";
 
 /// Swarmed's session tools, as Claude Code names them: by server, then by tool. Each is a
 /// role's work: seeing and reading the others, telling them, starting them and closing them.
@@ -234,6 +238,11 @@ const SESSION_TOOLS: [&str; 6] = [
     "mcp__swarmed__start_task",
     "mcp__swarmed__close_session",
 ];
+
+/// The session tools that start a session, which then works by its own supervision and may
+/// change files: the user is asked about these while the session that calls them is in plan
+/// mode, where nothing it proposed was approved yet.
+const STARTING_TOOLS: [&str; 2] = ["mcp__swarmed__spawn_session", "mcp__swarmed__start_task"];
 
 /// The rules of `role`, as its agent keeps to them: what it is, its own rules, how Swarmed keeps
 /// it from changing files if it changes none, and what it may start, then what every role is
@@ -276,11 +285,20 @@ pub(crate) fn approval(role: &Role) -> Option<String> {
     ))
 }
 
-/// Whether the agent of a session with `role` may call `tool_name` without the user being
-/// asked: one of Swarmed's session tools, for a session with a role, whose work they are. A
-/// session with no role is asked about them as before.
-pub(crate) fn uses_unasked(role: Option<&Role>, tool_name: &str) -> bool {
-    role.is_some() && SESSION_TOOLS.contains(&tool_name)
+/// Whether the agent of a session with `role`, supervised as `supervision`, may call
+/// `tool_name` without the user being asked: one of Swarmed's session tools, for a session
+/// with a role, whose work they are. A session with no role is asked about them as before.
+///
+/// In plan mode the two that start a session are still put to the user. An architect or a
+/// planner leaves plan mode once its plan is approved and starts unasked from then on; until
+/// then it could start implementers, which change files, with nothing approved. A reviewer
+/// stays in plan mode for good, so each implementer it starts is the user's to allow: of all
+/// roles it reads the most that nobody vouches for.
+pub(crate) fn uses_unasked(role: Option<&Role>, supervision: Supervision, tool_name: &str) -> bool {
+    if role.is_none() || !SESSION_TOOLS.contains(&tool_name) {
+        return false;
+    }
+    supervision != Supervision::Plan || !STARTING_TOOLS.contains(&tool_name)
 }
 
 /// The supervision a session supervised as `now` has once its role is `role`, and what to keep
@@ -629,6 +647,13 @@ mod tests {
         }
     }
 
+    /// The session tools the user is asked about in a session with `role` supervised as
+    /// `supervision`.
+    fn put_to_user(role: &Role, supervision: Supervision) -> Vec<&'static str> {
+        let asked = |tool: &&str| !uses_unasked(Some(role), supervision, tool);
+        SESSION_TOOLS.into_iter().filter(asked).collect()
+    }
+
     #[test]
     fn only_a_session_with_a_role_uses_the_session_tools_unasked() {
         let others = [
@@ -638,12 +663,36 @@ mod tests {
             "mcp__swarmed__show_browser",
             "mcp__other__send_message",
         ];
+        let (ask, auto, plan) = (Supervision::Ask, Supervision::Auto, Supervision::Plan);
         for role in ROLES {
-            let asked = |tool: &&str| !uses_unasked(Some(&role), tool);
-            assert!(!SESSION_TOOLS.iter().any(asked), "{}", role.name);
+            let asked = |tool: &&str| !uses_unasked(Some(&role), auto, tool);
             assert!(others.iter().all(asked), "{}", role.name);
+            // Out of plan mode, every session tool; in it, all but the two that start.
+            assert_eq!(put_to_user(&role, ask), [""; 0], "{}", role.name);
+            assert_eq!(put_to_user(&role, auto), [""; 0], "{}", role.name);
+            assert_eq!(put_to_user(&role, plan), STARTING_TOOLS, "{}", role.name);
         }
-        assert!(!uses_unasked(None, "mcp__swarmed__spawn_session"));
+        assert!(!uses_unasked(None, auto, "mcp__swarmed__spawn_session"));
+        assert!(!uses_unasked(None, plan, "mcp__swarmed__send_message"));
+    }
+
+    /// A start is asked about exactly until an approved plan takes the session out of plan mode.
+    #[test]
+    fn a_role_starts_sessions_unasked_only_once_it_is_out_of_plan_mode() {
+        let starts_unasked = |role: &Role, supervision: Option<Supervision>| {
+            supervision.map(|supervision| put_to_user(role, supervision).is_empty())
+        };
+        for role in ROLES {
+            let starting = starts_unasked(&role, role.supervision);
+            assert_ne!(starting, Some(true), "{} as it starts", role.name);
+            let approved = starts_unasked(&role, role.approved_supervision);
+            assert_ne!(approved, Some(false), "{} once approved", role.name);
+        }
+        assert!(
+            STARTING_TOOLS
+                .iter()
+                .all(|tool| SESSION_TOOLS.contains(tool))
+        );
     }
 
     /// Every session tool a role uses unasked is one the tool server serves, by that name.
