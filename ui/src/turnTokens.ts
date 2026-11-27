@@ -3,7 +3,14 @@ import { scrollKey, withoutPlaces } from "./scrollSpot";
 import { formatTokens } from "./statusline";
 
 // The tokens a turn uses: the running count beside what the agent is doing, and what each
-// finished turn used. Pure, so it can be tested.
+// finished turn used (#419). Pure, so it can be tested.
+//
+// The window keeps the latest running count per transcript (`turnTokens` in the store, by
+// `scrollKey`), out of the events and the history read: the session's own is dropped with the
+// turn's end, and a sub-agent's with the agent's, as one in the background works on after the
+// turn. The activity line draws it from there (`TokensSoFar`), so the transcript is not built
+// again for each count, and only the word is `aria-live`. The core's side, with what counts
+// and why, is in `crates/core/src/agent/claude/tokens.rs`.
 
 /** What a turn under way has used so far, and which way its tokens go now. */
 export interface RunningTokens {

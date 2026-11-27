@@ -1,14 +1,30 @@
-//! The tokens a running turn uses, counted from what Claude Code streams of each request.
+//! The tokens a running turn uses, counted from what Claude Code streams of each request (#419).
 //!
 //! A request reports what it was sent when its answer starts (`message_start`) and what it
-//! wrote when the answer is done (`message_delta`). Meanwhile the answer comes in piece by
-//! piece, and what it has written so far is estimated from how long the pieces are. Of what a
-//! request was sent only what the model read anew counts: the rest it read from the cache, and
-//! a turn of ten requests sends it ten times. A sub-agent's requests are marked with the call
-//! that started it and counted apart, each sub-agent on its own.
+//! wrote when the answer is done (`message_delta`). [`Counts`] adds them up per turn from each
+//! line `read_events` reads and publishes [`AgentEvent::TurnTokens`] with a [`TokenPhase`]:
+//! `prompt` from a message said back or the last tool result in, `response` from
+//! `message_start`, `between` from `message_stop`. A count is only shown: never stored
+//! (`shown_only` in `sessions.rs`), and never passed on from a run another took the place of
+//! (`dropped_when_late`).
 //!
-//! Tried with Claude Code 2.1.332, whose `result` reports the same sums for the agent's own
-//! requests.
+//! - **Only what is new counts** (the user's choice): `input_tokens` and
+//!   `cache_creation_input_tokens`, never `cache_read_input_tokens`. The rest the model read
+//!   from the cache, and a turn of ten requests sends it ten times. And the output: an answer
+//!   still coming in is estimated at [`CHARS_PER_TOKEN`] from its text, thinking and tool
+//!   arguments, and published again only once grown by [`ESTIMATE_STEP`]; its `message_delta`
+//!   gives the figure.
+//! - **A sub-agent is counted apart** (the user's choice), by the call that started it
+//!   (`parent_tool_use_id`), for the life of the agent: one in the background works past the
+//!   turn. Its count is [`AgentEvent::Sub`] and shows in its pane only.
+//! - **The turn's end records its totals** on `TurnDone::tokens`, the session's own agent's
+//!   only, which the window's turn-end line, `swarmed session send` and the status line's
+//!   `tokens` piece show.
+//! - **ACP agents report none:** the protocol only proposes usage at a turn's end, and leaves
+//!   open whether its input counts cache reads, so `acp.rs` says none rather than guess.
+//!
+//! Tried with Claude Code 2.1.332, whose `result.usage` reports the same sums for the agent's
+//! own requests.
 
 use std::collections::{HashMap, HashSet};
 

@@ -3,6 +3,9 @@ import type { AgentEvent, TokenPhase, Tokens } from "./types";
 // The tokens the sample agent's turns use, published as the core does for Claude Code: a
 // request goes out and is read, its answer comes in and its output rises, and between requests
 // a tool runs. Only the sample Claude Code says any, as only Claude Code does.
+//
+// Its plain answers count one request, `delegate` the turn's own requests and each
+// sub-agent's apart, and `slow` request after request until it is stopped (`keepCounting`).
 
 /** One running count, as the core publishes it. */
 export interface Count {
