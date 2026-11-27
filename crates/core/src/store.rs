@@ -409,6 +409,18 @@ const MIGRATIONS: &[&str] = &[
         css TEXT NOT NULL
     );
 ",
+    // Swarmed's built-in MCP servers, by name (`builtin_mcp.rs`): whether the user turned one
+    // on, and whether the last reading that got answers found nothing in its way, which the
+    // start of a session reads instead of asking the server's own program. Here and not in
+    // `settings.toml`, so that a Swarmed that knows no built-in is not puzzled by it.
+    "
+    CREATE TABLE builtin_mcp (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        name      TEXT NOT NULL UNIQUE,
+        turned_on INTEGER NOT NULL DEFAULT 0,
+        clear     INTEGER NOT NULL DEFAULT 0
+    );
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

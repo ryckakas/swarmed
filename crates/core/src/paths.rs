@@ -83,6 +83,13 @@ impl Paths {
         self.data_dir.join("style.css")
     }
 
+    /// The home of the built-in repolore: its configuration, index and model
+    /// (`builtin_mcp.rs`).
+    #[must_use]
+    pub fn repolore_home(&self) -> PathBuf {
+        self.data_dir.join("repolore")
+    }
+
     /// The file with the user's configuration of the terminal.
     #[must_use]
     pub fn terminal_config(&self) -> PathBuf {

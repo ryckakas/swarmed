@@ -12,9 +12,10 @@
 //!   repository could plant any of them. So the change is only shown in the conversation, exactly
 //!   as it would be made, and made when the user accepts it there, whatever the agent's own
 //!   permissions are.
-//! - **Not reachable at all**: API keys, MCP servers and their secrets, signing in, how much
-//!   an agent may do without asking, and notes. An agent must not widen what it may do, and
-//!   has no business with secrets. Nor the branch prefix: the user sets it once, and it is not
+//! - **Not reachable at all**: API keys, MCP servers and their secrets, Swarmed's built-in
+//!   servers too (installing one, turning it on and taking its registrations out run
+//!   programs), signing in, how much an agent may do without asking, and notes. An agent must
+//!   not widen what it may do, and has no business with secrets. Nor the branch prefix: the user sets it once, and it is not
 //!   worth a line in a description every agent is sent. Nor how many sessions may work for one
 //!   (`max_workers`): it caps how many agents one session keeps running, and so what it can
 //!   spend, and an agent must not raise its own ceiling. Nor the model and effort each role's

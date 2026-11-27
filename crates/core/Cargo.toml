@@ -33,8 +33,10 @@ tokio = { workspace = true, features = [
 ] }
 toml = { workspace = true }
 
-# The Keychain, where API keys are kept, and cloning a whole folder in one call for snapshots.
+# The Keychain, where API keys are kept, cloning a whole folder in one call for snapshots, and
+# moving the built-in repolore's old setup to the Trash.
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { workspace = true }
 rustix = { workspace = true }
 security-framework = { workspace = true }
 

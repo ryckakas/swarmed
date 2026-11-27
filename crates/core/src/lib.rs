@@ -20,6 +20,7 @@ mod asking;
 mod attach;
 mod background;
 mod browser;
+mod builtin_mcp;
 mod changes;
 mod chats;
 mod checkpoints;
@@ -74,6 +75,7 @@ mod put_away;
 mod queue;
 mod reach;
 mod remote;
+mod repolore;
 mod returned;
 mod rewind;
 mod roles;
@@ -117,6 +119,10 @@ pub use browser::{
     ELEMENTS_PICKED, ElementBox, ElementStyle, FRAMES_A_SECOND, KeyInput, KeyKind, MAX_HTML_CHARS,
     MAX_TEXT_CHARS, Modifiers, MouseInput, MouseKind, PageDialog, PickedElement, Viewport,
     follow_browsers, with_elements,
+};
+pub use builtin_mcp::{
+    BuiltinMcpView, BuiltinRegistration, BuiltinState, CheckKind, DoctorCheck, ExistingSetup,
+    HeldSession, OldServer, REPOLORE,
 };
 pub use shellenv::learn_shell_path;
 
@@ -255,6 +261,8 @@ pub struct Core {
     /// Whether this run leaves the user's stylesheet out, whatever the settings say
     /// (`stylesheet.rs`).
     stylesheet_left_out: std::sync::atomic::AtomicBool,
+    /// The built-in repolore's page, while this Swarmed runs it (`builtin_mcp.rs`).
+    repolore_page: Mutex<Option<repolore::Page>>,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -305,6 +313,7 @@ impl Core {
             merging: merging::Merging::default(),
             browsers: Arc::default(),
             stylesheet_left_out: std::sync::atomic::AtomicBool::new(false),
+            repolore_page: Mutex::new(None),
         })
     }
 

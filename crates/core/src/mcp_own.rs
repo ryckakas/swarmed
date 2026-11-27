@@ -5,6 +5,10 @@
 //! Swarmed sessions whichever agent runs them. A server's secrets, the values of environment
 //! variables for a program or of headers for an address, are kept in the system's keychain:
 //! the file only names them, and nothing here returns, prints or logs a value.
+//!
+//! Swarmed's built-in servers join this list when the user turns one on and nothing stands in
+//! its way (`builtin_mcp.rs`): one set up here under a built-in's name, or with its program,
+//! keeps the built-in out.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::Core;
 use crate::agent::AgentEvent;
 use crate::agents::CLAUDE;
+use crate::builtin_mcp::REPOLORE;
 use crate::error::{Error, Result};
 use crate::lenient::{self, Problems};
 use crate::mcp::{self, McpServer, McpTransport};
@@ -260,7 +265,8 @@ impl Core {
                 status: status.get(name).cloned(),
             })
             .collect();
-        views.extend(self.claude_views(&status, &own));
+        let builtin_on = self.store().builtin_mcp_row(REPOLORE)?.0;
+        views.extend(self.claude_views(&status, &own, builtin_on));
         views.extend(mcp_codex::codex_views(&self.paths.codex_config));
         views.extend(mcp_opencode::opencode_views(
             &self.paths.opencode_config_dir,
@@ -269,7 +275,7 @@ impl Core {
     }
 
     /// What Claude Code said of each server when one of its sessions last started.
-    fn mcp_statuses(&self) -> Result<BTreeMap<String, String>> {
+    pub(crate) fn mcp_statuses(&self) -> Result<BTreeMap<String, String>> {
         let init = self.store().latest_init(None, CLAUDE)?;
         let Some(AgentEvent::Init { mcp_servers, .. }) = init else {
             return Ok(BTreeMap::new());
@@ -280,10 +286,13 @@ impl Core {
 
     /// Claude Code's own servers: those in its configuration, with what Swarmed can read of
     /// them, and those it only reported, such as connectors of the user's Claude account.
+    /// While the built-in repolore is turned on (`builtin_on`), a `repolore` it only reported
+    /// is that one, which is shown with the built-ins.
     fn claude_views(
         &self,
         status: &BTreeMap<String, String>,
         own: &OwnServers,
+        builtin_on: bool,
     ) -> Vec<McpServerView> {
         let nowhere = Path::new("");
         let configured = mcp::claude_code_servers(&self.paths.claude_config, nowhere, nowhere);
@@ -297,7 +306,8 @@ impl Core {
         let codex = mcp_codex::codex_names(&self.paths.codex_config);
         let opencode = mcp_opencode::opencode_names(&self.paths.opencode_config_dir);
         let shared = |name: &String| codex.contains(name) || opencode.contains(name);
-        for name in status.keys().filter(|name| !shared(name)) {
+        let builtin = |name: &String| builtin_on && name == REPOLORE;
+        for name in status.keys().filter(|name| !shared(name) && !builtin(name)) {
             let reported = || claude_view(name, "", String::new(), Vec::new(), status);
             views.entry(name.clone()).or_insert_with(reported);
         }
@@ -366,7 +376,8 @@ impl Core {
     }
 
     /// The servers set up here that are switched on, with their secrets filled in, as an agent
-    /// is given them. A secret that was never given a value is left out.
+    /// is given them, and the built-in ones that are on and stand clear. A secret that was
+    /// never given a value is left out.
     pub(crate) fn own_mcp_servers(&self) -> Result<Vec<McpServer>> {
         let servers = read(&self.paths.mcp_config())?;
         let mut given = Vec::new();
@@ -375,7 +386,21 @@ impl Core {
             let transport = transport_of(server, secrets);
             given.extend(transport.map(|transport| McpServer { name, transport }));
         }
+        let builtin = self.builtin_repolore(&given)?;
+        given.extend(builtin);
         Ok(given)
+    }
+
+    /// The servers set up here that are switched on, without their secrets: for looking at
+    /// what they run, never for an agent.
+    pub(crate) fn mcp_set_up_here(&self) -> Result<Vec<McpServer>> {
+        let servers = read(&self.paths.mcp_config())?;
+        let enabled = servers.into_iter().filter(|(_, server)| server.enabled);
+        let unfilled = |(name, server)| {
+            let transport = transport_of(server, BTreeMap::new())?;
+            Some(McpServer { name, transport })
+        };
+        Ok(enabled.filter_map(unfilled).collect())
     }
 }
 
