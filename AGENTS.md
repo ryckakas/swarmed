@@ -429,6 +429,11 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   Drawing on the graphics card (`gpu`) is off by default, because it has not been seen to draw
   right in the app's own window; check there before changing the default. The shell is started
   with `COLORTERM=truecolor` and `CLICOLOR=1`.
+- **Nothing shown moves when the pointer comes, anywhere in the window** (the user's rule). What
+  shows only under the pointer or with the keyboard is laid over what is there (`opacity`, a
+  position of its own) or takes its room from text that gives way, never from beside an icon,
+  badge or button that shows anyway; only what the user asks for moves things (a fold opened, a
+  menu). Hover rules change colour and opacity, not layout, except the sidebar's below.
 - **What a sidebar row shows by itself never moves under the pointer** (`RowParts` in
   `Sidebar.tsx`). A row is its name; what it offers only while pointed at or focused
   (`offered`, hidden until then by one rule on `.row-offered`, so a new button there needs no
