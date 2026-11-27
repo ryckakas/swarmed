@@ -32,6 +32,10 @@ notice adds its line under Unreleased.
   wider than the conversation, such as one with a long path in it, scrolls sideways on its own,
   and the conversation does not. A long address in a sentence still breaks at the edge of the
   line.
+- **A session's agent icon is the last thing on its row in the sidebar.** It comes after whom
+  the session works for ("for #123"), its mark and its time to go on by itself, so the icons of
+  a task's sessions stand in one column, and a role sits right beside "for #123". A press on the
+  icon still opens the session.
 
 ## [0.4.9] - 2026-11-27
 

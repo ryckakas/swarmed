@@ -1043,13 +1043,15 @@ function SessionRow(props: { session: Session; nested: boolean; elsewhere: numbe
                 <span className="session-title">{title}</span>
                 <RoleChip role={session.role} />
                 <HighlightWords colour={session.highlight} />
-                <ProviderMark icon={iconForAgent(session.agent)} label={agentName(session.agent)} />
+                {/* The icon stands outside the button, so the button says the agent's name. */}
+                <span className="unseen">, {agentName(session.agent)}</span>
             </button>
             {elsewhere !== null && <ParentLink id={elsewhere} />}
             {session.mark && <SessionMark id={session.id} mark={session.mark} />}
             {session.continue_at !== null && (
                 <SessionContinues id={session.id} at={session.continue_at} />
             )}
+            <RowAgent agent={session.agent} onPress={() => void open(api, session.id)} />
             <HighlightButton
                 target={{ kind: "session", id: session.id }}
                 colour={session.highlight}
@@ -1072,6 +1074,21 @@ function SessionRow(props: { session: Session; nested: boolean; elsewhere: numbe
                 </ButtonIcon>
             </button>
         </div>
+    );
+}
+
+/**
+ * A session's agent, by its icon at the end of its row: after whom the session works for, its
+ * mark and its continuation, so that the icons of a task's sessions stand in one column. Those
+ * are buttons of their own, so the icon cannot be in the row's button; a press on it opens the
+ * session all the same. Hidden from screen readers, to which the row's button says the agent's
+ * name, and never focused: it is a second place to press the row, for the pointer alone.
+ */
+function RowAgent({ agent, onPress }: { agent: string; onPress: () => void }) {
+    return (
+        <span className="row-agent" title={agentName(agent)} aria-hidden="true" onClick={onPress}>
+            <ProviderMark icon={iconForAgent(agent)} />
+        </span>
     );
 }
 

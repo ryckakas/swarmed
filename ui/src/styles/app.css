@@ -2225,8 +2225,21 @@ code {
     fill: currentColor;
 }
 
-/* In the sidebar the marks form a column at the rows' right edge. */
-.session-row .provider-mark {
+/*
+ * In the sidebar the marks form a column at the rows' right edge: a session's is the last thing
+ * on its row before what shows on approach, after whom it works for, its mark and its
+ * continuation. As tall as the row, so a press above or below the icon opens the session too.
+ */
+.row-agent {
+    flex: none;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    margin-right: var(--space-2);
+    cursor: pointer;
+}
+
+.row-agent .provider-mark {
     opacity: 0.85;
 }
 
@@ -2350,8 +2363,10 @@ code {
 }
 
 /* A row too narrow for its title and the chip, nested deep or in a narrow sidebar, keeps the
-   title: the chip goes, and the role is still in the session's header. */
-@container session-row (max-width: 15em) {
+   title: the chip goes, and the role is still in the session's header. Measured on the row's
+   button, which the agent's icon comes after: 13.4em there is 15em with the icon and its gap
+   (21px, 1.6em at the sidebar's size). */
+@container session-row (max-width: 13.4em) {
     .role-chip {
         display: none;
     }
