@@ -4,13 +4,11 @@
 mod common;
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use common::{core_with_project, fixture, next, turn};
-use swarmed_core::agent::{AgentEvent, Auth, FakeBackend, PLAN_TOOL, Supervision};
+use swarmed_core::agent::{AgentEvent, Auth, PLAN_TOOL, Supervision};
 use swarmed_core::{
-    AgentInfo, Core, Error, MAX_DEPTH, NewTaskOptions, Session, SessionOptions, SessionSettings,
-    hooks,
+    Core, Error, MAX_DEPTH, NewTaskOptions, Session, SessionOptions, SessionSettings, hooks,
 };
 
 /// A core with a repository `demo` and a task `one` in it, whose agents reach each other.
@@ -515,67 +513,6 @@ async fn a_role_starts_sessions_unasked_only_once_its_plan_is_approved() {
         1,
         "only while planning"
     );
-}
-
-/// Has the agent of session `id` call `tool`, takes the question the user is asked about it,
-/// and allows it.
-async fn asked_and_allowed(
-    core: &Core,
-    bus: &mut tokio::sync::broadcast::Receiver<swarmed_core::SessionEvent>,
-    id: i64,
-    tool: &str,
-) {
-    core.session_start(id, Auth::Subscription).expect("starts");
-    core.session_send(id, &format!("call: {tool}"))
-        .expect("sends");
-    let (request, asked) = requested(bus).await;
-    assert_eq!(asked, tool);
-    core.session_allow(id, &request).expect("allows");
-    turn(bus, id).await;
-}
-
-/// The names are Claude Code's: another agent titles its calls as it likes, so a call of its
-/// that goes by one of them is put to the user like any other.
-#[tokio::test]
-async fn only_claude_code_with_swarmed_s_tool_server_uses_the_session_tools_unasked() {
-    let fx = fixture();
-    let mut core = core_with_project(&fx).await;
-    let other = AgentInfo {
-        id: "other".into(),
-        name: "Other".into(),
-        models: vec![],
-        default_model: None,
-        hears_mid_turn: false,
-        sends_to_background: false,
-    };
-    core.add_agent(other, Arc::new(FakeBackend::default()));
-    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
-        .await
-        .expect("test setup");
-    let mut bus = core.subscribe();
-    let tool = "mcp__swarmed__send_message";
-
-    // With no tool server, Claude Code has no such tool of Swarmed's: whatever goes by the
-    // name is asked about.
-    let unserved = new_session(&core, Some("reviewer"));
-    asked_and_allowed(&core, &mut bus, unserved.id, tool).await;
-    core.session_stop(unserved.id);
-
-    core.set_tool_server(PathBuf::from("/usr/local/bin/swarmed"));
-    let options = SessionOptions {
-        agent: Some("other".into()),
-        role: Some("reviewer".into()),
-        ..SessionOptions::default()
-    };
-    let elsewhere = core.session_new("demo", "one", &options).expect("creates");
-    asked_and_allowed(&core, &mut bus, elsewhere.id, tool).await;
-
-    // Claude Code, handed the server, is not asked.
-    let served = new_session(&core, Some("reviewer"));
-    core.session_start(served.id, Auth::Subscription)
-        .expect("starts");
-    let call = format!("call: {tool}");
-    assert_eq!(answer(&core, &mut bus, served.id, &call).await, "called it");
 }
 
 /// The permission request the agent of a session makes next: its id and the tool it is for.

@@ -2896,10 +2896,6 @@ fn take(shared: &Shared, (id, run): (i64, u64), ending: &Ending, event: AgentEve
 /// ([`roles::uses_unasked`]): all of them out of plan mode, and in it all but the two that
 /// start a session. Says whether it did: the agent was then sent its answer, and nothing of
 /// the request is stored; the call and its result are.
-///
-/// Only for Claude Code, and only where Swarmed handed it the server those tools are on: the
-/// names are Claude Code's own for a server's tool. Another agent's request is named by the
-/// free words it titles its call with, which say nothing of what the call does.
 fn allow_unasked(shared: &Shared, id: i64, event: &AgentEvent) -> bool {
     let AgentEvent::PermissionRequest {
         request_id,
@@ -2912,10 +2908,6 @@ fn allow_unasked(shared: &Shared, id: i64, event: &AgentEvent) -> bool {
     let Ok(session) = lock(&shared.store).session_by_id(id) else {
         return false;
     };
-    let own_tools = |server: &McpServer| server.name == SERVER_NAME;
-    if session.agent != CLAUDE || !shared.spec.mcp_servers.iter().any(own_tools) {
-        return false;
-    }
     let role = session.role.as_deref().and_then(roles::find);
     if !roles::uses_unasked(role, session.supervision, tool_name) {
         return false;
