@@ -9,6 +9,7 @@ import type {
 } from "./api/types";
 import { addedUp } from "./inBackground";
 import { mentionsAsWords } from "./mentions";
+import { isSettingUp } from "./setup";
 
 // Pure functions over the project tree, kept apart from the store so they can be tested.
 
@@ -392,6 +393,28 @@ export function stillListed(ids: number[], projects: Project[]): number[] {
         ids,
         ids.filter((id) => !listed.has(id)),
     );
+}
+
+/**
+ * The folded tasks once the tree went from `before` to `after`: a task whose last open session
+ * went, closed or deleted, here or anywhere else, is folded, since all it would show is that it
+ * has none. Only as that happens, so a task the user unfolds again stays unfolded; never a task
+ * `before` did not hold (the first read, a new task), nor one being set up, whose progress shows
+ * under it. The same list if no task was left without a session.
+ */
+export function foldedWhenEmptied(folded: number[], before: Project[], after: Project[]): number[] {
+    const had = new Set(
+        before
+            .flatMap((project) => project.tasks)
+            .filter((task) => task.sessions.length > 0)
+            .map((task) => task.id),
+    );
+    const emptied = after
+        .flatMap((project) => project.tasks)
+        .filter((task) => had.has(task.id) && task.sessions.length === 0 && !isSettingUp(task))
+        .map((task) => task.id)
+        .filter((id) => !folded.includes(id));
+    return emptied.length === 0 ? folded : [...folded, ...emptied];
 }
 
 /**

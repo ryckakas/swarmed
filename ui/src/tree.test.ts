@@ -11,6 +11,7 @@ import {
     findSession,
     findSessionHome,
     foldedSummary,
+    foldedWhenEmptied,
     nestedSessions,
     parentChoices,
     parentElsewhere,
@@ -125,6 +126,69 @@ describe("a folded task", () => {
         expect(withoutIds(ids, [3])).toBe(ids);
         expect(withoutIds(ids, [])).toBe(ids);
         expect(withoutIds(ids, [2, 3])).toEqual([1]);
+    });
+});
+
+/** The tree with task `taskId`'s open sessions gone, and the rest of `change` made to it. */
+function emptied(projects: Project[], taskId: number, change: Partial<Task> = {}): Project[] {
+    return projects.map((project) => ({
+        ...project,
+        tasks: project.tasks.map((task) =>
+            task.id === taskId ? { ...task, sessions: [], closed: 2, ...change } : task,
+        ),
+    }));
+}
+
+describe("a task left with no open session", () => {
+    it("folds as its last open session goes", () => {
+        const before = sampleProjects();
+        // fix-login-redirect has sessions 1 and 2: the first going leaves it as it is.
+        const one = withoutSession(before, 1);
+        const folded = [4];
+        expect(foldedWhenEmptied(folded, before, one)).toBe(folded);
+        expect(foldedWhenEmptied(folded, one, withoutSession(one, 2))).toEqual([4, 1]);
+        // Both at once, as a tree read after another Swarmed closed them says it.
+        expect(foldedWhenEmptied(folded, before, emptied(before, 1))).toEqual([4, 1]);
+        // A chat as well.
+        expect(foldedWhenEmptied([], before, withoutSession(before, 6))).toEqual([5]);
+    });
+
+    it("folds every task emptied at once, and each only once", () => {
+        const before = sampleProjects();
+        const after = emptied(emptied(before, 1), 8);
+        expect(foldedWhenEmptied([], before, after)).toEqual([1, 8]);
+        const folded = [8];
+        expect(foldedWhenEmptied(folded, before, emptied(before, 8))).toBe(folded);
+    });
+
+    it("stays unfolded once the user unfolds it again", () => {
+        const empty = emptied(sampleProjects(), 1);
+        const folded: number[] = [];
+        expect(foldedWhenEmptied(folded, empty, emptied(empty, 1))).toBe(folded);
+    });
+
+    it("is not folded when the tree did not hold it before", () => {
+        const folded: number[] = [];
+        // The first read after the window opens, and a task that only now appears.
+        expect(foldedWhenEmptied(folded, [], sampleProjects())).toBe(folded);
+        const before = sampleProjects().map((project) => ({
+            ...project,
+            tasks: project.tasks.filter((task) => task.id !== 1),
+        }));
+        expect(foldedWhenEmptied(folded, before, emptied(sampleProjects(), 1))).toBe(folded);
+    });
+
+    it("is not folded while it is being set up, whose progress shows under it", () => {
+        const before = sampleProjects();
+        const folded: number[] = [];
+        const here = { state: "here", step: "hook", began: 0, latest: null } as const;
+        for (const setting_up of [here, { state: "elsewhere" } as const]) {
+            const after = emptied(before, 1, { setting_up });
+            expect(foldedWhenEmptied(folded, before, after)).toBe(folded);
+        }
+        // One whose setup was cut short is set up by nothing: it folds.
+        const interrupted = emptied(before, 1, { setting_up: { state: "interrupted" } });
+        expect(foldedWhenEmptied(folded, before, interrupted)).toEqual([1]);
     });
 });
 

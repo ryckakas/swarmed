@@ -490,7 +490,8 @@ function TaskSessions({ project, task }: { project: string; task: Task }) {
     return (
         <>
             <SetupLine task={task} />
-            {task.sessions.length === 0 && !isSettingUp(task) && (
+            {/* With closed sessions, their line says it: "nothing spawned yet" would be untrue. */}
+            {task.sessions.length === 0 && task.closed === 0 && !isSettingUp(task) && (
                 <p className="hint">{words.noSessions}</p>
             )}
             <ul className="sessions">
