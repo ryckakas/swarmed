@@ -2071,16 +2071,26 @@ fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
 }
 
 /// A stand-in for repolore's command line, answering from files in `__STATE__`: the built-in's
-/// home is told from the user's own by `REPOLORE_HOME`. Its page never says where it is, so
-/// no test opens a browser.
+/// home is told from the user's own by `REPOLORE_HOME`. A home with no file is one never set
+/// up, answered with the whole doctor the contract has, as an answer has to be. Its page never
+/// says where it is, so no test opens a browser.
 const FAKE_REPOLORE: &str = r#"#!/bin/sh
 state="__STATE__"
 which=old
 if [ -n "$REPOLORE_HOME" ]; then which=builtin; fi
 case "$1" in
   version) echo "repolore 0.5.1" ;;
-  doctor) cat "$state/doctor-$which.json" 2>/dev/null || echo '{}' ;;
-  server) echo '{"running": false}' ;;
+  doctor)
+    if [ -f "$state/doctor-$which.json" ]; then cat "$state/doctor-$which.json"; exit 0; fi
+    cat <<JSON
+{"version": "0.5.1", "managed_by": null,
+ "paths": {"home": null, "config_file": "$state/never/repolore.toml", "data_dir": "$state/never"},
+ "configured": false, "index": {"built_at": null, "refreshed_at": null},
+ "checks": [], "registrations": [],
+ "server": {"running": false, "pid": null, "version": null, "relays": 0}}
+JSON
+    ;;
+  server) echo '{"running": false, "pid": null, "version": null, "relays": 0}' ;;
   copy) mkdir -p "$2" && echo "repos = []" > "$2/repolore.toml" ;;
   session-start) ;;
   ui) echo "no page in this stand-in" ;;
