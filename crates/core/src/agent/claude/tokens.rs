@@ -120,8 +120,13 @@ impl Count {
         }
     }
 
-    /// A request's answer starts, saying what the request was sent.
+    /// A request's answer starts, saying what the request was sent. An answer still coming
+    /// in then was cut off, its request started again: what it used stays counted, as far as
+    /// it was heard, so the count never falls and the totals hold it.
     fn started(&mut self, usage: Option<&Value>) {
+        if let Some(cut_off) = self.answering.take() {
+            self.done = sum(self.done, cut_off.tokens());
+        }
         self.answering = Some(Answer {
             input: usage.and_then(new_input).unwrap_or_default(),
             at_start: usage.and_then(output).unwrap_or_default(),
@@ -564,6 +569,44 @@ mod tests {
         assert_eq!(said[0], vec![running(3, 8, TokenPhase::Response)]);
         let next = told(&mut counts, &[said_back()]);
         assert_eq!(next[0], vec![running(0, 0, TokenPhase::Prompt)]);
+    }
+
+    #[test]
+    fn a_request_started_again_before_its_answer_ended_keeps_what_the_first_used() {
+        let mut counts = Counts::default();
+        let own = None;
+        let said = told(
+            &mut counts,
+            &[
+                start(own, 10, 0, 0),
+                // 200 characters, 50 tokens, then the stream breaks: no `message_stop`.
+                text(own, 200),
+                start(own, 10, 0, 0),
+                usage(own, 10, 0, 30),
+                stop(own),
+                end(),
+            ],
+        );
+        assert_eq!(
+            said[..5],
+            [
+                vec![running(10, 8, TokenPhase::Response)],
+                vec![running(10, 50, TokenPhase::Response)],
+                // The count goes on from the first attempt's, and never falls.
+                vec![running(20, 58, TokenPhase::Response)],
+                vec![running(20, 80, TokenPhase::Response)],
+                vec![running(20, 80, TokenPhase::Between)],
+            ]
+        );
+        let totals = match &said[5][..] {
+            [AgentEvent::TurnDone { tokens, .. }] => *tokens,
+            other => panic!("expected the turn's end, got {other:?}"),
+        };
+        let both = Tokens {
+            input: 20,
+            output: 80,
+        };
+        assert_eq!(totals, Some(both));
     }
 
     #[test]
