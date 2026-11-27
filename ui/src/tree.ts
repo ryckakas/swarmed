@@ -358,6 +358,15 @@ export function foldedSummary(task: Task): {
     };
 }
 
+/**
+ * Whether a task says it has no sessions. Not with closed ones, whose line says how it stands:
+ * "nothing spawned yet" would be untrue there. Not while it is set up either, when its progress
+ * shows in its place.
+ */
+export function saysNoSessions(task: Task): boolean {
+    return task.sessions.length === 0 && task.closed === 0 && !isSettingUp(task);
+}
+
 /** `ids` with `id` added if it was missing, removed if it was there. */
 export function toggledId(ids: number[], id: number): number[] {
     return ids.includes(id) ? ids.filter((existing) => existing !== id) : [...ids, id];

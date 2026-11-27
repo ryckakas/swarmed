@@ -19,6 +19,7 @@ import {
     projectStatus,
     projectUnread,
     repositoryOf,
+    saysNoSessions,
     stillListed,
     taskBackground,
     taskNameForPrompt,
@@ -35,6 +36,15 @@ import {
     withSessionStatus,
 } from "./tree";
 import { wordsFor } from "./wording";
+
+/** Task `taskId` of `projects`, which a test expects to be there. */
+function findTask(projects: Project[], taskId: number): Task {
+    const task = projects.flatMap((project) => project.tasks).find((one) => one.id === taskId);
+    if (task === undefined) {
+        throw new Error(`no task ${taskId} in the sample`);
+    }
+    return task;
+}
 
 function withTitle(projects: Project[], sessionId: number, title: string): Project[] {
     const session = findSession(projects, sessionId);
@@ -119,6 +129,18 @@ describe("a folded task", () => {
             ),
         }));
         expect(stillListed([...folded, 9], archived)).toEqual([1, 4]);
+    });
+
+    it("says it has no sessions only with none open or closed, and not while set up", () => {
+        const shop = findTask(sampleProjects(), 3);
+        expect(saysNoSessions(shop)).toBe(true);
+        // Its closed line says how it stands: "nothing spawned yet" would be untrue.
+        expect(saysNoSessions({ ...shop, closed: 1 })).toBe(false);
+        const here = { state: "here", step: "hook", began: 0, latest: null } as const;
+        expect(saysNoSessions({ ...shop, setting_up: here })).toBe(false);
+        expect(saysNoSessions({ ...shop, setting_up: { state: "elsewhere" } })).toBe(false);
+        // Open sessions are listed instead.
+        expect(saysNoSessions(findTask(sampleProjects(), 1))).toBe(false);
     });
 
     it("leaves a list as it was when none of its ids go", () => {
