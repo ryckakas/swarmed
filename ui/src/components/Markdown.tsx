@@ -18,8 +18,9 @@ const PLUGINS = [remarkGfm];
 // Colours code blocks that name their language; one that does not is left plain, not guessed.
 const REHYPE_PLUGINS = [rehypeHighlight];
 // Formulas, which `mathText` has put in dollars, drawn by KaTeX before code is coloured, so a
-// fenced `math` block is drawn rather than coloured. What KaTeX draws is its own markup, read
-// into the tree rather than set as HTML; the reply's own HTML stays text as it does without.
+// fenced `math` block is drawn rather than coloured. What KaTeX draws is its own markup, parsed
+// in an inert template into the tree and drawn by React, never set as HTML in the page; the
+// reply's own HTML stays text as it does without.
 const MATH_PLUGINS = [
     remarkGfm,
     [remarkMath, REMARK_MATH_OPTIONS],

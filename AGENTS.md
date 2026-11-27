@@ -582,7 +582,10 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
   window opens, as the core's follower would say it (`pull_read`, `pull_changed`). Its
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's
-  words, auto-merge can be turned on, and Bypass requirements merges it.
+  words, auto-merge can be turned on, and Bypass requirements merges it. The first message of
+  `fix-login-redirect` holds an address, a code span and two paths, one in the worktree that
+  opens and one from home that does not, and `rule-docs` has a pull request closed without
+  merging, #90.
   Removing the sample task `invoice-export` is refused over unsaved work, and `shop-142` over
   a session another Swarmed runs. The first session of `invoice-export` answered with
   formulas in every form math is drawn from (`VAT_ANSWER`), one KaTeX cannot read, and prices,
@@ -931,8 +934,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     (`remarkMathAlone`, as GitHub draws `$$…$$` on a line of its own), odd stays in the line.
   - **Nothing in a formula reaches anything** (`KATEX_OPTIONS`): `trust` stays off, so `\href`,
     `\includegraphics` and `\html…` are drawn as text, and sizes are capped. KaTeX's markup is
-    read into the tree by `rehype-katex`, never set as HTML, and a reply's own HTML stays text.
-    A formula it cannot read shows as written, in the code style (`.katex-error`).
+    read into the tree by `rehype-katex`: parsed in an inert template and drawn by React, never
+    set as HTML in the page, and a reply's own HTML stays text. A formula it cannot read shows
+    as written, in the code style (`.katex-error`).
   - **Agents' text only:** replies, plans, peers' messages and sub-agents' panes. The user's
     messages are not Markdown, and issues (`UntrustedMarkdown`) draw none. Copying a formula
     gives its TeX (`katex/contrib/copy-tex`, in `main.tsx`).
