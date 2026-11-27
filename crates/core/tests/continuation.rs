@@ -159,7 +159,7 @@ async fn stop_closing_and_cancelling_take_it_off() {
     assert_eq!(waits(&core, id), None);
 
     core.session_continue_at_reset(id).expect("sets");
-    core.session_close(id).expect("closes");
+    core.session_close(id, false).expect("closes");
     assert_eq!(waits(&core, id), None);
     let refused = core.session_continue_at_reset(id);
     assert!(matches!(refused, Err(Error::SessionClosed(_))));

@@ -1084,7 +1084,7 @@ function hangsOff(words: Words, session: Session, parent: number): string {
  * The session a row works for when it is not listed under it, by its number: pressing it opens
  * that one, if it is open.
  */
-function ParentLink({ id }: { id: number }) {
+export function ParentLink({ id }: { id: number }) {
     const words = useWords();
     const parent = useStore((state) => findSession(state.projects, id));
     const open = useStore((state) => state.open);

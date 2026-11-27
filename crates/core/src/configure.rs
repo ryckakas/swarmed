@@ -15,7 +15,11 @@
 //! - **Not reachable at all**: API keys, MCP servers and their secrets, signing in, how much
 //!   an agent may do without asking, and notes. An agent must not widen what it may do, and
 //!   has no business with secrets. Nor the branch prefix: the user sets it once, and it is not
-//!   worth a line in a description every agent is sent.
+//!   worth a line in a description every agent is sent. Nor how many sessions may work for one
+//!   (`max_workers`): it caps how many agents one session keeps running, and so what it can
+//!   spend, and an agent must not raise its own ceiling. Nor the model and effort each role's
+//!   sessions start on (`role_defaults`): they decide what agents cost, and an agent picks
+//!   those of a session it starts in its call, where the user sees it.
 //!
 //! The values of an environment's variables are never told to an agent, only their names.
 
@@ -618,8 +622,8 @@ impl Core {
             _ => Err(refused(
                 "`kind` is one of prompt, action, rule, status_line, appearance, layout, \
                  terminal, environment. \
-                 API keys, MCP servers, sign-ins, permissions and notes cannot be changed by \
-                 an agent.",
+                 API keys, MCP servers, sign-ins, permissions, notes, how many sessions may \
+                 work for one and the roles' models and efforts cannot be changed by an agent.",
             )),
         }?;
         // A proposal changes nothing yet; and a list never does.

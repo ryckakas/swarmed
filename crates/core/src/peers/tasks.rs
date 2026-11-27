@@ -37,6 +37,12 @@ pub struct PeerTask<'a> {
     /// The role of its first session; without one, the role the asking session's starts by
     /// default (`roles.rs`).
     pub role: Option<&'a str>,
+    /// The model its first session runs on, one the agent offers; without one, its role's
+    /// default from the user's settings, else the asking session's.
+    pub model: Option<&'a str>,
+    /// How hard its first session thinks, by name (`medium`); without one, its role's
+    /// default, else the asking session's.
+    pub effort: Option<&'a str>,
 }
 
 impl<'a> PeerTask<'a> {
@@ -55,6 +61,8 @@ impl<'a> PeerTask<'a> {
             branch: word("branch"),
             from: word("from"),
             role: word("role"),
+            model: word("model"),
+            effort: word("effort"),
         }
     }
 }
@@ -69,11 +77,13 @@ impl Core {
     /// pull requests does. It is kept as started by `from`, which may close it once it is idle
     /// (`peer_close`), leaving the task as it is. It has the role asked for, or the one
     /// `from`'s own starts by default, and starts under the supervision that role holds, if it
-    /// holds one. Who may start what is `may_start`'s: a role `from`'s may not start is
-    /// refused, and so is a task asked for by a session with no role that another session's
-    /// agent started, and one more while [`MAX_SPAWNED`](crate::MAX_SPAWNED) open sessions
-    /// work for `from`. A chat starts none, having no repository. Must be called from within a
-    /// tokio runtime.
+    /// holds one. It runs on the model and effort asked for, which the agent has to offer
+    /// (`started_on`), else its role's defaults, else `from`'s own, written with the session
+    /// before its setup begins, so a quick setup cannot outrun them. Who may start what is
+    /// `may_start`'s: a role `from`'s may not start is refused, and so is a task asked for by
+    /// a session with no role that another session's agent started, and one more while as
+    /// many open sessions work for `from` as the settings allow (`room_for_another`). A chat
+    /// starts none, having no repository. Must be called from within a tokio runtime.
     pub async fn peer_start_task(
         self: &Arc<Self>,
         from: i64,
@@ -81,6 +91,7 @@ impl Core {
     ) -> Result<TaskStarted> {
         let asking = self.session(from)?;
         let role = self.may_start(&asking, asked.role, Starting::Task)?;
+        let (model, effort) = self.started_on(&asking, role, asked.model, asked.effort)?;
         self.room_for_another(from)?;
         if asked.prompt.trim().is_empty() {
             return Err(Error::EmptyMessage);
@@ -117,9 +128,9 @@ impl Core {
                         .title
                         .map_or_else(|| title_from(asked.prompt), String::from),
                 ),
-                model: asking.model.clone(),
+                model,
                 supervision: self.supervision_without_role(&asking)?,
-                effort: asking.effort,
+                effort,
                 fast: asking.fast,
                 role: role.map(|role| role.name.to_string()),
             },
@@ -169,16 +180,17 @@ impl Core {
         let asked = PeerTask::from_call(arguments);
         let started = self.peer_start_task(from, asked).await?;
         let task = &started.task;
+        let runs_on = self.started_said(&started.session, asked.model)?;
         let what = started
             .session
             .role
             .as_deref()
             .map_or_else(String::new, |role| format!(" (role: {role})"));
         Ok(format!(
-            "Started task `{}` on the branch `{}`, in {}, with session {}{what}. Its setup runs \
-             first, and the prompt goes once it finished well; if the setup fails, the prompt \
-             waits for the user. That session reports back to you with a message when it is \
-             done.",
+            "Started task `{}` on the branch `{}`, in {}, with session {}{what}, {runs_on}. Its \
+             setup runs first, and the prompt goes once it finished well; if the setup fails, \
+             the prompt waits for the user. That session reports back to you with a message \
+             when it is done.",
             task.name,
             task.branch,
             task.worktree_path.display(),
@@ -195,6 +207,7 @@ mod tests {
     fn a_call_is_read_with_blank_words_as_none() {
         let arguments = serde_json::json!({
             "name": "fix-pr", "prompt": "fix it", "title": " ", "branch": "pr/5028",
+            "model": "fable", "effort": "",
         });
         let asked = PeerTask::from_call(&arguments);
         assert_eq!((asked.name, asked.prompt), ("fix-pr", "fix it"));
@@ -202,6 +215,7 @@ mod tests {
             (asked.title, asked.branch, asked.from),
             (None, Some("pr/5028"), None)
         );
+        assert_eq!((asked.model, asked.effort), (Some("fable"), None));
         let empty = PeerTask::from_call(&Value::Null);
         assert_eq!((empty.name, empty.prompt), ("", ""));
     }

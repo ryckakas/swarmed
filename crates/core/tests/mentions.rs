@@ -111,7 +111,7 @@ async fn the_sessions_a_session_can_read_are_listed_its_own_tasks_first() {
     assert_eq!(new_task.len(), 3);
 
     // A closed one is not listed.
-    core.session_close(beside.id).expect("closes");
+    core.session_close(beside.id, false).expect("closes");
     assert_eq!(
         ids(&core.session_reachable(here.id).expect("lists")),
         [apart.id]
@@ -168,7 +168,7 @@ async fn a_session_out_of_reach_is_refused_before_anything_is_sent() {
     let core = core_with_tools(&fx).await;
     let here = session(&core, "one", "Here");
     let closed = session(&core, "one", "Closed");
-    core.session_close(closed.id).expect("closes");
+    core.session_close(closed.id, false).expect("closes");
     let elsewhere = other_repository(&fx, &core).await;
 
     for id in [elsewhere.id, closed.id, here.id, 404] {

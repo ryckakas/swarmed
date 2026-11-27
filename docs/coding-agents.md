@@ -532,11 +532,11 @@ Every session gets an MCP server named `swarmed`, with these tools:
 | --- | --- |
 | `show_html` | shows HTML in the conversation, in a sandboxed frame |
 | `show_browser` | opens the task's browser beside the conversation, on an address, in a tab of the session's own; see [The task's browser and your browser tools](#the-tasks-browser-and-your-browser-tools) |
-| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. Both say which session each works for and its role, and `read_session` which work for the one it reads. It reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
+| `list_sessions`, `read_session` | see and read the other open sessions of the same project; from a chat, every open session. Both say which session each works for and its role, `list_sessions` the model and effort each runs on, and `read_session` which work for the one it reads. It reads the latest messages, or from one it is given (`from`), so a long conversation can be read from its start |
 | `send_message` | write to another session it can read, or to a chat, so that one a chat wrote to can answer it; queued if it is busy |
-| `spawn_session` | start a session in the same task, which works for the one that started it, up to six open, with a role its own role may start (see [Roles](#roles)). A session another one started starts none itself unless its role starts sessions |
+| `spawn_session` | start a session in the same task, which works for the one that started it, up to six open unless you change that (see [How many may work for one](#how-many-may-work-for-one)), with a role its own role may start (see [Roles](#roles)), on the model and effort it asks for (`model`, `effort`; see [What a session an agent starts runs on](#what-a-session-an-agent-starts-runs-on)). A session another one started starts none itself unless its role starts sessions |
 | `close_session` | close an idle session it started, with `spawn_session`, `start_task` or `swarmed session run` from its shell, that still works for it, which makes room for another. Only the session closes: a task, its worktree, branch and pull request stay. Refused for a session you started, even one you set to work for it, and while that session's task is being set up or its first prompt still waits for the setup |
-| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up, works for the session that started it and reports back to it, and has a role as a spawned one does. Refused while six open sessions work for the one that asks. A session run with `swarmed session` is refused: the command ends with its turn |
+| `start_task` | start a new task in the same repository for work that needs a branch of its own, as New task does: on a new branch, on an existing one such as a pull request's (`branch`), or on a new one stacked on another (`from`). Its session gets the prompt once the task is set up, works for the session that started it and reports back to it, and has a role, a model and an effort as a spawned one does. Refused while as many open sessions work for the one that asks as [Workers per session](#how-many-may-work-for-one) allows, six unless you change it. A session run with `swarmed session` is refused: the command ends with its turn |
 | `delegate_to_cloud` | hand work to a Codex cloud agent or a Claude Code cloud session |
 | `use_skill` | read a skill Swarmed offers |
 | `set_mark` | put a colour and a few words on its own session in the sidebar |
@@ -554,7 +554,46 @@ line's pieces, the looks, which levels the usage notice says, whether turns end 
 settings, and removing an action, a prompt or the status line's script. Adding a rule, saving an environment, an action that runs a command, a status
 line script, or hiding tool calls it can only propose: the change is shown in the conversation and made when you
 accept it. API keys, MCP servers, sign-ins, supervision, notes and the branch prefix are out of its reach, and it
-tells an agent the names of an environment's variables, never their values.
+tells an agent the names of an environment's variables, never their values. Nor can it change
+how many sessions may work for one, nor the [roles' models and efforts](#a-roles-model-and-effort):
+an agent must not raise its own ceiling, nor choose what every session of a role costs.
+
+### How many may work for one
+
+An agent starts sessions and tasks only while fewer open sessions work for its session than
+**Workers per session** allows (Settings, Sessions; `max_workers` in `settings.toml`): six
+unless you change it, from 1 to 20. It counts every open session that works for it however it
+came to, by `spawn_session`, `start_task`, `swarmed session run` from its shell, or because you
+set it to work for that one. Once there are as many, the agent is refused one more, with the
+setting's name, until one is closed: it can close those it started that are done
+(`close_session`), or ask you to close some or to allow more. Lowering it closes nothing; it
+only stops new ones until fewer are open. A runaway agent stops there instead of filling your
+machine, so `configure` cannot change it: an agent must not raise its own ceiling. How many
+sessions with a role may work one for another in a row (three, see [Roles](#roles)) is fixed:
+it stops a chain of roles starting one another, which has nothing to do with how much the
+machine holds.
+
+### What a session an agent starts runs on
+
+`spawn_session` and `start_task` take a `model` and an `effort` for the session they start. The
+model has to be one the agent offers, as its menu in the window lists them (for Claude Code
+`opus`, `sonnet`, `haiku` and `fable`), and the effort one of `low`, `medium`, `high`, `xhigh`
+and `max`; anything else is refused with the list, so the agent can choose again. There is no
+cap: an agent may give a helper a larger model or a higher effort than its own. Each one left
+out is the [role's default](#a-roles-model-and-effort), if the role has one, else the starting
+session's own, as before. The new session always runs on the starting session's agent, and its
+fast mode is the starter's: neither is chosen this way.
+
+Both are written with the session, before its first message goes, so a task whose setup is quick
+starts its agent on them. The answer the starting agent gets names the model and effort the
+session runs on, which shows in its conversation, and `list_sessions` names each session's. You
+can change either in the session's header.
+
+`swarmed session set 12 --model fable --effort medium` changes a session's settings from the
+command line, as the header does, and says what became of the change. When the app runs that
+session's agent, the app passes the change on within a second: a model from the agent's next
+turn, an effort or fast mode by starting the agent again once its turn is over, as when you
+change it in the header. Otherwise the agent takes it when it next starts.
 
 ### Who works for whom
 
@@ -564,7 +603,7 @@ session, and so does one started with `swarmed session run` from an agent's shel
 given `SWARMED_SESSION`, the number of their own session, which the command takes as the parent
 unless `--parent` names another one or `none`. Without `--parent`, the new session works for
 the agent's session only where that one could have started it with `spawn_session` (its role
-allows it, and fewer than six open sessions work for it); otherwise it is started and works for
+allows it, and fewer open sessions work for it than [Workers per session](#how-many-may-work-for-one) allows); otherwise it is started and works for
 nobody, and the command says so. You choose it yourself from the menu in the
 session's header, or with `swarmed session parent 12 7` (`none` for nobody).
 
@@ -573,13 +612,49 @@ one task can have sessions working for it in others. It cannot work for itself, 
 session, for one of another repository, or for one that works for it, however far down, so who
 works for whom stays a tree. The sidebar nests it to any depth: a session sits under the one it
 works for when both are in the same task, and one whose parent is in another task, or closed,
-stays in its own place with a small link to that one (`for #7`). The header names the session it
-works for and those that work for it, with how each is doing; pressing one opens it.
+stays in its own place with a small link to that one (`for #7`).
+
+The session's header names the session it works for, and beside it one line that counts every
+session that works for it, however far down and in whichever task, by how they are doing, the
+most urgent first, each with its mark as the sidebar draws it, and how many are closed: **9
+working for it: 1 needs you, 2 working, 6 idle · 2 closed**. Press that line (or Tab to it and
+press Enter) to unfold their tree under it, and again to fold it. Each session starts folded, and
+whether it is unfolded is kept while Swarmed runs, never on disk. A session that only works for
+another shows that one alone, with nothing to unfold.
+
+Unfolded, the tree nests them as they work for one another, each with how it is doing, and for
+one in another task that task's name and its pull request's badge, as the sidebar shows it.
+Pressing a line opens that session; pressing the badge opens the pull request. One that works for
+a closed session is drawn under the nearest open one above it, with a link to the closed one
+(`for #7`). The closed ones are folded below the open ones (**2 closed**), each with **Reopen**,
+which puts it back and opens it. A tree of more than eight open sessions that goes further down
+than one level is folded to those that work for the session directly, each with how many work
+under it, to unfold one by one; a long list scrolls in a space of its own, so the conversation
+keeps its room. The sidebar stays as it is: a task is listed where its branch, pull request and
+setup are looked for.
 
 Each agent is told who works with it when it starts. When you change it, the conversations it
 concerns say so on a line of their own, and their agents are told who works with them now along
-with your next message. Closing a session leaves those that worked for it as they are; deleting
-one leaves them working for nobody. A fork starts working for nobody.
+with your next message. Deleting a session leaves those that worked for it working for nobody. A
+fork starts working for nobody.
+
+**Closing a session** leaves those that work for it open, still working for it, unless you ask.
+When others work for it, however far down and in whichever task, the close dialog lists every
+open one with how it is doing, those at work named as such, since closing stops their agents in
+the middle of a turn, and offers **Also close the sessions that work for it**, unticked to begin
+with. Ticked, they are closed with it, the deepest first, and each keeps its conversation as any
+closed session does. Reopening the top one reopens only it. If another Swarmed runs any of them,
+nothing is closed and the refusal names that session, so a branch is never left half closed.
+From the command line, `swarmed session close 12 --with-workers`; closed without it, the command
+says on stderr which sessions still work for it.
+
+**Putting a task away** asks the same when sessions of other tasks work for its sessions:
+**Also close the sessions in other tasks that work for this task's sessions**. Their tasks are not
+put away, only those sessions closed; the task's own sessions follow the setting that closes them
+or not. From the command line, `swarmed task done shop fix-login --close-workers`. The rules that
+put tasks away by themselves never close anything outside the task.
+
+Agents cannot do either: `close_session` closes only an idle session the agent started.
 
 ### Roles
 
@@ -621,6 +696,24 @@ architect's session is a planner, and a planner's or a reviewer's an implementer
 no role may start any role, or none. A fork keeps its session's role. Only you choose a role:
 `configure` cannot set one.
 
+#### A role's model and effort
+
+**Role defaults** in Settings, Sessions give each role a model and an effort of its own, such as
+a reviewer on Fable at medium effort (`role_defaults` in `settings.toml`, see
+[Settings](configuration.md#settings)). A new session with that role starts on them, whoever
+starts it: you in the new-task view or with `swarmed session run --role`, or an agent with
+`spawn_session` or `start_task`. A model or effort chosen for the session wins over the role's:
+your choice in the new-task view's menus (Default model leaves it to the role), `--model` and
+`--effort`, or the agent's `model` and `effort`. Either one the role leaves out is the agent's
+own default, or, for a session an agent starts, the starting session's.
+
+A role's model that the session's agent does not offer, such as Fable for a Codex session, is
+passed over, and the session starts as if the role had none; the agent that started it is told
+so, and the session's header shows what it runs on. Giving a session a role once it was made,
+or another role, changes neither its model nor its effort. A fork keeps its session's; a clone
+onto another agent starts on its role's. Agents cannot change the role defaults: they decide
+what agents cost.
+
 #### How a role is kept to
 
 An architect, a planner and a reviewer change no files themselves, and Swarmed keeps them from it
@@ -659,8 +752,9 @@ while they plan, not only tells them:
 A session with a role may start sessions and tasks if its role starts any, even one another
 session started: a planner an architect or another session started starts its implementers.
 Sessions with a role work for one another at most three in a row (an architect, its planner and
-the planner's implementers), and while six open sessions work for a session, its agent starts
-no more, in its own task or as new tasks. A reviewer that works for an architect's planner is
+the planner's implementers), and while as many open sessions work for a session as
+[Workers per session](#how-many-may-work-for-one) allows, six unless you change it, its agent
+starts no more, in its own task or as new tasks. A reviewer that works for an architect's planner is
 already the third, so it starts no implementers: it reports the fixes to make to its planner,
 which hands them on. A session
 with no role that another session started starts nothing, as before, and a session with no role
