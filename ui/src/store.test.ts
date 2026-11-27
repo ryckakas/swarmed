@@ -1023,7 +1023,7 @@ describe("a folded task", () => {
         // The rule-engine (7) planner, 9, with those working for it there and in rule-docs (8).
         await useStore.getState().close(api, 9, true);
         // In the order their sessions were closed, the workers first.
-        expect(useStore.getState().foldedTasks.toSorted((a, b) => a - b)).toEqual([7, 8]);
+        expect(useStore.getState().foldedTasks).toEqual([8, 7]);
     });
 
     it("folds by itself when a tree read finds its last open session gone", async () => {
