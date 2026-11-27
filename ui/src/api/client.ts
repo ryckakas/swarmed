@@ -14,6 +14,7 @@ import type {
     BrowserGo,
     BrowserSetup,
     BrowserState,
+    BuiltinMcpView,
     Cleaned,
     Cleanup,
     CleanupKind,
@@ -96,6 +97,36 @@ export interface Api {
     mcpSave(server: McpServerInput): Promise<McpServerView[]>;
     /** Removes a server set up here, with its secrets. Returns the new list. */
     mcpRemove(name: string): Promise<McpServerView[]>;
+    /**
+     * The servers Swarmed installs and runs itself, each read again: its version, the quick
+     * doctor of its own folder, and what of an older setup is still about.
+     */
+    builtinMcpServers(): Promise<BuiltinMcpView[]>;
+    /** Runs a built-in's doctor again: the quick one, or the `full` one with the network. */
+    builtinMcpCheck(name: string, full: boolean): Promise<BuiltinMcpView>;
+    /**
+     * Installs a built-in, or brings it up to date, with its `install_command`. What it prints
+     * comes as a hook's output does, under no repository and `builtin:<name>`.
+     */
+    builtinMcpInstall(name: string): Promise<BuiltinMcpView>;
+    /**
+     * Turns a built-in on: from a `copy` of the user's existing setup, or else a fresh one, or
+     * the one its folder holds already. A copy that fails leaves everything as it was.
+     */
+    builtinMcpTurnOn(name: string, copy: boolean): Promise<BuiltinMcpView>;
+    /** Turns a built-in off. Its folder stays, ready to turn on again. */
+    builtinMcpTurnOff(name: string): Promise<BuiltinMcpView>;
+    /**
+     * Runs the command that takes one registration outside Swarmed out, as read again by the
+     * core, never as sent from here. Its output comes as `builtinMcpInstall`'s does.
+     */
+    builtinMcpRemoveRegistration(name: string, key: string): Promise<BuiltinMcpView>;
+    /** Stops the agents of the idle sessions still on the old server: the next message starts them. */
+    builtinMcpRestartSessions(name: string): Promise<BuiltinMcpView>;
+    /** Opens a built-in's own page in the browser, starting it if it does not run. */
+    builtinMcpOpen(name: string): Promise<void>;
+    /** Moves the user's old setup's folders to the Trash, once the built-in is on and well. */
+    builtinMcpTrashOld(name: string): Promise<BuiltinMcpView>;
     /** What Swarmed takes up and uses. Measuring the worktrees can take a few seconds. */
     /** The actions offered in `project`: those for every repository, then its own. */
     actions(project: string | null): Promise<Action[]>;

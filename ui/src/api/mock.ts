@@ -8,6 +8,7 @@ import { parentHere, titleFrom } from "../tree";
 import type { Api } from "./client";
 import { mockAppCall, mockAppCalled, mockAppShown } from "./mockApps";
 import { browserApi, MockBrowsers } from "./mockBrowser";
+import { builtinMcpApi } from "./mockBuiltinMcp";
 import { MOCK_COMMANDS, mockQuestions, mockSaid, mockScreen, mockScreenOnly } from "./mockCommands";
 import {
     CONTINUE_MESSAGE,
@@ -140,6 +141,10 @@ import type {
 //   line, `alert` opens a dialog, `refused` fails, and a browser program with `missing` in it
 //   offers to install one. With `browser_display` set to window, a browser started from then
 //   on shows the window panel, and one already running offers to start again in a window.
+// - repolore, Swarmed's built-in MCP server (`mockBuiltinMcp.ts`), walks every state from
+//   Settings → MCP servers: not installed; Install, then off with a setup of the user's; a Copy
+//   refused once while a refresh runs; waiting on three registrations, the old server and an
+//   idle session; on with a warning, its old setup offered for the Trash; and off again.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -619,6 +624,7 @@ const SAMPLE_USAGE: Usage = {
     images_bytes: 2_300_000,
     checkpoints_bytes: 12_600_000,
     browsers_bytes: 61_000_000,
+    repolore_bytes: 212_000_000,
     worktrees: [
         {
             project: "storefront",
@@ -3986,6 +3992,7 @@ export function createMockApi(): Api {
         overview: async () => structuredClone(agent.projects),
         ...images,
         ...mcpApi(),
+        ...builtinMcpApi(hookListeners),
         ...templatesApi(),
         ...stylesheetApi(() => settings),
         ...actionsApi(),

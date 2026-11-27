@@ -13,7 +13,7 @@ describe("formatBytes", () => {
 });
 
 describe("totalBytes", () => {
-    it("adds up the database, the notes, the images, the checkpoints, the browsers, the measured worktrees and what removals left", () => {
+    it("adds up the database, the notes, the images, the checkpoints, the browsers, repolore, the measured worktrees and what removals left", () => {
         const worktree = (bytes: number | null) => ({ project: "p", task: "t", path: "/w", bytes });
         const usage: Usage = {
             database_bytes: 1000,
@@ -22,12 +22,13 @@ describe("totalBytes", () => {
             images_bytes: 2000,
             checkpoints_bytes: 5,
             browsers_bytes: 300,
+            repolore_bytes: 7000,
             worktrees: [worktree(500), worktree(null)],
             removed_bytes: 40,
             running: { processes: 1, memory_bytes: 0, cpu_percent: 0 },
             sessions: [],
         };
-        expect(totalBytes(usage)).toBe(3855);
+        expect(totalBytes(usage)).toBe(10_855);
     });
 });
 

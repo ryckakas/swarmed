@@ -980,6 +980,95 @@ export interface McpServerInput {
     enabled: boolean;
 }
 
+/**
+ * Where a built-in MCP server stands: not installed, older than Swarmed needs, off, turned on
+ * but not given to sessions while another setup of it is still about, and on.
+ */
+export type BuiltinMcpState = "missing" | "outdated" | "off" | "waiting" | "on";
+
+/** A server Swarmed installs and runs itself, such as repolore, as the settings show it. */
+export interface BuiltinMcpView {
+    name: string;
+    state: BuiltinMcpState;
+    /** The version installed; `null` if none is. */
+    version: string | null;
+    /** The oldest version Swarmed works with. */
+    minimum: string;
+    /** What Install and Update run, shown before they do. */
+    install_command: string;
+    /** The built-in's own folder, in Swarmed's data directory. */
+    home: string;
+    /** Whether that folder holds a setup already, so turning on needs no copy or fresh start. */
+    home_ready: boolean;
+    /** The user's own setup from before, offered for a copy while off and for the Trash once on. */
+    existing: ExistingSetup | null;
+    /** Where it is registered outside Swarmed: each holds it back while turned on. */
+    registrations: BuiltinRegistration[];
+    /** The old shared server, while it still runs. */
+    old_server: OldServer | null;
+    /** Swarmed's sessions whose agents still use the old server. */
+    sessions: HeldSession[];
+    /** Whether Claude Code's settings hold a `repolore session-start` hook: pointed out, never edited. */
+    hook: boolean;
+    /** What the last doctor found. */
+    checks: DoctorCheck[];
+    /** Which doctor that was: the quick one without the network, or the full one; `null` if none ran. */
+    checked: "offline" | "full" | null;
+    /** When its index was built, and last refreshed, as the server says it. */
+    built_at: string | null;
+    refreshed_at: string | null;
+    /** What Claude Code last said of the server, such as `connected`; `null` if it has not. */
+    status: string | null;
+    /** Whether the server's own page runs. */
+    page_open: boolean;
+    /** Why the last reading or step failed. */
+    problem: string | null;
+}
+
+/** The user's setup from before the built-in: its folders, and whether it has an index. */
+export interface ExistingSetup {
+    folders: string[];
+    indexed: boolean;
+}
+
+/** One place outside Swarmed where a built-in is registered, and how it is taken out. */
+export interface BuiltinRegistration {
+    /** What names it to `builtinMcpRemoveRegistration`. */
+    key: string;
+    /** The agent or app it is registered in, such as Claude Code. */
+    client: string;
+    scope: string;
+    /** The command that removes it, shown before it runs. */
+    command: string | null;
+    /** Whether Swarmed can run that command; if not, it is a step for the user. */
+    runs_here: boolean;
+    /** What the user does to take it out, where Swarmed cannot. */
+    step: string | null;
+}
+
+/** The old shared server: its process, and how many agents are connected to it through relays. */
+export interface OldServer {
+    pid: number | null;
+    relays: number;
+}
+
+/** A session of Swarmed's whose agent still uses the old server. */
+export interface HeldSession {
+    id: number;
+    title: string;
+    /** Whether its agent waits for a message, so restarting it loses nothing. */
+    idle: boolean;
+}
+
+/** One of the doctor's checks, with what fixes it. */
+export interface DoctorCheck {
+    name: string;
+    ok: boolean;
+    warning: boolean;
+    detail: string;
+    fix: string | null;
+}
+
 /** What a group of processes takes right now. */
 export interface ProcessUsage {
     processes: number;
@@ -1000,6 +1089,8 @@ export interface Usage {
     checkpoints_bytes: number;
     /** The tasks' browsers: their profiles and what their pages downloaded. */
     browsers_bytes: number;
+    /** The built-in repolore's folder: its configuration and its index. */
+    repolore_bytes: number;
     /** Every active task's worktree, largest first; `bytes` is `null` if it was not measured. */
     worktrees: { project: string; task: string; path: string; bytes: number | null }[];
     /** Removed tasks' worktrees that are not deleted yet, or could not be. */

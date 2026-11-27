@@ -7875,6 +7875,149 @@ kbd {
     color: var(--pollen);
 }
 
+/* The servers Swarmed installs and runs itself, at the top of the MCP servers: a framed block
+   with one row to each, and under a row's head what its state holds. */
+.builtin-mcp {
+    display: grid;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+}
+
+.builtin-mcp-head {
+    margin: 0;
+    color: var(--text);
+    font-size: var(--text-sm);
+    font-weight: 600;
+}
+
+.builtin-row {
+    display: grid;
+    gap: var(--space-2);
+}
+
+.builtin-row + .builtin-row {
+    border-top: 1px solid var(--line);
+}
+
+.builtin-actions {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-2);
+}
+
+.builtin-version {
+    margin-left: var(--space-2);
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.builtin-part {
+    display: grid;
+    gap: var(--space-1);
+    padding-bottom: var(--space-2);
+}
+
+.builtin-folders,
+.builtin-steps,
+.builtin-checks {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.builtin-folder {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+}
+
+.builtin-step {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: var(--space-2) 0;
+    border-top: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.builtin-step-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.builtin-check {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+    padding: 3px 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+}
+
+.builtin-check-detail {
+    flex: 1;
+    min-width: 0;
+    color: var(--faint);
+    font-size: var(--text-xs);
+}
+
+.builtin-check-fix {
+    flex-basis: 100%;
+    color: var(--muted);
+    font-size: var(--text-xs);
+    overflow-wrap: anywhere;
+}
+
+.builtin-failing {
+    color: var(--clay);
+}
+
+.builtin-problem {
+    margin: 0;
+    padding: var(--space-1) var(--space-3);
+    border-left: 2px solid var(--clay);
+    background: color-mix(in srgb, var(--clay) 12%, transparent);
+    color: var(--text);
+    font-size: var(--text-xs);
+    user-select: text;
+}
+
+.builtin-note {
+    padding-bottom: var(--space-2);
+}
+
+/* What runs, drawn moving: a dot pulses before the line. The figures beside it stay as they
+   are, never dimmed, until the answer comes. */
+.builtin-busy {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.builtin-busy::before {
+    content: "";
+    display: inline-block;
+    width: 0.55em;
+    height: 0.55em;
+    margin-right: 0.45em;
+    border-radius: 50%;
+    background: var(--moss);
+    vertical-align: middle;
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .builtin-busy::before {
+        animation: none;
+    }
+}
+
 /* What Swarmed takes up: one figure to a line, the name on the left. */
 .usage {
     margin: 0;

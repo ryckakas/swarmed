@@ -5,6 +5,7 @@ import { iconForAgent } from "../providerIcons";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { capitalized } from "../wording";
+import { BuiltinMcpSection } from "./BuiltinMcpRow";
 import { ProviderMark } from "./ProviderMark";
 
 /** A server as the form holds it while it is being written. */
@@ -83,6 +84,7 @@ export function McpSettings() {
                 agents have that it lacks, from the next session started. Secrets of servers set up
                 here are kept in the macOS Keychain and cannot be shown again.
             </p>
+            <BuiltinMcpSection />
             {own.map((server) => (
                 <OwnRow
                     key={server.name}
