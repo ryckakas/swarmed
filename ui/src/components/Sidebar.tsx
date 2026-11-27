@@ -185,33 +185,45 @@ function ProjectGroup({ project }: { project: Project }) {
     return (
         <section className="project" {...order}>
             <div className="row-head">
-                <h2 className="project-name">
-                    <button
-                        type="button"
-                        className="project-toggle"
-                        data-drag-handle
-                        aria-expanded={!folded}
-                        title={folded ? words.showTasks : words.hideTasks}
-                        onClick={() => toggleFolded(project.id)}
-                    >
-                        <FoldChevron />
-                        <RepositoryIcon />
-                        <span className="project-title">{project.name}</span>
-                        {status && (
-                            <StatusMark
-                                status={status}
-                                unread={projectUnread(project)}
-                                background={projectBackground(project)}
-                            />
-                        )}
-                        {folded && <span className="project-count">{tasks.length}</span>}
-                    </button>
-                </h2>
-                <PinButton target={target} pinned={project.pinned} name={project.name} />
-                <CloudButton project={project.name} task={null} />
-                <IssuesButton project={project.name} />
-                <EnvironmentsButton project={project.name} />
-                <NoteButton project={project.name} task={null} has={project.has_note} />
+                <RowParts
+                    offered={
+                        <>
+                            <CloudButton project={project.name} task={null} />
+                            <IssuesButton project={project.name} />
+                            <EnvironmentsButton project={project.name} />
+                            {!project.has_note && (
+                                <NoteButton project={project.name} task={null} has={false} />
+                            )}
+                        </>
+                    }
+                    pin={<PinButton target={target} pinned={project.pinned} name={project.name} />}
+                    shown={
+                        project.has_note && <NoteButton project={project.name} task={null} has />
+                    }
+                >
+                    <h2 className="project-name">
+                        <button
+                            type="button"
+                            className="project-toggle"
+                            data-drag-handle
+                            aria-expanded={!folded}
+                            title={folded ? words.showTasks : words.hideTasks}
+                            onClick={() => toggleFolded(project.id)}
+                        >
+                            <FoldChevron />
+                            <RepositoryIcon />
+                            <span className="project-title">{project.name}</span>
+                            {status && (
+                                <StatusMark
+                                    status={status}
+                                    unread={projectUnread(project)}
+                                    background={projectBackground(project)}
+                                />
+                            )}
+                            {folded && <span className="project-count">{tasks.length}</span>}
+                        </button>
+                    </h2>
+                </RowParts>
                 <button
                     type="button"
                     className="row-add"
@@ -333,10 +345,22 @@ function DoneTaskGroup({ project, task }: { project: string; task: Task }) {
     return (
         <div className="task task-done">
             <div className="row-head" data-highlight={task.highlight ?? undefined}>
-                <TaskHeading task={task} folded={folded} chat={false} />
-                <NoteButton project={project} task={task.name} has={task.has_note} />
-                <IssueBadge project={project} task={task} />
-                <PullBadge project={project} task={task} />
+                <RowParts
+                    offered={
+                        !task.has_note && (
+                            <NoteButton project={project} task={task.name} has={false} />
+                        )
+                    }
+                    shown={
+                        <>
+                            {task.has_note && <NoteButton project={project} task={task.name} has />}
+                            <IssueBadge project={project} task={task} />
+                            <PullBadge project={project} task={task} />
+                        </>
+                    }
+                >
+                    <TaskHeading task={task} folded={folded} chat={false} />
+                </RowParts>
                 <BringBackRow project={project} task={task.name} />
                 <RemoveButton project={project} task={task.name} />
             </div>
@@ -377,15 +401,25 @@ function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?
         <div className="task" {...order}>
             <div className="row-head" data-highlight={task.highlight ?? undefined}>
                 <Grip />
-                <TaskHeading task={task} folded={folded} chat={chat === true} />
-                <HighlightButton target={target} colour={task.highlight} name={task.name} />
-                <PinButton target={target} pinned={task.pinned} name={task.name} />
-                <BrowserBadge task={task} />
-                {!chat && <CloudButton project={project} task={task.name} />}
-                <NoteButton project={project} task={task.name} has={task.has_note} />
-                {/* After the buttons that only show under the pointer, so they stay put for it. */}
-                {!chat && <IssueBadge project={project} task={task} />}
-                {!chat && <PullBadge project={project} task={task} />}
+                <RowParts
+                    offered={
+                        <>
+                            <HighlightButton
+                                target={target}
+                                colour={task.highlight}
+                                name={task.name}
+                            />
+                            {!chat && <CloudButton project={project} task={task.name} />}
+                            {!task.has_note && (
+                                <NoteButton project={project} task={task.name} has={false} />
+                            )}
+                        </>
+                    }
+                    pin={<PinButton target={target} pinned={task.pinned} name={task.name} />}
+                    shown={<TaskShown project={project} task={task} chat={chat === true} />}
+                >
+                    <TaskHeading task={task} folded={folded} chat={chat === true} />
+                </RowParts>
                 <button
                     type="button"
                     className="row-add"
@@ -401,6 +435,22 @@ function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?
             </div>
             {!folded && <TaskSessions project={project} task={task} />}
         </div>
+    );
+}
+
+/**
+ * What a task's row shows by itself, the least lasting first: a note that holds something, which
+ * a narrow sidebar leaves to the pointer beside the badges (#500), so that the badges stay put
+ * when it comes; the browser's badge while it runs; then the issue and the pull request.
+ */
+function TaskShown({ project, task, chat }: { project: string; task: Task; chat: boolean }) {
+    return (
+        <>
+            {task.has_note && <NoteButton project={project} task={task.name} has />}
+            <BrowserBadge task={task} />
+            {!chat && <IssueBadge project={project} task={task} />}
+            {!chat && <PullBadge project={project} task={task} />}
+        </>
     );
 }
 
@@ -767,7 +817,8 @@ function EnvironmentsButton({ project }: { project: string }) {
 /**
  * The pin on a repository, a task or a session: out of the way until the row is pointed at,
  * and in view once it is pinned. Pressing it pins the row above its siblings that are not
- * pinned, or unpins it.
+ * pinned, or unpins it. It stands between what the row offers and what it shows (`RowParts`), so
+ * that it moves neither when the pointer comes nor when it is pressed.
  */
 function PinButton({ target, pinned, name }: { target: PinTarget; pinned: boolean; name: string }) {
     return (
@@ -826,6 +877,36 @@ function NoteButton({
                 <path d="M6.5 7.5h4M6.5 10.5h4" />
             </svg>
         </button>
+    );
+}
+
+/**
+ * A row's name and what follows it, in the one order that keeps everything the row shows without
+ * the pointer in place when the pointer comes to press it. The name (`children`) comes first; then
+ * what the row offers only while it is pointed at or focused (`offered`), hidden until then by
+ * one rule for the lot (`.row-offered`); then its pin, which is either and is pressed where it
+ * stands, so it sits at the seam and pinning or unpinning moves it nowhere. Those three share one
+ * part (`.row-main`), whose size the pointer does not change: what shows under it takes its room
+ * from the name alone. Then what the row shows by itself (`shown`): its badges and marks, a note
+ * that holds something, and whatever some work puts there while it runs. The row's + and × come
+ * after, and always keep their room. A button that is either by its state goes into the part its
+ * state says, as the note does.
+ */
+function RowParts(props: {
+    children: ReactNode;
+    offered?: ReactNode;
+    pin?: ReactNode;
+    shown?: ReactNode;
+}) {
+    return (
+        <>
+            <span className="row-main">
+                {props.children}
+                <span className="row-offered">{props.offered}</span>
+                {props.pin}
+            </span>
+            <span className="row-shown">{props.shown}</span>
+        </>
     );
 }
 
@@ -1018,56 +1099,56 @@ function SessionRow(props: { session: Session; nested: boolean; elsewhere: numbe
             data-highlight={session.highlight ?? undefined}
         >
             <Grip />
-            <button
-                type="button"
-                className="session-row"
-                // The row cuts a long title short; this shows all of it.
-                title={title}
-                aria-current={selected ? "true" : undefined}
-                onClick={() => void open(api, session.id)}
+            <RowParts
+                offered={
+                    <HighlightButton
+                        target={{ kind: "session", id: session.id }}
+                        colour={session.highlight}
+                        name={title}
+                    />
+                }
+                pin={
+                    <PinButton
+                        target={{ kind: "session", id: session.id }}
+                        pinned={session.pinned}
+                        name={title}
+                    />
+                }
+                shown={<SessionShown session={session} elsewhere={elsewhere} />}
             >
-                <StatusMark
-                    status={session.status}
-                    unread={session.unread}
-                    background={session.background}
-                />
-                {nested && session.parent !== null && (
-                    <span
-                        className="session-spawned"
-                        title={hangsOff(words, session, session.parent)}
-                        aria-label={hangsOff(words, session, session.parent)}
-                        role="img"
-                    >
-                        <svg viewBox="0 0 12 12" aria-hidden="true">
-                            <path d="M2 0.5C2 6.5 4 9 9 9" />
-                            <circle cx="9.6" cy="9" r="1.4" />
-                        </svg>
-                    </span>
-                )}
-                <span className="session-title">{title}</span>
-                <RoleChip role={session.role} />
-                <HighlightWords colour={session.highlight} />
-                {/* The icon stands outside the button, so the button says the agent's name. */}
-                <span className="unseen">, {agentName(session.agent)}</span>
-            </button>
-            {elsewhere !== null && <ParentLink id={elsewhere} />}
-            {session.mark && <SessionMark id={session.id} mark={session.mark} />}
-            {session.continue_at !== null && (
-                <SessionContinues id={session.id} at={session.continue_at} />
-            )}
-            {/* Before the icon: a pin takes room only once pinned or pointed at, and the icons
-                of a task's sessions stay in one column whether they are pinned or not. */}
-            <PinButton
-                target={{ kind: "session", id: session.id }}
-                pinned={session.pinned}
-                name={title}
-            />
-            <RowAgent agent={session.agent} onPress={() => void open(api, session.id)} />
-            <HighlightButton
-                target={{ kind: "session", id: session.id }}
-                colour={session.highlight}
-                name={title}
-            />
+                <button
+                    type="button"
+                    className="session-row"
+                    // The row cuts a long title short; this shows all of it.
+                    title={title}
+                    aria-current={selected ? "true" : undefined}
+                    onClick={() => void open(api, session.id)}
+                >
+                    <StatusMark
+                        status={session.status}
+                        unread={session.unread}
+                        background={session.background}
+                    />
+                    {nested && session.parent !== null && (
+                        <span
+                            className="session-spawned"
+                            title={hangsOff(words, session, session.parent)}
+                            aria-label={hangsOff(words, session, session.parent)}
+                            role="img"
+                        >
+                            <svg viewBox="0 0 12 12" aria-hidden="true">
+                                <path d="M2 0.5C2 6.5 4 9 9 9" />
+                                <circle cx="9.6" cy="9" r="1.4" />
+                            </svg>
+                        </span>
+                    )}
+                    <span className="session-title">{title}</span>
+                    <RoleChip role={session.role} />
+                    <HighlightWords colour={session.highlight} />
+                    {/* The icon stands outside the button, so the button says the agent's name. */}
+                    <span className="unseen">, {agentName(session.agent)}</span>
+                </button>
+            </RowParts>
             <button
                 type="button"
                 className="row-close"
@@ -1083,13 +1164,28 @@ function SessionRow(props: { session: Session; nested: boolean; elsewhere: numbe
     );
 }
 
+/** What a session's line shows by itself: whom it works for, its mark, its continuation, its agent. */
+function SessionShown({ session, elsewhere }: { session: Session; elsewhere: number | null }) {
+    const open = useStore((state) => state.open);
+    return (
+        <>
+            {elsewhere !== null && <ParentLink id={elsewhere} />}
+            {session.mark && <SessionMark id={session.id} mark={session.mark} />}
+            {session.continue_at !== null && (
+                <SessionContinues id={session.id} at={session.continue_at} />
+            )}
+            <RowAgent agent={session.agent} onPress={() => void open(api, session.id)} />
+        </>
+    );
+}
+
 /**
  * A session's agent, by its icon at the end of its row: after whom the session works for, its
- * mark, its continuation and its pin, so that the icons of a task's sessions stand in one
- * column. Those are buttons of their own, so the icon cannot be in the row's button; a press on
- * it opens the session all the same. Hidden from screen readers, to which the row's button says
- * the agent's name, and never focused: it is a second place to press the row, for the pointer
- * alone.
+ * mark and its continuation, and before only its ×, so that the icons of a task's sessions stand
+ * in one column, pointed at or not. Those are buttons of their own, so the icon cannot be in the
+ * row's button; a press on it opens the session all the same. Hidden from screen readers, to
+ * which the row's button says the agent's name, and never focused: it is a second place to
+ * press the row, for the pointer alone.
  */
 function RowAgent({ agent, onPress }: { agent: string; onPress: () => void }) {
     return (

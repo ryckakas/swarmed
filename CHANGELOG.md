@@ -15,6 +15,15 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Changed
+
+- **Everything a sidebar row shows stays put under the pointer.** A pinned pin, a note that holds
+  something, a task's browser globe, a session's mark, whom it works for and its agent's icon no
+  longer slide aside as you point at the row to press them. The buttons that only show then (the
+  highlight, the cloud, an empty note, a pin not pinned) now come right after the name and take
+  their room from it, and the pin sits between them and what the row always shows, so pressing
+  it leaves it where it is.
+
 ## [0.4.10] - 2026-11-27
 
 ### Added

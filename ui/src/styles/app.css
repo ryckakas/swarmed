@@ -1523,6 +1523,31 @@ code {
     align-items: center;
 }
 
+/*
+ * A row comes in two parts (`RowParts` in Sidebar.tsx): its name, what it offers only under the
+ * pointer and its pin (`.row-main`), then what it shows by itself (`.row-shown`). Only the first
+ * part has anything that comes and goes with the pointer, and it is left of everything that
+ * stays, so nothing shown moves out from under the pointer as it comes to press it. On a
+ * repository's or a task's row, where nothing shown gives way, each is laid out as part of the
+ * row; a session's line keeps the first in a box of its own (`.session-line > .row-main`).
+ */
+.row-head > .row-main,
+.row-offered,
+.row-shown {
+    display: contents;
+}
+
+/*
+ * What a row offers takes no room until the row is pointed at or has the keyboard, or while its
+ * menu is open (the highlight's palette): a new button there needs no rule of its own. Each is
+ * still a tab stop with its name: Tab reaches the row's name first, which brings them back.
+ */
+:is(.row-head, .session-line):not(:hover, :focus-within)
+    .row-offered
+    > :not([aria-expanded="true"], :has([aria-expanded="true"])) {
+    display: none;
+}
+
 .row-add {
     flex: none;
     display: grid;
@@ -1649,13 +1674,13 @@ code {
 }
 
 /*
- * The highlight on a row: shown while the row is pointed at or has the keyboard, or while its
- * palette is open, filled with the row's colour if it has one. Otherwise it takes no room, even on
- * a highlighted row, whose bar at the right edge shows the colour: in a narrow sidebar its title
- * needs that room, beside a mark most of all (#475).
+ * The highlight on a row, among what it offers: shown while the row is pointed at or has the
+ * keyboard, or while its palette is open, filled with the row's colour if it has one. Otherwise
+ * it takes no room, even on a highlighted row, whose bar at the right edge shows the colour: in a
+ * narrow sidebar its title needs that room, beside a mark most of all (#475). Its palette opens
+ * under the row's end, which is placed already, wherever the button stands on the row.
  */
 .highlight-wrap {
-    position: relative;
     flex: none;
     display: flex;
 }
@@ -1672,18 +1697,11 @@ code {
     color: var(--faint);
 }
 
-.row-head:not(:hover, :focus-within) .row-highlight:not([aria-expanded="true"]),
-.session-line:not(:hover, :focus-within) .row-highlight:not([aria-expanded="true"]) {
-    display: none;
-}
-
 /*
- * So do the other buttons that only matter under the pointer: the pin of a row not pinned, and
- * a repository's or a task's note with nothing in it, its cloud, issues and environments (#500).
- * A pinned row's pin and a note that holds something stay, as what they say. Each is still a
- * tab stop with its name: Tab reaches the row's name first, which brings them back.
+ * So does the pin of a row not pinned (#500), which stands between what the row offers and what
+ * it shows; a pinned row's pin stays, as what it says. Like what the row offers, it is still a
+ * tab stop with its name.
  */
-.row-head:not(:hover, :focus-within) .row-note:not([data-has="true"]),
 .row-head:not(:hover, :focus-within) .row-pin:not([data-pinned="true"]),
 .session-line:not(:hover, :focus-within) .row-pin:not([data-pinned="true"]) {
     display: none;
@@ -1930,7 +1948,8 @@ code {
  *   2. the task's icon goes: the chevron still folds it, and its group says what kind it is;
  *   3. the issue's badge leaves out its number: the ring stays, and opens the issue;
  *   4. on a row with badges, a pinned pin and a note that holds something take no room until
- *      the row is pointed at or focused, as the buttons that only matter there already do.
+ *      the row is pointed at or focused, as the buttons that only matter there already do;
+ *      they come before the badges, so these stay put when they show.
  * What is left out is still in each one's name and title. The browser's badge, work left
  * running, never goes. The widths are in the rows' own `em` (`.sidebar-rows`): in classic,
  * 19.5em is 254px of room, in senior 329px.
@@ -2076,15 +2095,6 @@ code {
         overflow: hidden;
         clip-path: inset(50%);
     }
-
-    /* Placed by the line, so that its palette still opens under the line's end. */
-    .session-line:is(
-            :has(.session-mark):has(.session-continues, .parent-link),
-            :has(.session-continues):has(.parent-link)
-        )
-        .highlight-wrap {
-        position: static;
-    }
 }
 
 /*
@@ -2215,19 +2225,48 @@ code {
 }
 
 /*
- * As wide as it takes to show a few characters of its title and an ellipsis, and as much wider
- * as the line has room for (#500). Short of room, a mark gives way first (`.session-mark`,
- * which shrinks a thousand times as fast); only once it is down to its colour does the title
- * go below those few characters, so that the line is never wider than the sidebar. That width
- * is added up from the parts before the title, since the container leaves its content out of
- * its size: where it starts (`--row-start`, set in for a nested one), its status, a nested
- * one's tendril (`--row-tendril`), and their gaps, which its list sets (`.sessions > li`).
+ * A session's title, with what its line offers under the pointer and its pin (`.row-main`): as
+ * wide as it takes to show a few characters of the title and an ellipsis, and as much wider as
+ * the line has room for (#500). Short of room, a mark gives way first (`.session-mark`, which
+ * shrinks a thousand times as fast); only once it is down to its colour does the title go below
+ * those few characters, so that the line is never wider than the sidebar. That width is added up
+ * from the parts before the title, and not read from what the part holds, which the pointer
+ * changes: where it starts (`--row-start`, set in for a nested one), its status, a nested one's
+ * tendril (`--row-tendril`), and their gaps, which its list sets (`.sessions > li`). So the line
+ * counts the part the same whether the pointer is on it or not: what shows under the pointer
+ * takes its room from the title alone, the mark keeps its width, and everything after it its
+ * place. The pin's room is counted in whether it is pinned or not, so that pressing it moves
+ * nothing either; in a narrow sidebar that leaves the pin out of the line's room (below), it is
+ * not.
  */
+.session-line > .row-main {
+    --pin-room: calc(22px * var(--button-zoom, 1));
+    flex: 1 1
+        calc(
+            var(--row-start) +
+            var(--row-tendril) +
+            var(--row-status) +
+            2 *
+            var(--space-2) +
+            4ch +
+            var(--pin-room)
+        );
+    min-width: 0;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+}
+
+@container sidebar (max-width: 17.25em) {
+    .session-line:has(.session-mark, .session-continues, .parent-link) > .row-main {
+        --pin-room: 0px;
+    }
+}
+
 .session-row {
     /* Its role's chip goes when it is too narrow for it (`.role-chip`). */
     container: session-row / inline-size;
-    flex: 1 1
-        calc(var(--row-start) + var(--row-tendril) + var(--row-status) + 2 * var(--space-2) + 4ch);
+    flex: 1 1 0;
     min-width: 0;
     display: flex;
     align-items: center;
@@ -2544,8 +2583,9 @@ code {
 
 /*
  * In the sidebar the marks form a column at the rows' right edge: a session's is the last thing
- * on its row before what shows on approach, after whom it works for, its mark and its
- * continuation. As tall as the row, so a press above or below the icon opens the session too.
+ * on its row before its ×, after whom it works for, its mark and its continuation, and what
+ * shows on approach comes before all of those. As tall as the row, so a press above or below
+ * the icon opens the session too.
  */
 .row-agent {
     flex: none;
