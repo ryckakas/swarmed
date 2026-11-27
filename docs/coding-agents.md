@@ -499,7 +499,7 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
 | out of date | older than 0.5.1 | **Update**, with the same command |
 | off | installed, not turned on | **Turn on**; with a setup of yours found, **Copy your existing setup** or **Start fresh** |
 | waiting | turned on, but not given to sessions yet | what is left in its way, each with its step; **Check again** and **Turn off** |
-| on | given to every session started from now on | its checks, when the index was built and last refreshed, what Claude Code last said of it; **Open repolore**, **Check** and **Turn off** |
+| on | given to every session started from now on | its checks, when the index was built and last refreshed, what Claude Code last said of it once a session given it has started; **Open repolore**, **Check** and **Turn off** |
 
 - **Copy or start fresh.** A copy runs `repolore copy` into the built-in's home: it keeps your
   repositories and your index, and the model is not downloaded again. It works while your setup
@@ -510,11 +510,13 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
   while repolore is registered nowhere else and your old shared server has stopped. Until then
   the row waits, and lists what is left. Registrations are found by repolore's own doctor, which
   knows every client it registers with, and in what Swarmed reads itself: Claude Code and its
-  plugins, Codex, OpenCode and `mcp.toml`.
-- **Taking registrations out.** Each is removed with the command repolore's doctor gives for it,
-  which is that client's own (`claude mcp remove`, `claude plugin uninstall`, `codex mcp
-  remove`), shown before it runs. Swarmed never writes into an agent's files, so OpenCode, Claude
-  Desktop and any client without such a command are a step for you, shown in the row. A
+  plugins, Codex, OpenCode and `mcp.toml`. A repository's `.mcp.json` server named repolore,
+  once you approved it in Claude Code, keeps the built-in from that repository's sessions.
+- **Taking registrations out.** Swarmed runs the command repolore's doctor gives for a
+  registration, shown before it runs, only when it is `claude mcp remove`, `claude plugin
+  uninstall` or `codex mcp remove`. Swarmed never writes into an agent's files, so any other is a
+  step for you, shown in the row: a Claude Code registration for one repository (local scope),
+  OpenCode's, Claude Desktop's and those of clients without a remove command. A
   `repolore session-start` hook in Claude Code's `settings.json` is pointed out for you to
   remove, never edited: the built-in refreshes by itself. A registration that comes back, from
   running `repolore setup` again say, puts the row back to waiting, and new sessions go without
@@ -541,8 +543,9 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
 
 `swarmed mcp builtin` does the same from the command line: `status` (the default), `install`,
 `on --copy` or `on --fresh`, `off`, `check [--full]`, `remove <key>` with a key `status` lists,
-`restart` and `trash-old`. It never opens the page: `status` prints the line that opens it from
-a terminal.
+and `trash-old`. It never opens the page: `status` prints the line that opens it from a
+terminal. Nor does it restart sessions: those it would restart run in the app, whose
+**Restart idle ones** does that.
 
 Worth knowing before you switch:
 
