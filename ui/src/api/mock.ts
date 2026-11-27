@@ -1637,8 +1637,33 @@ r \\in \\{\\, 0,\\ 0.07,\\ 0.19 \\,\\}
 
 The spec writes the rate as \\(\\frac{v}{n\\), with a brace missing; I read it as VAT over net. The export still writes to $EXPORT_DIR, or to $HOME/exports when that is unset, and in the code the rate stays \`rate * net\`, not \`\\(r \\cdot n\\)\`.`;
 
+/**
+ * A reply with a table as agents write them (#477): a narrow column of names in code, with
+ * hyphens, beside a wide one of sentences, and paths that fit a wide window and not a narrow
+ * one, where the table scrolls sideways and the transcript does not. Then an address too long
+ * for the line.
+ */
+const ENGINE_PLAN = `The rule engine splits into four tasks, each with a pull request of its own, merged in this order:
+
+| Task | What it does | Where it starts |
+| --- | --- | --- |
+| \`rule-parser\` | Reads a rule file into a tree, each part with its line and column, so that an error points at the place in the file and not at the rule's name. | \`crates/engine/src/parse/rule_file.rs\` |
+| \`own-links\` | Lets a rule name the rules it builds on, and refuses a name no rule has or a ring of rules that name each other. | \`crates/engine/src/links.rs\` |
+| \`nested-rule-groups\` | Groups rules under a heading of their own, to any depth, so that a repository can switch a whole group off at once. | \`crates/engine/src/groups.rs\` |
+| \`rule-docs\` | Documents the format, with an example of every form it allows. | \`docs/rules/format.md\` |
+
+The format as it stands is described in https://github.com/you/bonsai-lint/blob/main/docs/rules/format-of-a-rule-file-as-it-stands-today.md#every-form-the-format-allows, which the last task replaces.`;
+
 /** What the sample sessions have said so far. */
 export function sampleEvents(sessionId: number): AgentEvent[] {
+    if (sessionId === 9) {
+        return [
+            { type: "user_message", text: "How does the rule engine split into tasks?" },
+            INIT,
+            { type: "text", text: ENGINE_PLAN },
+            { type: "turn_done", is_error: false, result: null, cost_usd: 0.03, duration_ms: 7400 },
+        ];
+    }
     if (sessionId === 3) {
         return [
             { type: "user_message", text: "Why does the CSV export drop the VAT column?" },

@@ -579,6 +579,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   context and asks to open a link), and for `browse` opens the task's browser with `show_browser` and types and clicks
   in a tab of its own there, which the pane goes to; one sample session has 2,000 messages for
   checking scroll speed.
+  bonsai-lint's `Plan the rule engine` answered with a table (`ENGINE_PLAN`): a narrow column
+  of hyphenated names in code beside one of sentences, and paths that fit a wide window and
+  scroll the table sideways in a narrow one, then an address too long for its line.
   The pull request of `fix-login-redirect` has a check running that fails 15 seconds after the
   window opens, as the core's follower would say it (`pull_read`, `pull_changed`). Its
   required check holds a merge back (`mockMerging.ts`): Force merge is refused in GitHub's

@@ -3653,10 +3653,15 @@ code {
     font-weight: 600;
 }
 
+/*
+ * A word breaks inside itself only where it would overflow the line. Not `anywhere`, which
+ * counts a break between any two letters when a table sizes its columns, so that a narrow
+ * column was squeezed until its short words broke in the middle (#477).
+ */
 .prose {
     font-size: var(--text-md);
     line-height: 1.55;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
 }
 
 .prose > * + * {
@@ -3843,6 +3848,16 @@ code {
     font-size: var(--text-sm);
     line-height: 1.5;
     overflow-x: auto;
+}
+
+/*
+ * A table's column is as wide as its longest word, so a long path can make the table wider
+ * than the reply: then it scrolls sideways in a box of its own (`Table` in `Markdown.tsx`),
+ * and the transcript never does.
+ */
+.prose-table {
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .prose table {

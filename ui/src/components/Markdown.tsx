@@ -146,7 +146,19 @@ function ImageLink({ src, alt }: ComponentProps<"img"> & { node?: unknown }) {
     return <Link href={src}>[{said}]</Link>;
 }
 
-const COMPONENTS = { a: Link };
+/**
+ * A table, in a box that scrolls sideways when the table is wider than the text around it, so
+ * that the transcript never does. The table itself stays a table, as screen readers read one.
+ */
+function Table({ node: _node, ...rest }: ComponentProps<"table"> & { node?: unknown }) {
+    return (
+        <div className="prose-table">
+            <table {...rest} />
+        </div>
+    );
+}
+
+const COMPONENTS = { a: Link, table: Table };
 const VIEW_COMPONENTS = { ...COMPONENTS, pre: Pre };
 const UNTRUSTED_COMPONENTS = { ...COMPONENTS, img: ImageLink };
 

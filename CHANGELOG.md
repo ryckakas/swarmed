@@ -15,6 +15,15 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tables in replies no longer break short words in the middle.** A column of a table in an
+  agent's reply, a plan or an issue is at least as wide as its longest word, so a heading such
+  as `Task` or a name in code such as `own-links` breaks only at a space or a hyphen. A table
+  wider than the conversation, such as one with a long path in it, scrolls sideways on its own,
+  and the conversation does not. A long address in a sentence still breaks at the edge of the
+  line.
+
 ## [0.4.9] - 2026-11-27
 
 ### Added
