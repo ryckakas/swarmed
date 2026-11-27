@@ -33,8 +33,10 @@ import {
     THEMES,
     TOOL_CALLS,
     terminalAppChoices,
+    WORKER_CHOICES,
 } from "./options";
 import { Picker } from "./Picker";
+import { RoleDefaultsSettings } from "./RoleDefaultsSettings";
 import { Row } from "./SettingsRow";
 import { ShortcutLists } from "./Shortcuts";
 import { SkillsSettings } from "./SkillsSettings";
@@ -158,6 +160,7 @@ function Panel({ tab, settings }: { tab: SettingsTab; settings: Settings }) {
             return (
                 <>
                     <Sessions settings={settings} />
+                    <RoleDefaultsSettings settings={settings} />
                     <FinishedTasks settings={settings} />
                     <BrowserSettings settings={settings} />
                 </>
@@ -435,6 +438,17 @@ function Sessions({ settings }: { settings: Settings }) {
                         void change(api, { default_supervision: value as Supervision })
                     }
                     options={supervisionChoices(settings.default_supervision)}
+                />
+            </Row>
+            <Row
+                label="Workers per session"
+                hint="How many open sessions may work for one session, however its agent started them. That agent starts no more until one is closed, so a runaway one cannot fill the machine. Agents cannot change this."
+            >
+                <Picker
+                    label="Workers per session"
+                    value={String(settings.max_workers)}
+                    onChange={(count) => void change(api, { max_workers: Number(count) })}
+                    options={WORKER_CHOICES}
                 />
             </Row>
             <Row

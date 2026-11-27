@@ -229,7 +229,7 @@ async fn closing_a_session_turns_it_off_and_other_agents_have_none() {
     core.session_remote_control(id, true, Auth::Subscription)
         .expect("turns it on");
     while remote(&mut bus, id).await.0 != RemoteState::On {}
-    core.session_close(id).expect("closes");
+    core.session_close(id, false).expect("closes");
     assert_eq!(remote(&mut bus, id).await.0, RemoteState::Off);
     // Closed, it is neither paused when its agent goes nor turned on again when reopened.
     core.session_reopen(id).expect("reopens");
@@ -241,7 +241,7 @@ async fn closing_a_session_turns_it_off_and_other_agents_have_none() {
         [RemoteState::Starting, RemoteState::On, RemoteState::Off]
     );
     // A closed session is not started for it.
-    core.session_close(id).expect("closes");
+    core.session_close(id, false).expect("closes");
     assert!(matches!(
         core.session_remote_control(id, true, Auth::Subscription),
         Err(Error::SessionClosed(_))

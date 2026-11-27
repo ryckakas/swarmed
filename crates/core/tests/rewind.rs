@@ -440,7 +440,7 @@ async fn files_without_a_checkpoint_are_refused_and_a_chat_has_none() {
         .await
         .expect("the conversation alone");
 
-    core.session_close(id).expect("closes");
+    core.session_close(id, false).expect("closes");
     assert!(matches!(
         core.session_rewind(id, 0, false).await,
         Err(Error::SessionClosed(_))

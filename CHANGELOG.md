@@ -17,6 +17,34 @@ notice adds its line under Unreleased.
 
 ### Added
 
+- **See everyone who works for a session, all the way down.** The session's header counts every
+  session that works for it, however far down and in whichever task, on one line by how they
+  are doing ("9 working for it: 1 needs you, 2 working, 6 idle · 2 closed"). Press it to unfold
+  their tree: nested as they work for one another, each with how it is doing and, in another
+  task, that task's name and pull request badge. Press a line to open the session, or the badge
+  to open the pull request. The closed ones are folded below, each with Reopen, so a finished
+  chain stays readable.
+- **Close a session with every session that works for it.** When others work for the session you
+  close, however far down and in whichever task, the close dialog lists them with how each is
+  doing and offers to close them too, unticked unless you tick it. Putting a task away asks the
+  same about sessions of other tasks that work for its sessions; their tasks stay as they are.
+  If another Swarmed runs any of them, nothing is closed. From the command line,
+  `swarmed session close <id> --with-workers` and `swarmed task done <project> <task>
+  --close-workers`.
+- **How many sessions may work for one is yours to set.** Settings → Sessions → Workers per
+  session (`max_workers`) sets how many open sessions may work for one session before its agent
+  starts no more, from 1 to 20; it was a fixed six, which stays the default. When an agent is
+  refused one more, it is told the setting's name, so it can tell you what to change. Agents
+  cannot change it themselves.
+- **Agents choose the model and effort of the sessions they start.** `spawn_session` and
+  `start_task` take a `model` and an `effort`: a model the agent offers and an effort it has,
+  or the agent is told the list to choose from. The session starts on them from its first turn,
+  however quick its setup, and the starting agent and `list_sessions` say what each session
+  runs on. Left out, a session runs on its role's defaults, else on its starter's, as before.
+- **Each role can have a model and effort of its own.** Settings → Sessions → Role defaults
+  (`role_defaults`) starts every new session with a role on them, such as a reviewer on Fable
+  at medium effort, whoever starts it: you or an agent. A model or effort chosen for the
+  session wins. Agents cannot change these.
 - **Code blocks and tool calls can be copied with one press.** Pointing at a code block in an
   agent's reply, a plan, a sub-agent's conversation or an issue shows a copy button in its top
   right corner, which the keyboard reaches with Tab too. It copies the code as written: no
@@ -26,6 +54,10 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
+- **`swarmed session set` reaches an agent the app runs.** A model, effort or supervision set
+  from the command line for a session whose agent runs in the app is passed on to that agent
+  within a second, as a change in the session's header would be, and the command says whether it
+  was passed on or is taken when the agent next starts.
 - **Tables in replies no longer break short words in the middle.** A column of a table in an
   agent's reply, a plan or an issue is at least as wide as its longest word, so a heading such
   as `Task` or a name in code such as `own-links` breaks only at a space or a hyphen. A table

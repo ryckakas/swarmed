@@ -2688,7 +2688,7 @@ async fn pinned_rows_stay_above_their_siblings_and_move_among_themselves() {
     told(&mut bus, "session");
     core.session_pin(second, true).expect("pins");
     assert_eq!(ids(&core), [third, second, first]);
-    core.session_close(third).expect("closes");
+    core.session_close(third, false).expect("closes");
     assert!(matches!(
         core.session_pin(third, false),
         Err(Error::SessionClosed(id)) if id == third
@@ -2744,7 +2744,7 @@ async fn a_task_put_away_is_not_among_the_tasks_a_move_passes() {
     let fx = fixture();
     let core = core_with_project(&fx).await;
     two_repositories_and_three_tasks(&fx, &core).await;
-    core.task_done("demo", "two", &hooks::discard)
+    core.task_done("demo", "two", false, &hooks::discard)
         .await
         .expect("puts away");
     let open = |core: &Core| -> Vec<String> {
@@ -2844,7 +2844,7 @@ async fn repositories_tasks_and_sessions_keep_the_order_they_are_put_in() {
             .id
     };
     let (first, second, third) = (new(), new(), new());
-    core.session_close(second).expect("closes");
+    core.session_close(second, false).expect("closes");
     let ids = |core: &Core| -> Vec<i64> {
         let sessions = core.sessions("demo", "one").expect("lists");
         sessions.iter().map(|session| session.id).collect()

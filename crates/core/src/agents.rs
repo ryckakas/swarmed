@@ -272,6 +272,18 @@ impl Agents {
         self.0.get(id)?.info.default_model.clone()
     }
 
+    /// The models agent `id` offers, as its menu lists them: none for an agent there is not.
+    pub(crate) fn models(&self, id: &str) -> &[String] {
+        self.0.get(id).map_or(&[], |agent| &agent.info.models)
+    }
+
+    /// Every model some agent offers, each once, in the order the agents list them.
+    pub(crate) fn every_model(&self) -> Vec<String> {
+        let mut seen = std::collections::HashSet::new();
+        let models = self.infos().into_iter().flat_map(|info| info.models);
+        models.filter(|model| seen.insert(model.clone())).collect()
+    }
+
     pub(crate) fn backend(&self, id: &str) -> Result<Arc<dyn AgentBackend>> {
         Ok(Arc::clone(&self.agent(id)?.backend))
     }

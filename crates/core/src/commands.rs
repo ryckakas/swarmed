@@ -380,14 +380,7 @@ fn questions(setting: Setting, models: &[String]) -> Vec<Asked> {
             vec![asked(MODEL_QUESTION, "Model", options)]
         }
         Setting::Effort => {
-            let levels = [
-                Effort::Low,
-                Effort::Medium,
-                Effort::High,
-                Effort::Xhigh,
-                Effort::Max,
-            ];
-            let named = levels.into_iter().map(|level| option(level.as_str(), ""));
+            let named = Effort::ALL.map(|level| option(level.as_str(), ""));
             let own = option(DEFAULT, "The model's own choice.");
             let options = std::iter::once(own).chain(named).collect();
             vec![asked(EFFORT_QUESTION, "Effort", options)]

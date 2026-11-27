@@ -146,7 +146,7 @@ async fn a_fork_has_copies_of_its_own_and_the_first_session_takes_its_images_alo
     assert!(!fx.paths.attachments(words.id).exists());
 
     // Closed, a session keeps its images; deleted, they go, and the fork's stay.
-    core.session_close(source.id).expect("closes");
+    core.session_close(source.id, false).expect("closes");
     assert!(first[0].exists());
     core.session_delete(source.id).expect("deletes");
     assert!(!fx.paths.attachments(source.id).exists());

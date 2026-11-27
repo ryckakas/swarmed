@@ -7,10 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::{core_with_project, fixture, next, turn};
-use swarmed_core::agent::{AgentEvent, Auth, BackgroundState, FakeBackend};
+use swarmed_core::agent::{AgentEvent, Auth, BackgroundState, Effort, FakeBackend};
 use swarmed_core::{
     Action, Attached, BackgroundCount, Core, Error, NewTaskOptions, RemoveOptions, Session,
-    SessionEvent, SessionOptions, SessionStatus, hooks,
+    SessionEvent, SessionOptions, SessionSettings, SessionStatus, SettingsReach, follow_others,
+    hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -336,7 +337,7 @@ async fn a_session_run_elsewhere_is_not_started_here_and_its_queue_waits_for_tha
     );
     // Nor is it put away or deleted here, nor its task or repository removed, even by force:
     // that agent would work on where no list shows it, or in a worktree that is gone.
-    let closed = here.session_close(session.id);
+    let closed = here.session_close(session.id, false);
     assert!(matches!(closed, Err(Error::RunsElsewhere(_))), "{closed:?}");
     let deleted = here.session_delete(session.id);
     assert!(
@@ -544,4 +545,112 @@ async fn the_app_left_over_settles_what_the_first_left_busy_and_not_what_it_runs
     noticed(&second, &mut bus, tree_changed).await;
     assert_eq!(status(theirs.id), SessionStatus::Idle);
     assert_eq!(status(own.id), SessionStatus::Working);
+}
+
+/// What session `id`'s agent says it runs on, asked of `core` between turns.
+async fn runs_on(core: &Core, id: i64) -> String {
+    let mut bus = core.subscribe();
+    core.session_message(id, "settings", &Attached::default(), Auth::Subscription)
+        .expect("sends");
+    let events = turn(&mut bus, id).await;
+    let said = events.iter().find_map(|event| match event {
+        AgentEvent::Text { text } => Some(text.clone()),
+        _ => None,
+    });
+    said.expect("it answers")
+}
+
+#[tokio::test]
+async fn a_model_and_effort_set_elsewhere_reach_the_agent_that_runs_here() {
+    let fx = fixture();
+    let (here, there) = two_cores(&fx).await;
+    let here = Arc::new(here);
+    // The app follows what others write, and says so in the locks of the agents it runs from
+    // when it asks to, before the looks have begun.
+    drop(tokio::spawn(follow_others(Arc::clone(&here))));
+    here.notice_others().expect("takes stock");
+    let session = new_session(&here);
+    let answer = runs_on(&here, session.id).await;
+    assert!(
+        answer.starts_with("model default, effort default"),
+        "{answer}"
+    );
+
+    // `swarmed session set` with a model: it only stores it, and says the app passes it on.
+    let model = SessionSettings {
+        model: Some("fable".to_string()),
+        supervision: session.supervision,
+        effort: None,
+        fast: false,
+    };
+    there.session_configure(session.id, &model).expect("stores");
+    assert_eq!(
+        there.session_settings_reach(session.id).expect("says"),
+        SettingsReach::PassedOn
+    );
+    // At the next look the agent is told, from its next turn, and goes on as it was.
+    here.notice_others().expect("looks");
+    assert_eq!(here.running_sessions(), [session.id]);
+    let answer = runs_on(&here, session.id).await;
+    assert!(
+        answer.starts_with("model fable, effort default"),
+        "{answer}"
+    );
+    assert_eq!(
+        here.session_settings_reach(session.id).expect("says"),
+        SettingsReach::Told
+    );
+
+    // An effort it takes only when it starts: idle, it is stopped, to start on it next time.
+    let effort = SessionSettings {
+        effort: Some(Effort::High),
+        ..model
+    };
+    there
+        .session_configure(session.id, &effort)
+        .expect("stores");
+    here.notice_others().expect("looks");
+    assert_eq!(here.running_sessions(), Vec::<i64>::new());
+    let answer = runs_on(&here, session.id).await;
+    assert!(answer.starts_with("model fable, effort high"), "{answer}");
+
+    // A look with nothing new tells it nothing again, nor starts it again.
+    here.notice_others().expect("looks");
+    assert_eq!(here.running_sessions(), [session.id]);
+}
+
+#[tokio::test]
+async fn a_change_no_swarmed_passes_on_is_taken_when_the_agent_next_starts() {
+    let fx = fixture();
+    let (here, there) = two_cores(&fx).await;
+    let settings = |session: &Session| SessionSettings {
+        model: Some("haiku".to_string()),
+        supervision: session.supervision,
+        effort: Some(Effort::Low),
+        fast: false,
+    };
+
+    // Not running anywhere.
+    let idle = new_session(&here);
+    here.session_configure(idle.id, &settings(&idle))
+        .expect("stores");
+    assert_eq!(
+        here.session_settings_reach(idle.id).expect("says"),
+        SettingsReach::NextStart
+    );
+
+    // Running in a Swarmed that does not follow what others write, as a command does.
+    let theirs = new_session(&here);
+    let answer = runs_on(&there, theirs.id).await;
+    assert!(answer.starts_with("model default"), "{answer}");
+    here.session_configure(theirs.id, &settings(&theirs))
+        .expect("stores");
+    assert_eq!(
+        here.session_settings_reach(theirs.id).expect("says"),
+        SettingsReach::NextStart
+    );
+    // That one's next start takes it.
+    there.session_stop(theirs.id);
+    let answer = runs_on(&there, theirs.id).await;
+    assert!(answer.starts_with("model haiku, effort low"), "{answer}");
 }
