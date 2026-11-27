@@ -1064,8 +1064,8 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   role starts sessions (see roles below). While `MAX_SPAWNED` open sessions work for a
   session, however each came to, its agent starts no more, with `spawn_session` or
   `start_task` (`room_for_another`); the user can still have more work for it. The tools are
-  not on the allow list: in ask mode the user is asked, unless the session has a role (see
-  roles below). A session can close only sessions
+  not on the allow list: in ask mode the user is asked, unless it is a Claude Code session with
+  a role (see roles below). A session can close only sessions
   that work for it and that an agent started (`peer_close`): spawned ones, and those its own
   agent started in another way, which `started_by` keeps (written by `start_task` and an
   agent's shell too, never changed by the user's moves, filled for older sessions from their
@@ -1128,11 +1128,13 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
     wins. A session a role-holder starts begins from that kept supervision
     (`supervision_without_role`), so an implementer is never held in its planner's plan mode.
     A same-agent fork copies it; a clone onto another agent starts anew under the role.
-  - **Its session tools are not put to the user, but for a start in plan mode**
-    (`roles::uses_unasked`, pure, and `allowed_unasked` in `sessions.rs`): starting, reading,
-    telling and closing sessions is a role's work, so a permission request for one of Swarmed's
-    session tools (`SESSION_TOOLS`) from a session with a role is allowed at once and never
-    stored. Allow rules cannot do it: Claude Code 2.1.332 holds every MCP tool that is not
+  - **With Claude Code, its session tools are not put to the user, but for a start in plan
+    mode** (`roles::uses_unasked`, pure, and `allowed_unasked` in `sessions.rs`): starting,
+    reading, telling and closing sessions is a role's work, so a permission request for one of
+    Swarmed's session tools (`SESSION_TOOLS`) from a session with a role is allowed at once and
+    never stored. Only for a session on Claude Code that was handed Swarmed's server: the names
+    are Claude Code's, and an ACP agent's request is named by the free words it titles its call
+    with, so every other agent asks as it did, and the guidance (`KEPT_FROM_CHANGES`) says so. Allow rules cannot do it: Claude Code 2.1.332 holds every MCP tool that is not
     read-only at a question in plan mode before it reads them (`planModeWriteFloor`), and runs
     it once the permission prompt allows it. The two that start a session (`STARTING_TOOLS`:
     `spawn_session`, `start_task`) are put to the user while the session is in `Plan`: what

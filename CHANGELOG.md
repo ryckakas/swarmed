@@ -48,13 +48,13 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
-- **Sessions with a role no longer ask you before each session tool.** Listing, reading and
-  messaging other sessions and closing them go through without a question, in plan mode too, so
-  a reviewer can report its findings. Starting sessions and tasks does as well once the session
+- **Claude Code sessions with a role no longer ask you before each session tool.** Listing,
+  reading and messaging other sessions and closing them go through without a question, in plan
+  mode too, so a reviewer can report its findings. Starting sessions and tasks does as well once the session
   is out of plan mode, so a planner whose plan you approved starts its implementers unasked; in
   plan mode you are still asked about each start, since what is started changes files. Allow
   rules of your own could not do this: in plan mode Claude Code asks before every MCP tool that
-  is not read-only, whatever they say.
+  is not read-only, whatever they say. Other agents ask as their own settings say.
 - **Agents close the sessions they start with `start_task`.** An architect or a planner that
   hands work to an implementer in a task of its own can close that session with
   `close_session` once it has reported back, as it can a session it spawned beside itself, and
