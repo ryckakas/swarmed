@@ -252,7 +252,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::environment_save, commands::environment_remove, commands::environment_default,
         commands::environment_set_default, commands::snapshots,
         commands::snapshot_save, commands::snapshot_remove, commands::task_remove,
-        commands::task_done, commands::task_undone,
+        commands::task_done, commands::task_descendants_elsewhere, commands::task_undone,
         commands::task_open_editor, commands::task_open_terminal, commands::task_files, commands::task_open_file, commands::task_open_url, commands::open_link,
         commands::task_unpublished, commands::task_commit, commands::task_commit_message, commands::task_pull_message,
         commands::task_push, commands::task_switch, commands::task_pull_draft, commands::task_pull_create,
@@ -282,7 +282,7 @@ fn with_core<R: Runtime>(builder: Builder<R>, core: Arc<Core>) -> Builder<R> {
         commands::terminal_write, commands::terminal_resize, commands::claude_terminal_open,
         commands::claude_terminal_write, commands::claude_terminal_resize,
         commands::claude_terminal_close,
-        commands::status_line, commands::account_usage, commands::session_usage_refresh, commands::session_rename, commands::session_set_parent, commands::roles, commands::session_set_role, commands::session_close, commands::session_delete,
+        commands::status_line, commands::account_usage, commands::session_usage_refresh, commands::session_rename, commands::session_set_parent, commands::roles, commands::session_set_role, commands::session_close, commands::session_descendants, commands::session_delete,
         commands::session_remote_control, commands::session_continue_at_reset,
         commands::session_continue_cancel,
         commands::sessions_search, commands::sessions_closed, commands::session_reopen,
@@ -323,7 +323,9 @@ fn main() {
     let leaving = Arc::clone(&core);
     let noticing = Arc::clone(&core);
     let resuming = Arc::clone(&core);
-    let following = Arc::clone(&core);
+    // Said in the locks of the agents it starts from here on, before anything is spawned that
+    // could start one, as `arrive` says it shows notices.
+    let following = follow_others(Arc::clone(&core));
     let resetting = Arc::downgrade(&core);
     let pulling = Arc::downgrade(&core);
     let tidying = Arc::downgrade(&core);
@@ -349,7 +351,7 @@ fn main() {
             drop(tauri::async_runtime::spawn(serve_session_tools(listening)));
             // What the command line or another Swarmed on the same data writes reaches the
             // window as if this core had written it, and is noticed within a second.
-            drop(tauri::async_runtime::spawn(follow_others(following)));
+            drop(tauri::async_runtime::spawn(following));
             // Sessions a usage limit stopped go on by themselves when it resets, where the user
             // asked for that. Only the first Swarmed on the data sends them.
             drop(tauri::async_runtime::spawn(follow_resets(resetting)));

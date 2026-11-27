@@ -22,6 +22,7 @@ import type {
     CloudTask,
     ConsoleLine,
     Costs,
+    Descendant,
     Environment,
     FileChange,
     FileDiff,
@@ -128,7 +129,10 @@ export const tauriApi: Api = {
     taskRemove: (project, name, force) =>
         // Its branch goes too, unless commits on it exist nowhere else: the core keeps it then.
         invoke("task_remove", { project, name, force, deleteBranch: true }),
-    taskDone: (project, name) => invoke<string[]>("task_done", { project, name }),
+    taskDone: (project, name, closeWorkers) =>
+        invoke<string[]>("task_done", { project, name, closeWorkers }),
+    taskDescendantsElsewhere: (project, name) =>
+        invoke<Descendant[]>("task_descendants_elsewhere", { project, name }),
     taskUndone: (project, name) => invoke<void>("task_undone", { project, name }),
     branchChoices: (project) => invoke<BranchChoices>("branch_choices", { project }),
     taskNameFor: (project, prompt) =>
@@ -353,7 +357,8 @@ export const tauriApi: Api = {
     roles: () => invoke<RoleInfo[]>("roles"),
     sessionSetRole: (id, role) => invoke<Session>("session_set_role", { id, role }),
     sessionMark: (id, colour, label) => invoke<Session>("session_mark", { id, colour, label }),
-    sessionClose: (id) => invoke("session_close", { id }),
+    sessionClose: (id, withWorkers) => invoke<number[]>("session_close", { id, withWorkers }),
+    sessionDescendants: (id, closed) => invoke<Descendant[]>("session_descendants", { id, closed }),
     sessionDelete: (id) => invoke("session_delete", { id }),
     sessionsSearch: (query) => invoke<SearchHit[]>("sessions_search", { query }),
     sessionsClosed: (project, task) => invoke<Session[]>("sessions_closed", { project, task }),

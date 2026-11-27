@@ -89,6 +89,9 @@ pub enum Effort {
 }
 
 impl Effort {
+    /// Every effort, the least first: what a list of them offers.
+    pub const ALL: [Self; 5] = [Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max];
+
     /// The value stored in the database and passed to the agent.
     #[must_use]
     pub fn as_str(self) -> &'static str {
@@ -104,9 +107,7 @@ impl Effort {
     /// The inverse of [`Effort::as_str`].
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
-        [Self::Low, Self::Medium, Self::High, Self::Xhigh, Self::Max]
-            .into_iter()
-            .find(|effort| effort.as_str() == s)
+        Self::ALL.into_iter().find(|effort| effort.as_str() == s)
     }
 }
 
@@ -1086,5 +1087,32 @@ pub trait AgentBackend: fmt::Debug + Send + Sync {
     /// has a screen only there; `None` for an agent Swarmed opens no screen of.
     fn interactive(&self) -> Option<PathBuf> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_effort_is_listed_once_in_its_order() {
+        // Matched without a catch-all, so that a new effort does not compile here until it is
+        // given its place after another; the walk from the least then finds it, and `ALL` has
+        // to list it there for this to pass.
+        let next = |effort: Effort| match effort {
+            Effort::Low => Some(Effort::Medium),
+            Effort::Medium => Some(Effort::High),
+            Effort::High => Some(Effort::Xhigh),
+            Effort::Xhigh => Some(Effort::Max),
+            Effort::Max => None,
+        };
+        let mut walked = vec![Effort::Low];
+        while let Some(effort) = walked.last().copied().and_then(next) {
+            walked.push(effort);
+        }
+        assert_eq!(walked, Effort::ALL);
+        for effort in Effort::ALL {
+            assert_eq!(Effort::parse(effort.as_str()), Some(effort));
+        }
     }
 }

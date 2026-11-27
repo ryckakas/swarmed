@@ -58,6 +58,17 @@ export interface Session {
     highlight: MarkColour | null;
 }
 
+/**
+ * A session that works for another, directly or through others, as the core lists those under
+ * one (`Descendant`).
+ */
+export interface Descendant {
+    session: Session;
+    /** How far below: 1 for one that works for it, 2 for one that works for such a one. */
+    depth: number;
+    closed: boolean;
+}
+
 /** How many things a session's agent has running in the background now, by kind. */
 export interface BackgroundCount {
     /** Sub-agents at work. */
@@ -710,6 +721,17 @@ export interface Settings {
     text_scale: number;
     /** How much a new session's agent may do without asking, unless chosen otherwise. */
     default_supervision: Supervision;
+    /**
+     * How many open sessions may work for one session before its agent starts no more, from 1
+     * to 20 (`WORKER_LIMITS`). Six unless changed. Agents cannot change it.
+     */
+    max_workers: number;
+    /**
+     * The model and effort the sessions of a role start on where nothing else was chosen, by
+     * the role's name: whoever starts them, the user or an agent. Left out while there are
+     * none. Agents cannot change it.
+     */
+    role_defaults?: Record<string, RoleDefault>;
     /** Whether agents may answer with small HTML views, and those are shown. */
     html_views: boolean;
     /** How the agents' tool calls show in a conversation. */
@@ -1569,6 +1591,17 @@ export interface SessionSetup {
     fast?: boolean;
     /** The name of the session's role; left out or `null` for none. */
     role?: string | null;
+}
+
+/**
+ * A role's own model and effort (`RoleDefault`); either left out is the agent's own, or that of
+ * the agent that starts the session. A model the session's agent does not offer is passed over.
+ */
+export interface RoleDefault {
+    /** A model by the name its agent offers it under, such as `fable`. */
+    model?: string | null;
+    /** How hard the model thinks. */
+    effort?: Effort | null;
 }
 
 /** A role a session can have, as the core keeps it (`roles.rs`). */

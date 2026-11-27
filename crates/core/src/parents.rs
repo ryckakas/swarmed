@@ -8,13 +8,22 @@
 //! recorded as [`AgentEvent::ParentChanged`] in the sessions it concerns, and their agents are
 //! told who works with them now along with their next message, so that one given a new parent,
 //! or one that lost a session working for it, does not carry on as before.
+//!
+//! Closing a session leaves the ones that work for it open, unless the user asks to close them
+//! too (#470): [`Core::session_descendants`] lists every session under one, at every depth and
+//! in any task, and closing takes them along, the deepest first, or none of them at all.
+
+use std::collections::HashSet;
+
+use rusqlite::params;
+use serde::Serialize;
 
 use crate::Core;
 use crate::agent::AgentEvent;
 use crate::error::{Error, Result};
 use crate::peers::Starting;
 use crate::sessions::Session;
-use crate::store::Store;
+use crate::store::{Store, Task};
 
 /// How far up a chain of parents is followed at most. No cycle can be made, but one written by
 /// hand into the database must not keep a check from ending: a chain this long is taken for one.
@@ -30,6 +39,28 @@ pub(crate) struct Relations {
     pub(crate) parent: Option<(Session, bool)>,
     /// The open sessions that work for it, oldest first.
     pub(crate) children: Vec<Session>,
+}
+
+/// A session that works for another, directly or through others, as
+/// [`Core::session_descendants`] lists it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Descendant {
+    /// The session.
+    pub session: Session,
+    /// How far below the one it was listed for: 1 for a session that works for that one, 2 for
+    /// one that works for such a session, and so on.
+    pub depth: usize,
+    /// Whether it is closed.
+    pub closed: bool,
+}
+
+/// The open ones of `descendants` in the order they are closed: the deepest first, so that
+/// none is closed before the sessions that work for it.
+pub(crate) fn deepest_first(descendants: &[Descendant]) -> Vec<i64> {
+    let mut open: Vec<&Descendant> = descendants.iter().filter(|one| !one.closed).collect();
+    // Stable: the same depth keeps the order it was listed in.
+    open.sort_by_key(|one| std::cmp::Reverse(one.depth));
+    open.into_iter().map(|one| one.session.id).collect()
 }
 
 /// A session as an agent is told of it: its number, its title in quotes, and its role if it
@@ -177,7 +208,73 @@ pub fn nested_sessions(sessions: &[Session]) -> Vec<(&Session, usize)> {
     listed
 }
 
+/// A session that works for another, as one step of the walk down: whether it is closed, and
+/// whether its task was removed, which took it out of every list for good.
+struct Worker {
+    id: i64,
+    closed: bool,
+    gone: bool,
+}
+
 impl Store {
+    /// The sessions that work for session `parent`, closed ones and those of removed tasks too,
+    /// the oldest first.
+    fn session_workers(&self, parent: i64) -> Result<Vec<Worker>> {
+        let sql = "SELECT s.id, s.closed_at IS NOT NULL, t.archived_at IS NOT NULL \
+                   FROM sessions s JOIN tasks t ON t.id = s.task_id \
+                   WHERE s.spawned_by = ?1 AND s.id <> ?1 ORDER BY s.id";
+        let mut statement = self.conn.prepare(sql)?;
+        let rows = statement.query_map(params![parent], |row| {
+            Ok(Worker {
+                id: row.get(0)?,
+                closed: row.get(1)?,
+                gone: row.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Every session under session `id`, closed ones too, as [`Core::session_descendants`] lists
+    /// them. The walk goes on below a closed session, and below one of a removed task, which is
+    /// not listed itself. A cycle written by hand into the database ends where it comes round.
+    pub(crate) fn session_descendants(&self, id: i64) -> Result<Vec<Descendant>> {
+        let mut listed = Vec::new();
+        let mut seen = HashSet::from([id]);
+        // Depth first, each one's workers right after it.
+        let mut stack = self.workers_to_walk(id, 0, &mut seen)?;
+        while let Some((worker, depth)) = stack.pop() {
+            listed.extend(self.descendant(&worker, depth)?);
+            stack.extend(self.workers_to_walk(worker.id, depth, &mut seen)?);
+        }
+        Ok(listed)
+    }
+
+    /// The workers of session `parent` not `seen` yet, each with its depth below one `depth`
+    /// down, and noted as seen. The newest first: a stack is taken from its end, so the oldest
+    /// is walked first.
+    fn workers_to_walk(
+        &self,
+        parent: i64,
+        depth: usize,
+        seen: &mut HashSet<i64>,
+    ) -> Result<Vec<(Worker, usize)>> {
+        let workers = self.session_workers(parent)?.into_iter().rev();
+        let new = workers.filter(|one| seen.insert(one.id));
+        Ok(new.map(|one| (one, depth + 1)).collect())
+    }
+
+    /// `worker` as it is listed, `depth` down; `None` for one of a removed task.
+    fn descendant(&self, worker: &Worker, depth: usize) -> Result<Option<Descendant>> {
+        if worker.gone {
+            return Ok(None);
+        }
+        Ok(Some(Descendant {
+            session: self.session_by_id(worker.id)?,
+            depth,
+            closed: worker.closed,
+        }))
+    }
+
     /// Who works with session `id`: the session it works for, and the open ones that work for
     /// it. A parent that was deleted is none.
     pub(crate) fn relations(&self, id: i64) -> Result<Relations> {
@@ -196,6 +293,44 @@ impl Store {
 }
 
 impl Core {
+    /// The sessions that work for session `id`, however far down and in whichever task: each
+    /// right after the one it works for, the oldest first among those that work for one. Those
+    /// under a closed session are still under `id` and are listed; the closed ones themselves
+    /// only with `closed`. None of a removed task is listed.
+    pub fn session_descendants(&self, id: i64, closed: bool) -> Result<Vec<Descendant>> {
+        self.session(id)?;
+        let all = self.store().session_descendants(id)?;
+        Ok(all
+            .into_iter()
+            .filter(|one| closed || !one.closed)
+            .collect())
+    }
+
+    /// The open sessions of other tasks that work for a session of task `name`, its closed ones
+    /// included, however far down: those that putting it away closes when asked to
+    /// ([`Core::task_done`]). Each is listed once, under the first of the task's sessions it is
+    /// found under, in the order of [`Core::session_descendants`].
+    pub fn task_descendants_elsewhere(&self, project: &str, name: &str) -> Result<Vec<Descendant>> {
+        let (_, task) = self.task(project, name)?;
+        self.descendants_elsewhere(&task)
+    }
+
+    /// The open sessions of other tasks that work for one of `task`'s, as
+    /// [`Core::task_descendants_elsewhere`] lists them.
+    pub(crate) fn descendants_elsewhere(&self, task: &Task) -> Result<Vec<Descendant>> {
+        let store = self.store();
+        let mut under = Vec::new();
+        for id in store.session_ids(task.id)? {
+            under.extend(store.session_descendants(id)?);
+        }
+        let mut seen = HashSet::new();
+        let elsewhere = |one: &Descendant| one.session.task_id != task.id && !one.closed;
+        Ok(under
+            .into_iter()
+            .filter(|one| elsewhere(one) && seen.insert(one.session.id))
+            .collect())
+    }
+
     /// Has session `id` work for session `parent`, or with `None` for nobody, as the user
     /// chooses: its agent reports to that one, and the sidebar lists it under it. Refused for a
     /// closed session, and for a parent that is not another open session of the same
