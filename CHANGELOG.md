@@ -67,6 +67,9 @@ notice adds its line under Unreleased.
   its closed sessions and reopen one; it stays unfolded until its last open session goes
   again. A task being set up is left as it is. An unfolded task with only closed sessions no
   longer says "No sessions" above them.
+- **A task's pull request and issue badges stay put under the pointer.** They now come after the
+  task's note and the buttons that only show while the row is pointed at, right before its +, so
+  they no longer slide away as you move to press them.
 
 ### Fixed
 

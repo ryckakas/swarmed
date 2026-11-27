@@ -334,9 +334,9 @@ function DoneTaskGroup({ project, task }: { project: string; task: Task }) {
         <div className="task task-done">
             <div className="row-head" data-highlight={task.highlight ?? undefined}>
                 <TaskHeading task={task} folded={folded} chat={false} />
+                <NoteButton project={project} task={task.name} has={task.has_note} />
                 <IssueBadge project={project} task={task} />
                 <PullBadge project={project} task={task} />
-                <NoteButton project={project} task={task.name} has={task.has_note} />
                 <BringBackRow project={project} task={task.name} />
                 <RemoveButton project={project} task={task.name} />
             </div>
@@ -381,10 +381,11 @@ function TaskGroup({ project, task, chat }: { project: string; task: Task; chat?
                 <HighlightButton target={target} colour={task.highlight} name={task.name} />
                 <PinButton target={target} pinned={task.pinned} name={task.name} />
                 <BrowserBadge task={task} />
-                {!chat && <IssueBadge project={project} task={task} />}
-                {!chat && <PullBadge project={project} task={task} />}
                 {!chat && <CloudButton project={project} task={task.name} />}
                 <NoteButton project={project} task={task.name} has={task.has_note} />
+                {/* After the buttons that only show under the pointer, so they stay put for it. */}
+                {!chat && <IssueBadge project={project} task={task} />}
+                {!chat && <PullBadge project={project} task={task} />}
                 <button
                     type="button"
                     className="row-add"
