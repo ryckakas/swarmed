@@ -1060,8 +1060,12 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   role starts sessions (see roles below). While `MAX_SPAWNED` open sessions work for a
   session, however each came to, its agent starts no more, with `spawn_session` or
   `start_task` (`room_for_another`); the user can still have more work for it. The tools are
-  not on the allow list: in ask mode the user is asked. A session can close only spawned
-  sessions that work for it, and only idle ones (`peer_close`).
+  not on the allow list: in ask mode the user is asked. A session can close only sessions
+  that work for it and that an agent started (`peer_close`): spawned ones, and those its own
+  agent started in another way, which `started_by` keeps (written by `start_task` and an
+  agent's shell too, never changed by the user's moves, filled for older sessions from their
+  first message). Only idle ones, and none whose task is still set up or whose first prompt
+  still waits for that, which closing would drop. Closing one leaves its task as it is.
 - **Who works for whom is a tree of parents** (`parents.rs`, #459). `Session::parent`, kept
   in the `spawned_by` column, is whom a session works for: set by `spawn_session`,
   `start_task` and `swarmed session run` (`--parent`, or `SWARMED_SESSION`, which agents of a

@@ -61,8 +61,9 @@ collide with what you are editing. It works for you, and is told to report back 
 needs a branch of its own: a separate change, a fix to another pull request, the next pull \
 request of a stack. Its session gets your prompt once the task is set up, works for you, and \
 reports back to you like a spawned one.
-- `close_session`: put away a session you spawned, once it is done and you have what you need \
-from it. You cannot close any other session.
+- `close_session`: put away a session you started with `spawn_session` or `start_task`, once it \
+is done and you have what you need from it; a task stays as it is. You cannot close any other \
+session.
 - `delegate_to_cloud`: hand a self-contained piece of work to an agent in the cloud, when the \
 user wants something delegated or run there. It works on what is pushed to GitHub, not on \
 your worktree, and does not report back to you.
@@ -618,7 +619,8 @@ impl Core {
         if open >= MAX_SPAWNED {
             return Err(refused(format!(
                 "this session already has {open} open sessions working for it, which is the \
-                 most allowed; wait for them, or ask the user to close some"
+                 most allowed; close those you started that are done, with close_session, or \
+                 ask the user to close some"
             )));
         }
         Ok(())
@@ -668,24 +670,47 @@ impl Core {
         Ok(before.unwrap_or(session.supervision))
     }
 
-    /// Closes session `id` on behalf of session `from`: one an agent started beside itself
-    /// ([`Session::spawned`]) that works for `from`, and only once it is idle. Who started it
-    /// is not kept apart from whom it works for, so one the user moved to work for `from` is
-    /// `from`'s to close too. A session the user started, even one the user has work for
-    /// `from`, or one that works for another, is not an agent's to put away; and closing one
-    /// in the middle of a turn would throw its work away.
+    /// Closes session `id` on behalf of session `from`: one that works for `from` and that an
+    /// agent started, and only once it is idle. That is one an agent started beside itself
+    /// ([`Session::spawned`]), whichever agent did, so one the user moved to work for `from` is
+    /// `from`'s to close too; or one `from`'s own agent started otherwise, with `start_task`
+    /// or from its shell (`started_by`). A session the user started, even one the user has
+    /// work for `from`, or one that works for another, is not an agent's to put away. Closing
+    /// one in the middle of a turn would throw its work away, and closing one whose task is
+    /// still set up, or whose first prompt still waits for that, would drop the prompt.
+    ///
+    /// Only the session is closed: its task, worktree, branch and pull request stay.
     pub fn peer_close(&self, from: i64, id: i64) -> Result<()> {
         self.session(from)?;
+        // Whether the setup runs is asked before the session is read: a setup hands the first
+        // prompt on before it ends, so one seen as over means the row read after it already
+        // shows the turn, or the prompt still waiting. Read the other way round, a setup that
+        // ended in between would pass a row from before the prompt went.
+        let setting_up = self.setup_runs(&self.task_of(&self.session(id)?)?);
         let session = self.session(id)?;
-        if session.parent != Some(from) || !session.spawned {
+        let started = session.spawned || self.store().session_started_by(id)? == Some(from);
+        if session.parent != Some(from) || !started {
             return Err(refused(
-                "a session can only close sessions an agent started that work for it; this one \
-                 is not yours",
+                "a session can only close the sessions it started, with spawn_session or \
+                 start_task, that work for it; this one is not yours",
             ));
         }
         if is_busy(&session) {
             return Err(refused(
                 "that session is still at work; wait until it is done before closing it",
+            ));
+        }
+        if setting_up {
+            return Err(refused(
+                "that session's task is still being set up; wait until it is done before \
+                 closing it",
+            ));
+        }
+        if session.waits_for_setup {
+            return Err(refused(
+                "that session's first prompt still waits for its task's setup, which did not \
+                 finish well, and closing it would drop that prompt; ask the user to set the \
+                 task up again or send the prompt anyway",
             ));
         }
         self.session_close(id)

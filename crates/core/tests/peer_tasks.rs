@@ -7,11 +7,11 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 
-use common::{core_with_project, fixture, git, turn};
+use common::{core_with_project, fixture, git, turn, write_config};
 use swarmed_core::agent::{AgentEvent, Auth, Supervision};
 use swarmed_core::{
-    CHATS, Core, Error, MAX_SPAWNED, NewTaskOptions, PeerTask, Session, SessionOptions, hooks,
-    serve_session_tools,
+    CHATS, Core, Error, MAX_SPAWNED, NewTaskOptions, PeerTask, Session, SessionOptions,
+    SessionStatus, SetupStatus, hooks, serve_session_tools,
 };
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -438,4 +438,236 @@ async fn a_task_s_session_has_the_role_its_starter_may_start() {
         matches!(&refused, Err(Error::Peers(why)) if why.contains("starts no sessions")),
         "{refused:?}"
     );
+}
+
+/// Waits until `check` holds, for as long as a setup may take to get there on a slow machine.
+async fn soon(mut check: impl FnMut() -> bool) {
+    for _ in 0..400 {
+        if check() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    panic!("it never came to pass");
+}
+
+/// Whether task `name`'s setup is over, as the sidebar is told: it is neither under way nor
+/// cut short.
+fn set_up(core: &Core, name: &str) -> bool {
+    let overview = core.overview().expect("reads the tree");
+    let mut tasks = overview.into_iter().flat_map(|project| project.tasks);
+    tasks.any(|overview| overview.task.name == name && overview.setting_up.is_none())
+}
+
+/// The ids of task `name`'s closed sessions.
+fn closed_in(core: &Core, name: &str) -> Vec<i64> {
+    let closed = core.sessions_closed("demo", name).expect("lists");
+    closed.iter().map(|session| session.id).collect()
+}
+
+/// Fails unless `result` is `peer_close` refusing a session that is not the caller's.
+fn not_yours(result: &Result<(), Error>) {
+    assert!(
+        matches!(result, Err(Error::Peers(reason)) if reason.contains("not yours")),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_session_closes_one_it_started_with_start_task_and_its_task_stays() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (asking, stranger) = (new_session(&core), new_session(&core));
+    let asked = PeerTask {
+        name: "fix-review",
+        prompt: "Fix the review findings.",
+        ..PeerTask::default()
+    };
+    let started = core
+        .peer_start_task(asking.id, asked)
+        .await
+        .expect("starts");
+    let id = started.session.id;
+    turn(&mut bus, id).await;
+
+    // Not another session's to close, and the new one cannot close its starter.
+    not_yours(&core.peer_close(stranger.id, id));
+    not_yours(&core.peer_close(id, asking.id));
+    core.peer_close(asking.id, id).expect("closes it");
+    assert_eq!(closed_in(&core, "fix-review"), [id]);
+    // Only the session: the task, its worktree and its branch stay.
+    let (_, task) = core.task("demo", "fix-review").expect("still there");
+    assert!(task.worktree_path.is_dir());
+    assert_eq!(
+        commit_of(&fx.repo, &task.branch),
+        commit_of(&task.worktree_path, "HEAD")
+    );
+    assert_eq!(core.tasks("demo", false).expect("lists").len(), 2);
+}
+
+#[tokio::test]
+async fn an_architect_and_its_planner_close_only_the_sessions_each_started() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let (mut planning, mut building) = (core.subscribe(), core.subscribe());
+    let options = SessionOptions {
+        role: Some("architect".into()),
+        ..SessionOptions::default()
+    };
+    let architect = core.session_new("demo", "one", &options).expect("creates");
+    let asked = |name| PeerTask {
+        name,
+        prompt: "Do your part.",
+        ..PeerTask::default()
+    };
+    let planner = core
+        .peer_start_task(architect.id, asked("plan"))
+        .await
+        .expect("starts")
+        .session;
+    let implementer = core
+        .peer_start_task(planner.id, asked("build"))
+        .await
+        .expect("starts")
+        .session;
+    assert_eq!(planner.role.as_deref(), Some("planner"));
+    assert_eq!(implementer.role.as_deref(), Some("implementer"));
+    turn(&mut building, implementer.id).await;
+
+    // One further down is the planner's, not the architect's.
+    not_yours(&core.peer_close(architect.id, implementer.id));
+    core.peer_close(planner.id, implementer.id)
+        .expect("the planner closes its implementer");
+
+    // The planner waits for its plan to be approved: at work, until its turn is stopped.
+    let waiting = || core.session(planner.id).expect("reads").status == SessionStatus::Waiting;
+    soon(waiting).await;
+    let refused = core.peer_close(architect.id, planner.id);
+    assert!(
+        matches!(refused, Err(Error::Peers(ref reason)) if reason.contains("still at work")),
+        "{refused:?}"
+    );
+    core.session_interrupt(planner.id).expect("interrupts");
+    turn(&mut planning, planner.id).await;
+    core.peer_close(architect.id, planner.id)
+        .expect("the architect closes its planner");
+    assert_eq!(closed_in(&core, "build"), [implementer.id]);
+    assert_eq!(closed_in(&core, "plan"), [planner.id]);
+}
+
+#[tokio::test]
+async fn one_the_user_moves_away_is_no_longer_its_starter_s_to_close() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let (asking, other) = (new_session(&core), new_session(&core));
+    let asked = PeerTask {
+        name: "work",
+        prompt: "Do the work.",
+        ..PeerTask::default()
+    };
+    let id = core
+        .peer_start_task(asking.id, asked)
+        .await
+        .expect("starts")
+        .session
+        .id;
+    turn(&mut bus, id).await;
+    // Moved to work for another, it is neither that one's, which did not start it, nor its
+    // starter's, which it no longer works for.
+    core.session_set_parent(id, Some(other.id)).expect("moved");
+    not_yours(&core.peer_close(other.id, id));
+    not_yours(&core.peer_close(asking.id, id));
+    // Moved back, it is its starter's again: the user's moves never change who started it.
+    core.session_set_parent(id, Some(asking.id))
+        .expect("moved back");
+    core.peer_close(asking.id, id).expect("closes it");
+}
+
+#[tokio::test]
+async fn a_session_is_not_closed_while_its_task_is_set_up_or_its_prompt_waits_for_that() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let asking = new_session(&core);
+    let refused_for = |result: Result<(), Error>, why: &str| {
+        assert!(
+            matches!(result, Err(Error::Peers(ref reason)) if reason.contains(why)),
+            "{result:?}"
+        );
+    };
+
+    // A setup that waits for a file called `go` in the worktree.
+    write_config(
+        &fx,
+        "[hooks]\nsetup = \"while [ ! -f go ]; do sleep 0.05; done\"\n",
+    );
+    let asked = |name| PeerTask {
+        name,
+        prompt: "Do the work.",
+        ..PeerTask::default()
+    };
+    let started = core
+        .peer_start_task(asking.id, asked("slow"))
+        .await
+        .expect("starts");
+    let id = started.session.id;
+    refused_for(core.peer_close(asking.id, id), "still being set up");
+    std::fs::write(started.task.worktree_path.join("go"), "").expect("test setup");
+    turn(&mut bus, id).await;
+    // The setup is over only once what it started with the prompt has gone.
+    soon(|| set_up(&core, "slow")).await;
+    core.peer_close(asking.id, id).expect("set up, it closes");
+
+    // A setup that fails leaves the prompt waiting, which closing would drop.
+    write_config(&fx, "[hooks]\nsetup = \"exit 3\"\n");
+    let failed = core
+        .peer_start_task(asking.id, asked("failing"))
+        .await
+        .expect("starts");
+    let id = failed.session.id;
+    soon(|| set_up(&core, "failing")).await;
+    let (_, task) = core.task("demo", "failing").expect("made");
+    assert_eq!(task.setup, SetupStatus::Failed);
+    assert!(core.session(id).expect("reads").waits_for_setup);
+    refused_for(core.peer_close(asking.id, id), "still waits");
+    assert_eq!(closed_in(&core, "failing"), Vec::<i64>::new());
+    assert_eq!(core.session_queue(id).expect("reads").len(), 1);
+}
+
+#[tokio::test]
+async fn closing_a_session_it_started_makes_room_for_another() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let mut bus = core.subscribe();
+    let asking = new_session(&core);
+    // All but one the user chose, which are not the agent's to close.
+    for _ in 1..MAX_SPAWNED {
+        let another = new_session(&core);
+        core.session_set_parent(another.id, Some(asking.id))
+            .expect("works for it");
+    }
+    let asked = |name| PeerTask {
+        name,
+        prompt: "Do the work.",
+        ..PeerTask::default()
+    };
+    let id = core
+        .peer_start_task(asking.id, asked("first"))
+        .await
+        .expect("starts")
+        .session
+        .id;
+    turn(&mut bus, id).await;
+    let full = core.peer_start_task(asking.id, asked("second")).await;
+    assert!(
+        matches!(full, Err(Error::Peers(ref reason)) if reason.contains("the most allowed")),
+        "{full:?}"
+    );
+
+    core.peer_close(asking.id, id).expect("closes it");
+    core.peer_start_task(asking.id, asked("second"))
+        .await
+        .expect("there is room again");
 }
