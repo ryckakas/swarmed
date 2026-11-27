@@ -150,12 +150,14 @@ fn local_tools() -> Value {
         },
     }, {
         "name": "close_session",
-        "title": "Close a session you spawned",
-        "description": "Closes a session that you started with spawn_session, once it is idle: \
-            it leaves the sidebar and its agent is stopped. Its conversation is kept and the \
-            user can reopen it. Use it when a spawned session is done and you have what you \
-            need from it, so finished helpers do not pile up. You cannot close a session you \
-            did not start, or one that is still working.",
+        "title": "Close a session you started",
+        "description": "Closes a session that you started with spawn_session or start_task and \
+            that works for you, once it is idle: it leaves the sidebar and its agent is \
+            stopped. Its conversation is kept and the user can reopen it; a task's worktree, \
+            branch and pull request stay. Use it when such a session is done and you have \
+            what you need from it, so finished helpers do not pile up and you have room to \
+            start more. You cannot close a session you did not start, one that is still \
+            working, or one whose task is still being set up.",
         "inputSchema": {
             "type": "object",
             "properties": {

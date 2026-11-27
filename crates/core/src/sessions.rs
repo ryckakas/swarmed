@@ -590,10 +590,15 @@ impl Store {
     }
 
     /// Takes a session and everything said in it out of the database. A session that worked
-    /// for it stays, working for nobody; a cloud task handed off from it stays, without it.
+    /// for it, or that its agent started, stays, working for nobody and started by nobody; a
+    /// cloud task handed off from it stays, without it.
     pub(crate) fn session_delete(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET spawned_by = NULL WHERE spawned_by = ?1",
+            params![id],
+        )?;
+        self.conn.execute(
+            "UPDATE sessions SET started_by = NULL WHERE started_by = ?1",
             params![id],
         )?;
         self.conn.execute(
@@ -788,10 +793,36 @@ impl Store {
     /// worktree, and works for it.
     pub(crate) fn session_set_spawned_by(&self, id: i64, parent: i64) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET spawned_by = ?2, spawned = 1 WHERE id = ?1",
+            "UPDATE sessions SET spawned_by = ?2, started_by = ?2, spawned = 1 WHERE id = ?1",
             params![id, parent],
         )?;
         Ok(())
+    }
+
+    /// Records that the agent of session `starter` started session `id`, in a task of its
+    /// own or from its shell, and that it works for that one.
+    pub(crate) fn session_set_started_by(&self, id: i64, starter: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET spawned_by = ?2, started_by = ?2 WHERE id = ?1",
+            params![id, starter],
+        )?;
+        Ok(())
+    }
+
+    /// The session whose agent started session `id`, however it did (`spawn_session`,
+    /// `start_task`, a command in its shell); `None` for one the user started, or one started
+    /// before this was kept that tells nothing of it. Whom it works for may differ since: the
+    /// user can change that, and never this.
+    pub(crate) fn session_started_by(&self, id: i64) -> Result<Option<i64>> {
+        let starter = self
+            .conn
+            .query_row(
+                "SELECT started_by FROM sessions WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(starter.flatten())
     }
 
     /// Records whom session `id` works for: `parent`, or with `None` nobody.
