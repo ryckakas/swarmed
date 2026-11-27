@@ -3473,6 +3473,41 @@ code {
     user-select: text;
 }
 
+/* What the window says of the user's own stylesheet: a change on disk waiting for a yes, with
+   the change under it, or a run that leaves it out. */
+.stylesheet-notice {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0 var(--space-6) var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--pollen);
+    background: color-mix(in srgb, var(--pollen) 12%, transparent);
+    user-select: text;
+}
+
+.stylesheet-notice-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.stylesheet-notice-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.stylesheet-notice-problem {
+    color: var(--clay);
+}
+
+/* Long enough to read a rule or two; a longer change scrolls. */
+.stylesheet-change {
+    max-height: 16em;
+    overflow-y: auto;
+}
+
 .session {
     flex: 1;
     display: flex;

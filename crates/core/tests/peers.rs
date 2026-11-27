@@ -621,7 +621,7 @@ async fn an_agent_cannot_change_how_many_sessions_may_work_for_one() {
         let (ok, said) = configure(&socket, session.id, asked).await;
         assert!(!ok, "{said}");
         assert!(
-            said.contains("how many sessions may work for one and the roles' models"),
+            said.contains("how many sessions may work for one, the roles' models"),
             "{said}"
         );
     }
@@ -653,11 +653,60 @@ async fn an_agent_cannot_change_the_models_and_efforts_of_roles() {
         let (ok, said) = configure(&socket, session.id, asked).await;
         assert!(!ok, "{said}");
         assert!(
-            said.contains("the roles' models and efforts cannot be changed"),
+            said.contains("the roles' models and efforts and the user's own stylesheet cannot"),
             "{said}"
         );
     }
     assert!(core.settings().expect("reads").role_defaults.is_empty());
+}
+
+#[tokio::test]
+async fn an_agent_can_neither_write_nor_propose_the_users_stylesheet() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let mut bus = core.subscribe();
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+    let hiding = ".deny { display: none; }";
+
+    // Given among the looks, it is not one of them: the rest is changed, this is not.
+    let among = serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest",
+        "user_stylesheet": true, "stylesheet": hiding, "css": hiding });
+    let (ok, said) = configure(&socket, session.id, among).await;
+    assert!(ok, "{said}");
+    assert!(!said.contains("stylesheet"), "{said}");
+    assert_eq!(core.settings().expect("reads").palette, Palette::Forest);
+
+    // Nor is there a kind of its own, to save or to propose, and the refusal says so.
+    let asked = ["stylesheet", "style", "css", "user_stylesheet"]
+        .into_iter()
+        .flat_map(|kind| ["save", "list"].map(|op| (kind, op)));
+    for (kind, op) in asked {
+        let asked = serde_json::json!({ "kind": kind, "op": op, "css": hiding,
+            "text": hiding, "json": hiding, "on": true });
+        let (ok, said) = configure(&socket, session.id, asked).await;
+        assert!(!ok, "{said}");
+        assert!(said.contains("the user's own stylesheet cannot"), "{said}");
+    }
+    // Nor does a layout carry it.
+    let layout = serde_json::json!({ "kind": "layout", "op": "save",
+        "json": { "base": "classic", "css": hiding } });
+    let (ok, said) = configure(&socket, session.id, layout).await;
+    assert!(!ok, "{said}");
+
+    let sheet = core.stylesheet().expect("reads");
+    assert_eq!(
+        (sheet.on, sheet.file, sheet.accepted.as_str()),
+        (false, None, "")
+    );
+    assert!(!core.paths().stylesheet().exists());
+    // Nothing was put to the user either.
+    while let Ok(event) = bus.try_recv() {
+        let proposed = matches!(event.event, AgentEvent::ConfigProposed { .. });
+        assert!(!proposed, "{event:?}");
+    }
 }
 
 #[tokio::test]

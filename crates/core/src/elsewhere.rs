@@ -11,7 +11,9 @@
 //!   tree shows are read again; if they changed, [`AgentEvent::TreeChanged`] tells front ends
 //!   to read it again. So does a stack started or stopped elsewhere.
 //! - **Configuration files.** One changed on disk, by another process or by hand, is published
-//!   as [`AgentEvent::ConfigChanged`], and a changed `agents.toml` is read again.
+//!   as [`AgentEvent::ConfigChanged`], and a changed `agents.toml` is read again. They are
+//!   known by their ending: `.toml`, `.json`, and `.css` for the user's stylesheet, whose
+//!   change the window then asks about (`stylesheet.rs`).
 //! - **Settings of a session whose agent runs here.** A model, effort or supervision another
 //!   process stored, as `swarmed session set` does, is passed on to the agent as a change made
 //!   here would be ([`Core::settings_told`]): that process can only store it.
@@ -214,7 +216,7 @@ fn files_in(folder: &Path, endings: &[&str]) -> Vec<FileSeen> {
 
 /// The configuration files in the data directory and its `projects` folder, as they are now.
 fn config_files(data_dir: &Path) -> Vec<FileSeen> {
-    let endings = [".toml", ".json"];
+    let endings = [".toml", ".json", ".css"];
     let mut files = files_in(data_dir, &endings);
     files.extend(files_in(&data_dir.join("projects"), &endings));
     files.sort();
@@ -674,7 +676,13 @@ mod tests {
         let dir = tempfile::tempdir().expect("test setup");
         let projects = dir.path().join("projects");
         std::fs::create_dir(&projects).expect("test setup");
-        for name in ["settings.toml", "layout.json", "swarmed.db", "notes.txt"] {
+        for name in [
+            "settings.toml",
+            "layout.json",
+            "style.css",
+            "swarmed.db",
+            "notes.txt",
+        ] {
             std::fs::write(dir.path().join(name), "").expect("test setup");
         }
         std::fs::write(projects.join("demo.actions.toml"), "").expect("test setup");
@@ -684,7 +692,15 @@ mod tests {
             .map(|(path, ..)| path.file_name().expect("named").to_string_lossy().into())
             .collect();
         // By their whole paths: `projects/` sorts between the two.
-        assert_eq!(names, ["layout.json", "demo.actions.toml", "settings.toml"]);
+        assert_eq!(
+            names,
+            [
+                "layout.json",
+                "demo.actions.toml",
+                "settings.toml",
+                "style.css"
+            ]
+        );
     }
 
     #[test]

@@ -400,6 +400,16 @@ const MIGRATIONS: &[&str] = &[
                                          || ', another agent session of the same user%')
     );
 ",
+    // The user's own stylesheet as they last saved it in Settings or accepted it when told its
+    // file changed: what the window applies, whatever `style.css` holds (`stylesheet.rs`). Only
+    // the latest row is kept; `accepted_at` is in seconds since 1970.
+    "
+    CREATE TABLE stylesheets (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        css         TEXT NOT NULL,
+        accepted_at INTEGER NOT NULL
+    );
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

@@ -35,6 +35,7 @@ import {
 } from "./mockRoles";
 import { mockCheck } from "./mockScreenshot";
 import { MockSetups, taskSetupApi } from "./mockSetups";
+import { leaveSampleOut, restyleSample, stylesheetApi } from "./mockStylesheet";
 import { countEvent, keepCounting, NO_TOKENS, requestCounts, withTokens } from "./mockTokens";
 import { turnsApi } from "./mockTurns";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
@@ -101,10 +102,12 @@ import type {
 // refused by a 5-hour limit that resets that soon, `slow` runs until interrupted,
 // `long: <command>` runs a command the turn waits on until it is sent to the background or
 // stopped, `switch <branch>` moves the worktree to a new branch, `elsewhere: <title>` renames
-// the session as another Swarmed would, saying only `tree_changed`, `screenshot` checks a page
-// in a browser, whose last call returns an image, `app` calls an MCP tool whose server
-// attached an app to it (`mockApps.ts`), and `browse` opens the task's browser with
-// `show_browser` and acts in its own tab there, which the pane goes to. In plan mode it
+// the session as another Swarmed would, saying only `tree_changed`, `restyle` writes the
+// user's stylesheet on disk as an agent could (`restyle out` leaves it out as ⌥ at the start
+// would; `mockStylesheet.ts`), `screenshot` checks a page in a browser, whose last call
+// returns an image, `app` calls an MCP tool whose server attached an app to it
+// (`mockApps.ts`), and `browse` opens the task's browser with `show_browser` and acts in its
+// own tab there, which the pane goes to. In plan mode it
 // presents a plan. On the sample Claude Code a plain answer, `delegate` and `slow` count the
 // turn's tokens as they go (`mockTokens.ts`).
 //
@@ -2756,10 +2759,9 @@ class MockAgent {
 
     /** Does what a scripted message asks for; `false` if `text` is not one of them. */
     private scripted(id: number, text: string, done: AgentEvent): boolean {
-        if (text === "delegate background") {
-            this.delegateInBackground(id, done);
-        } else if (text === "delegate") {
-            this.delegate(id, done);
+        const exact = this.exactlyScripted(id, done)[text];
+        if (exact) {
+            exact();
         } else if (text.startsWith("ask")) {
             this.askQuestions(id, text === "ask one", done);
         } else if (text.startsWith("run:")) {
@@ -2768,12 +2770,6 @@ class MockAgent {
             this.runLong(id, text.slice(5).trim());
         } else if (text.startsWith("show")) {
             this.showView(id, done);
-        } else if (text === "screenshot") {
-            this.checkInBrowser(id, done);
-        } else if (text === "app") {
-            this.showApp(id, done);
-        } else if (text === "browse") {
-            this.browse(id, done);
         } else if (text.startsWith("switch ")) {
             this.switchWorktree(id, text.slice(7).trim(), done);
         } else if (text.startsWith("elsewhere:")) {
@@ -2789,6 +2785,19 @@ class MockAgent {
         return true;
     }
 
+    /** The scripted messages that are one word or two, by what is typed. */
+    private exactlyScripted(id: number, done: AgentEvent): Record<string, () => void> {
+        return {
+            "delegate background": () => this.delegateInBackground(id, done),
+            delegate: () => this.delegate(id, done),
+            screenshot: () => this.checkInBrowser(id, done),
+            app: () => this.showApp(id, done),
+            browse: () => this.browse(id, done),
+            restyle: () => this.restyle(id, false, done),
+            "restyle out": () => this.restyle(id, true, done),
+        };
+    }
+
     /**
      * Renames the session once the turn is over, as another Swarmed process such as the command
      * line would: the window hears no `renamed`, only that the tree changed, and reads it again.
@@ -2801,6 +2810,27 @@ class MockAgent {
             const renamed = this.configure(id, {}) as Session;
             renamed.title = title;
             this.tell(0, { type: "tree_changed" }, null);
+        }, PACE * 4);
+    }
+
+    /**
+     * Writes the user's stylesheet on disk, as an agent with a shell could, or with `out` leaves
+     * it out as ⌥ held at the start does: the window hears only that a file changed, reads the
+     * stylesheet again, and asks before applying what it finds (`mockStylesheet.ts`).
+     */
+    private restyle(id: number, out: boolean, done: AgentEvent) {
+        const said = out
+            ? "Leaving your stylesheet out, as holding ⌥ while Swarmed starts would."
+            : "Writing style.css behind the window's back, as an agent with a shell could.";
+        this.later(id, { type: "text", text: said }, "working");
+        this.later(id, done, "idle");
+        setTimeout(() => {
+            if (out) {
+                leaveSampleOut();
+            } else {
+                restyleSample();
+            }
+            this.tell(0, { type: "config_changed", kind: "file" }, null);
         }, PACE * 4);
     }
 
@@ -3914,6 +3944,7 @@ export function createMockApi(): Api {
         style: "swarm",
         layout: "classic",
         text_scale: 100,
+        user_stylesheet: false,
         default_supervision: "auto",
         max_workers: 6,
         html_views: true,
@@ -3956,6 +3987,7 @@ export function createMockApi(): Api {
         ...images,
         ...mcpApi(),
         ...templatesApi(),
+        ...stylesheetApi(() => settings),
         ...actionsApi(),
         ...cleanupApi(),
         costs: async () => SAMPLE_COSTS,

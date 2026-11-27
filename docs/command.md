@@ -147,7 +147,7 @@ if it has any ([A role's model and effort](coding-agents.md#a-roles-model-and-ef
 | `costs`, `analytics`, `usage` | what agents report their work cost, turns by day and model, what Swarmed takes up |
 | `limits` | your plan's usage limits and extra usage as Claude Code last reported them in any session, with how old each figure is; asks nothing |
 | `cleanup` | list or delete what removed tasks left behind, and snapshots: removed worktrees, branches of removed tasks, stale worktrees, checkpoints and browser profiles of tasks that are gone |
-| `editor`, `auto-title`, `branch-prefix`, `layout`, `terminal` | settings: the editor, naming sessions by a model, what new tasks' branches start with, the custom layout, the terminal |
+| `editor`, `auto-title`, `branch-prefix`, `layout`, `terminal` | settings: the editor, naming sessions by a model, what new tasks' branches start with, the custom layout and your own stylesheet (`layout stylesheet off`, for when it hides the switch in Settings), the terminal |
 
 Commands that take a secret or a long text, `key set`, `note --set` and `rules --set`, read it
 from standard input, so it stays out of the shell's history.

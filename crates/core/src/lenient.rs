@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 
 use crate::config::ProjectConfig;
 use crate::error::{Error, Result};
-use crate::{Core, Settings, agents, environments, layouts, mcp_own};
+use crate::{Core, Settings, agents, environments, layouts, mcp_own, stylesheet};
 
 /// What could not be understood, each said for the user.
 pub(crate) type Problems = Vec<String>;
@@ -171,6 +171,10 @@ impl Core {
         add(
             &paths.custom_layout(),
             layouts::problems_in(&paths.custom_layout()),
+        );
+        add(
+            &paths.stylesheet(),
+            stylesheet::problems_in(&paths.stylesheet()),
         );
         for project in self.projects()? {
             let config = paths.project_config(&project.name);

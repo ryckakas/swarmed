@@ -14,6 +14,7 @@ import type {
     SessionSettings,
     Settings,
     SetupProgress,
+    Stylesheet,
     Template,
     TerminalConfig,
     UpdateState,
@@ -36,6 +37,7 @@ import { type ReviewComment, withComment } from "./review";
 import { type ScrollSpot, withoutPlaces } from "./scrollSpot";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { heard, readFrom, type SetupSeen } from "./setup";
+import { NOTHING_PUT_ASIDE, type StylesheetPutAside } from "./stylesheet";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
     applySessionEvent,
@@ -291,6 +293,22 @@ interface State {
      * with it, or to nothing once it is kept and drawn.
      */
     saveCustomLayout(api: Api, text: string): Promise<string | null>;
+    /** The user's own stylesheet, once read: what the window applies, and what its file holds. */
+    stylesheet: Stylesheet | null;
+    /**
+     * Has the core write `text` as the user's stylesheet and apply it: saved in Settings, it is
+     * theirs. Resolves to what went wrong, or to nothing.
+     */
+    saveStylesheet(api: Api, text: string): Promise<string | null>;
+    /** Applies `text`, the stylesheet's file as the user was shown it when told it changed. */
+    acceptStylesheet(api: Api, text: string): Promise<string | null>;
+    /** Turns the user's stylesheet on or off, as its setting, and reads it again. */
+    useStylesheet(api: Api, on: boolean): Promise<void>;
+    /** Takes back the stylesheet this run left out, or leaves it out with `true`. */
+    leaveStylesheetOut(api: Api, leftOut: boolean): Promise<void>;
+    /** What of the stylesheet's notices the user put aside. In memory only. */
+    stylesheetAside: StylesheetPutAside;
+    putStylesheetAside(aside: Partial<StylesheetPutAside>): void;
     /** The ids of the repositories whose tasks are folded away in the sidebar. */
     folded: number[];
     toggleFolded(projectId: number): void;
@@ -1192,6 +1210,32 @@ export const useStore = create<State>((set, get) => ({
             () => api.customLayoutSave(text),
             (customLayout) => set({ customLayout }),
         ),
+    stylesheet: null,
+    saveStylesheet: (api, text) =>
+        kept(
+            () => api.stylesheetSave(text),
+            (stylesheet) => set({ stylesheet }),
+        ),
+    acceptStylesheet: (api, text) =>
+        kept(
+            () => api.stylesheetAccept(text),
+            (stylesheet) => set({ stylesheet }),
+        ),
+    useStylesheet: (api, on) =>
+        reporting(async () => {
+            await get().changeSettings(api, { user_stylesheet: on });
+            // At once, not at the core's next look at the settings file.
+            const stylesheet = await api.stylesheet();
+            set({ stylesheet });
+        }),
+    leaveStylesheetOut: (api, leftOut) =>
+        reporting(async () => {
+            const stylesheet = await api.stylesheetLeftOut(leftOut);
+            set({ stylesheet });
+        }),
+    stylesheetAside: NOTHING_PUT_ASIDE,
+    putStylesheetAside: (aside) =>
+        set((state) => ({ stylesheetAside: { ...state.stylesheetAside, ...aside } })),
     folded: readIds(FOLDED),
     toggleFolded: (projectId) => {
         const folded = toggledId(get().folded, projectId);
@@ -1471,6 +1515,12 @@ function readConfiguration(api: Api) {
     void reporting(async () => {
         const layout = await api.customLayout();
         useStore.setState((state) => ({ customLayout: unlessSame(state.customLayout, layout) }));
+    });
+    // Read whenever a file changed: a change of `style.css` on disk is asked about, never
+    // applied by reading it (`stylesheet.rs`).
+    void reporting(async () => {
+        const stylesheet = await api.stylesheet();
+        useStore.setState((state) => ({ stylesheet: unlessSame(state.stylesheet, stylesheet) }));
     });
     void reporting(async () => {
         const config = await api.terminalConfig();

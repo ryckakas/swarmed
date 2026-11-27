@@ -322,6 +322,9 @@ pub enum Error {
     /// A custom layout cannot be drawn or read as given. Says why.
     #[error("{0}")]
     Layout(String),
+    /// The user's stylesheet cannot be kept as given. Says why.
+    #[error("{0}")]
+    Stylesheet(String),
     /// A mark could not be put on a session. Says why.
     #[error("{0}")]
     Mark(String),

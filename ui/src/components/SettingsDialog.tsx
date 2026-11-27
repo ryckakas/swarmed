@@ -40,6 +40,7 @@ import { RoleDefaultsSettings } from "./RoleDefaultsSettings";
 import { Row } from "./SettingsRow";
 import { ShortcutLists } from "./Shortcuts";
 import { SkillsSettings } from "./SkillsSettings";
+import { StylesheetSettings } from "./StylesheetSettings";
 import { SwarmDictionary } from "./SwarmDictionary";
 import { TemplatesSettings } from "./TemplatesSettings";
 import { UsageSettings } from "./UsageSettings";
@@ -280,6 +281,7 @@ function Appearance({ settings }: { settings: Settings }) {
                 </div>
             </Row>
             {settings.layout === "custom" && <LayoutEditor />}
+            <StylesheetSettings on={settings.user_stylesheet} />
         </section>
     );
 }

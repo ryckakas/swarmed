@@ -27,9 +27,9 @@ use swarmed_core::{
     McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, MouseInput,
     NewTaskOptions, PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, ROLES,
     Reachable, RemoveOptions, RewindCheck, RewindDone, Role, SearchHit, Session, SessionOptions,
-    SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Task, TaskNaming,
-    TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges, TurnStats,
-    Unpublished, Usage, UsageAsk, Viewport, hooks,
+    SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Stylesheet, Task,
+    TaskNaming, TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges,
+    TurnStats, Unpublished, Usage, UsageAsk, Viewport, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -1119,6 +1119,36 @@ pub(crate) fn custom_layout(core: CoreState<'_>) -> Command<CustomLayout> {
 #[tauri::command]
 pub(crate) fn custom_layout_save(core: CoreState<'_>, text: String) -> Command<CustomLayout> {
     Ok(core.set_custom_layout(&text)?)
+}
+
+/// The user's own stylesheet: what the window applies, and what its file holds.
+#[tauri::command(async)]
+pub(crate) fn stylesheet(core: CoreState<'_>) -> Command<Stylesheet> {
+    Ok(core.stylesheet()?)
+}
+
+/// Writes `text` to the user's stylesheet and applies it: saved in Settings, it is theirs.
+#[tauri::command]
+pub(crate) fn stylesheet_save(core: CoreState<'_>, text: String) -> Command<Stylesheet> {
+    Ok(core.stylesheet_save(&text)?)
+}
+
+/// Applies `text`, the user's stylesheet as they were shown it when told its file changed.
+#[tauri::command]
+pub(crate) fn stylesheet_accept(core: CoreState<'_>, text: String) -> Command<Stylesheet> {
+    Ok(core.stylesheet_accept(&text)?)
+}
+
+/// Opens the user's stylesheet in their editor, made first if there is none.
+#[tauri::command]
+pub(crate) fn stylesheet_open(core: CoreState<'_>) -> Command<()> {
+    Ok(core.stylesheet_open()?)
+}
+
+/// Leaves the user's stylesheet out until Swarmed quits, or takes it back.
+#[tauri::command]
+pub(crate) fn stylesheet_left_out(core: CoreState<'_>, left_out: bool) -> Command<Stylesheet> {
+    Ok(core.set_stylesheet_left_out(left_out)?)
 }
 
 /// The user's configuration of the terminal, as checked by the core.

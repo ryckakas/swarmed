@@ -77,6 +77,12 @@ impl Paths {
         self.data_dir.join("layout.json")
     }
 
+    /// The user's own stylesheet, which the window applies after its own (`stylesheet.rs`).
+    #[must_use]
+    pub fn stylesheet(&self) -> PathBuf {
+        self.data_dir.join("style.css")
+    }
+
     /// The file with the user's configuration of the terminal.
     #[must_use]
     pub fn terminal_config(&self) -> PathBuf {

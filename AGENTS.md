@@ -218,6 +218,9 @@ into one feature's details has them moved to that module.
   review or comment is told by who, never what.
 - **A custom layout or `terminal.json` holds values, never structure** (`layouts.rs`,
   `termconfig.rs`): agents save a layout at once only because it can hide or move nothing.
+- **The user's stylesheet can hide anything** (`stylesheet.rs`): nothing of an agent's reaches
+  it through Swarmed, and the window applies only what the user saved or accepted, never the
+  file as it is on disk.
 
 ### Git, GitHub and publishing
 

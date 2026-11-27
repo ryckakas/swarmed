@@ -63,6 +63,7 @@ import type {
     Skill,
     SlashCommand,
     Snapshot,
+    Stylesheet,
     Task,
     TaskNaming,
     TaskStart,
@@ -430,6 +431,16 @@ export interface Api {
     customLayout(): Promise<CustomLayout>;
     /** Keeps `text`, JSON as written, as the custom layout; fails with the reason if it cannot be drawn. */
     customLayoutSave(text: string): Promise<CustomLayout>;
+    /** The user's own stylesheet: what the window applies, and what its file holds. */
+    stylesheet(): Promise<Stylesheet>;
+    /** Writes `text` to the user's stylesheet and applies it: saved in Settings, it is theirs. */
+    stylesheetSave(text: string): Promise<Stylesheet>;
+    /** Applies `text`, the stylesheet's file as the user was shown it, without writing it. */
+    stylesheetAccept(text: string): Promise<Stylesheet>;
+    /** Opens the user's stylesheet in their editor, made first with a starting comment. */
+    stylesheetOpen(): Promise<void>;
+    /** Leaves the user's stylesheet out until Swarmed quits, or with `false` takes it back. */
+    stylesheetLeftOut(leftOut: boolean): Promise<Stylesheet>;
     /** Shows on the app's icon how many sessions wait for the user; nothing for none. */
     setBadge(count: number): Promise<void>;
     /** Calls `listener` for every line a hook prints while a task is created or removed. */

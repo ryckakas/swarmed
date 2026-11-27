@@ -19,7 +19,10 @@
 //!   (`max_workers`): it caps how many agents one session keeps running, and so what it can
 //!   spend, and an agent must not raise its own ceiling. Nor the model and effort each role's
 //!   sessions start on (`role_defaults`): they decide what agents cost, and an agent picks
-//!   those of a session it starts in its call, where the user sees it.
+//!   those of a session it starts in its call, where the user sees it. Nor the user's own
+//!   stylesheet (`stylesheet.rs`), its text or whether it is used, not even as a proposal: CSS
+//!   can hide a Deny button or this very kind of proposal, and few users can tell from CSS
+//!   what it would hide. The custom layout is reachable because it can hide nothing.
 //!
 //! The values of an environment's variables are never told to an agent, only their names.
 
@@ -623,7 +626,8 @@ impl Core {
                 "`kind` is one of prompt, action, rule, status_line, appearance, layout, \
                  terminal, environment. \
                  API keys, MCP servers, sign-ins, permissions, notes, how many sessions may \
-                 work for one and the roles' models and efforts cannot be changed by an agent.",
+                 work for one, the roles' models and efforts and the user's own stylesheet \
+                 cannot be changed by an agent.",
             )),
         }?;
         // A proposal changes nothing yet; and a list never does.

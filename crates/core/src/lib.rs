@@ -89,6 +89,7 @@ mod stacks;
 mod starting;
 mod statusline;
 mod store;
+mod stylesheet;
 mod tasks;
 mod templates;
 mod termconfig;
@@ -193,6 +194,7 @@ pub use starting::{FirstSession, SetupGoing, TaskStarted};
 pub use statusline::StatusItem;
 use store::Store;
 pub use store::{Project, SetupStatus, Task};
+pub use stylesheet::{MAX_STYLESHEET_BYTES, Stylesheet};
 pub use tasks::{BranchChoices, NewTaskOptions, RemoveOptions};
 pub use templates::Template;
 pub use termconfig::{Cursor, TerminalColour, TerminalColours, TerminalConfig, terminal_schema};
@@ -250,6 +252,9 @@ pub struct Core {
     merging: merging::Merging,
     /// The tasks' browsers this process is connected to (`browser.rs`).
     browsers: Arc<browser::Browsers>,
+    /// Whether this run leaves the user's stylesheet out, whatever the settings say
+    /// (`stylesheet.rs`).
+    stylesheet_left_out: std::sync::atomic::AtomicBool,
 }
 
 /// The store is only ever locked for one short query, never across an `.await`. A panic while
@@ -299,6 +304,7 @@ impl Core {
             following: following::Following::default(),
             merging: merging::Merging::default(),
             browsers: Arc::default(),
+            stylesheet_left_out: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
