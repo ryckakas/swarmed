@@ -9,7 +9,7 @@ import {
     type ScrollSpot,
     scrollKey,
     spotOf,
-    withoutScrolls,
+    withoutPlaces,
 } from "./scrollSpot";
 
 describe("a transcript's spot", () => {
@@ -151,7 +151,7 @@ describe("the spots kept", () => {
     it("go with their sessions, sub-agents' included, and stay the same object otherwise", () => {
         const up: ScrollSpot = { following: false, key: 3, offset: 0 };
         const scrolls = { "12": up, "12/toolu_01": up, "120": up, "7": FOLLOWING };
-        expect(withoutScrolls(scrolls, [12])).toEqual({ "120": up, "7": FOLLOWING });
-        expect(withoutScrolls(scrolls, [99])).toBe(scrolls);
+        expect(withoutPlaces(scrolls, [12])).toEqual({ "120": up, "7": FOLLOWING });
+        expect(withoutPlaces(scrolls, [99])).toBe(scrolls);
     });
 });

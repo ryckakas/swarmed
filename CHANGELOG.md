@@ -15,6 +15,17 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **See how many tokens a turn is using while it runs.** Beside what a Claude Code session is
+  doing, its turn counts the tokens used so far, with an arrow for which way they go: up while a
+  request is read, down while its answer comes in. Only what the model reads anew and what it
+  writes counts, not the conversation it reads again from the cache with every request. A
+  sub-agent counts on its own, in its own pane. The line where a turn ends says what it used
+  ("Turn finished in 12s, 3.4k tokens"), so does `swarmed session send`, and the status line
+  has a new **Tokens** piece that adds up the session's turns. Other agents report nothing of
+  the kind while they work, so they show none.
+
 ### Changed
 
 - **Everything a sidebar row shows stays put under the pointer.** A pinned pin, a note that holds

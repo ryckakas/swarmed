@@ -251,6 +251,7 @@ mod tests {
             result: None,
             cost_usd: None,
             duration_ms: None,
+            tokens: None,
         }
     }
 
@@ -300,6 +301,7 @@ mod tests {
             result: None,
             cost_usd: None,
             duration_ms: None,
+            tokens: None,
         };
         for ending in [died, failed] {
             let retried = [

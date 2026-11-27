@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { editFromMessage, forkFromMessage } from "../actions";
 import { api } from "../api";
-import type { AgentEvent } from "../api/types";
+import type { AgentEvent, TokenPhase, Tokens } from "../api/types";
 import { elementsApart, type ListedElement } from "../elements";
 import { type GitHubMentioned, githubApart } from "../githubMentions";
 import { type Mentioned, mentionedApart } from "../mentions";
@@ -34,6 +34,7 @@ import {
 } from "../transcript";
 import { findSession, findSessionHome } from "../tree";
 import { formatDuration } from "../turns";
+import { runningSaid, tokensApart, tokensSaid } from "../turnTokens";
 import { useRedrawAt } from "../useRedrawAt";
 import { useRoll } from "../useRoll";
 import { useScrollSpot } from "../useScrollSpot";
@@ -59,7 +60,10 @@ import { LastImage } from "./ToolImages";
 
 interface Props {
     sessionId: number;
-    /** What its scroll position is kept under (`scrollKey`): the session's, or a sub-agent's. */
+    /**
+     * What its scroll position and the tokens of its running turn are kept under (`scrollKey`):
+     * the session's, or a sub-agent's.
+     */
     place: string;
     events: AgentEvent[];
     /** Whether the agent is busy on a turn; the transcript then ends with what it is doing. */
@@ -127,9 +131,14 @@ export function Transcript(props: Props) {
                         </li>
                     ))}
                     {working && (
-                        <li className="activity" aria-live="polite">
+                        <li className="activity">
                             <Spawning />
-                            <Activity events={events} />
+                            {/* Only the word is read out as it changes: the count changes
+                                many times a second, and is there to be read when wanted. */}
+                            <span aria-live="polite">
+                                <Activity events={events} />
+                            </span>
+                            <TokensSoFar place={place} />
                         </li>
                     )}
                     {working && toolCalls === "hidden" && (
@@ -355,6 +364,7 @@ function ItemView(props: ItemProps) {
             return (
                 <p className="aside turn-end">
                     <TurnEnd isError={item.isError} durationMs={item.durationMs} />
+                    {item.tokens !== null && <TurnTokens tokens={item.tokens} />}
                     {item.costUsd !== null && `, $${item.costUsd.toFixed(2)} so far`}
                 </p>
             );
@@ -742,6 +752,48 @@ function Activity({ events }: { events: AgentEvent[] }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
     const options = activityWords(words, plain);
     return <>{pickWord(options, useRoll(options.length > 1))}…</>;
+}
+
+/**
+ * The tokens the running turn has used so far, beside what the agent is doing, with an arrow for
+ * which way they go. Nothing for an agent that says none. Read from the store's latest count, so
+ * the transcript is not built again for each one.
+ */
+function TokensSoFar({ place }: { place: string }) {
+    const running = useStore((state) => state.turnTokens[place]);
+    if (running === undefined) {
+        return null;
+    }
+    const { tokens, phase } = running;
+    const total = tokens.input + tokens.output;
+    return (
+        <span className="turn-tokens" data-phase={phase} title={runningSaid(running)}>
+            <TokenArrow phase={phase} />
+            {/* The turn's first request has gone out and counted nothing yet. */}
+            {total > 0 && tokensSaid(tokens)}
+        </span>
+    );
+}
+
+/**
+ * Which way the tokens go: up while a request goes out and is read, down while its answer comes
+ * in, and both, quiet, between requests.
+ */
+function TokenArrow({ phase }: { phase: TokenPhase }) {
+    return (
+        <svg className="token-arrow" viewBox="0 0 12 12" aria-hidden="true">
+            {phase !== "response" && <path className="token-arrow-up" d={ARROW_UP} />}
+            {phase !== "prompt" && <path className="token-arrow-down" d={ARROW_DOWN} />}
+        </svg>
+    );
+}
+
+const ARROW_UP = "M6 10.5v-9M2.5 5 6 1.5 9.5 5";
+const ARROW_DOWN = "M6 1.5v9M2.5 7 6 10.5 9.5 7";
+
+/** What a finished turn used, after how long it took; apart when pointed at. */
+function TurnTokens({ tokens }: { tokens: Tokens }) {
+    return <span title={tokensApart(tokens)}>, {tokensSaid(tokens)}</span>;
 }
 
 /** How a turn's end reads: whether it finished, and how long it took if that was measured. */

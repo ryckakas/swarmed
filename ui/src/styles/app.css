@@ -3907,6 +3907,70 @@ code {
 }
 
 /*
+ * The tokens the running turn has used so far, after what the agent is doing. The arrow says
+ * which way they go and drifts that way while they flow: up while a request is read, down while
+ * its answer comes in. Between requests it points both ways, quiet and still.
+ */
+.turn-tokens {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.token-arrow {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: var(--busy);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.turn-tokens[data-phase="between"] .token-arrow {
+    stroke: var(--faint);
+}
+
+.turn-tokens[data-phase="prompt"] .token-arrow-up {
+    animation: tokens-up 1.2s ease-in-out infinite;
+}
+
+.turn-tokens[data-phase="response"] .token-arrow-down {
+    animation: tokens-down 1.2s ease-in-out infinite;
+}
+
+@keyframes tokens-up {
+    0%,
+    100% {
+        transform: translateY(1px);
+    }
+
+    50% {
+        transform: translateY(-1px);
+    }
+}
+
+@keyframes tokens-down {
+    0%,
+    100% {
+        transform: translateY(-1px);
+    }
+
+    50% {
+        transform: translateY(1px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .token-arrow path {
+        animation: none;
+    }
+}
+
+/*
  * The colony at work, for when tool calls are hidden and the transcript would otherwise sit
  * still: five cells, each the waiting cell grown larger, swelling one after another in a wave.
  */

@@ -358,7 +358,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **Running sessions live in the core** (`sessions.rs`). Front ends call `session_start`,
   `session_send` and the like by session id and read every session's events from one stream,
   `Core::subscribe`, which also carries what other processes wrote (`elsewhere.rs`). Events are stored before they are published, except the pieces of a reply
-  still being written (`TextDelta`), which are only published: the whole reply follows.
+  still being written (`TextDelta`), which are only published: the whole reply follows. So is
+  the running count of a turn's tokens (`TurnTokens`, a sub-agent's under `Sub`), whose totals
+  the turn's end records (`shown_only`).
 - **The app crate holds no logic.** A command in `crates/app/src/commands.rs` calls one core
   function. If the UI needs something new, it is added to the core and tested there first.
 - **A command that reads much or starts something runs off the main thread.** Tauri runs a
@@ -605,7 +607,9 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
   permission for `run: <command>`, answers `show …` with an HTML view, ends its turn with a
   weekly usage warning for `warn <percent>` (resetting in that many seconds with
   `warn <percent> <seconds>`), ends its turn refused by a 5-hour limit that resets that many
-  seconds later for `limit <seconds>`, runs until stopped for `slow`, runs a
+  seconds later for `limit <seconds>`, runs until stopped for `slow` (its sample Claude Code
+  counting tokens request after request, `mockTokens.ts`, as its plain answers and `delegate`'s
+  sub-agents do), runs a
   command its turn waits on for `long: <command>`, until it is sent to the background or
   stopped, renames the session as another Swarmed would for `elsewhere: <title>`, saying
   only `tree_changed`, checks a page in a browser for `screenshot`, whose last call returns
@@ -1346,6 +1350,29 @@ ui/         the front end: React and TypeScript, built by Vite from the reposito
 - **The model and effort actually in use** are asked of Claude Code (`get_settings`) when it
   starts and after each turn, and recorded as `Applied`. Only those two values are read: the
   rest of that answer is the user's whole configuration and is never kept or logged.
+- **A running turn counts its tokens** (`agent/claude/tokens.rs`, `turnTokens.ts`, #419).
+  Claude Code streams each request's usage: what it was sent at `message_start`, what it wrote
+  at `message_delta`. `Counts` adds them up per turn from each line `read_events` reads, and
+  publishes `AgentEvent::TurnTokens` with a `TokenPhase` (`prompt` from a message said back or
+  the last tool result in, `response` from `message_start`, `between` from `message_stop`):
+  never stored, never from a run another took the place of (`dropped_when_late`).
+  - **Only what is new counts** (the user's choice): `input_tokens` and
+    `cache_creation_input_tokens`, never `cache_read_input_tokens`, which every request of a
+    turn sends again; and the output. An answer still coming in is estimated at
+    `CHARS_PER_TOKEN` from its text, thinking and tool arguments, and published again only
+    once grown by `ESTIMATE_STEP`; its `message_delta` gives the figure.
+  - **A sub-agent is counted apart** (the user's choice), by its `parent_tool_use_id`, for the
+    life of the agent: one in the background works past the turn. Its count is `Sub` and shows
+    in its pane only.
+  - **The turn's end records its totals** on `TurnDone::tokens` (the session's own agent only;
+    tried with 2.1.332, the same sums as Claude Code's own `result.usage`), which the turn-end
+    line, `swarmed session send` and the status line's `tokens` piece show.
+  - **The window** keeps the latest count per transcript (`turnTokens` in the store, by
+    `scrollKey`), out of the events and the history read, dropped with the turn's end, and a
+    sub-agent's with the agent's. The activity line draws it from there (`TokensSoFar`), so the
+    transcript is not built again for each count, and only the word is `aria-live`.
+  - **ACP agents report none:** the protocol only proposes usage at a turn's end, and leaves
+    open whether its input counts cache reads, so `acp.rs` says none rather than guess.
 - **Usage is asked of Claude Code** (`get_usage`, which it marks experimental) when it starts,
   whenever a usage report says a turn ran on extra usage, and when the user asks: the coins
   in a session's header (`UsageButton`, `session_usage_refresh`, `AgentCommand::AskUsage`)

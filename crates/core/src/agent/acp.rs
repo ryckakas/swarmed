@@ -678,6 +678,9 @@ impl Conversation {
             result: error,
             cost_usd: self.cost,
             duration_ms: None,
+            // The protocol has tokens only at a turn's end, as a proposal that leaves open
+            // whether its input counts what was read from a cache, so none are said.
+            tokens: None,
         });
     }
 

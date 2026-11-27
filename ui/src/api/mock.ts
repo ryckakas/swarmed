@@ -35,6 +35,7 @@ import {
 } from "./mockRoles";
 import { mockCheck } from "./mockScreenshot";
 import { MockSetups, taskSetupApi } from "./mockSetups";
+import { countEvent, keepCounting, NO_TOKENS, requestCounts, withTokens } from "./mockTokens";
 import { turnsApi } from "./mockTurns";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
@@ -80,6 +81,7 @@ import type {
     TerminalConfig,
     TerminalOpened,
     TerminalOutput,
+    Tokens,
     TurnStats,
     Unpublished,
     UpdateState,
@@ -1276,14 +1278,28 @@ function specCheckInBackground(): AgentEvent[] {
             is_error: false,
         },
         { type: "text", text: "A sub-agent is checking the export against the spec." },
-        { type: "turn_done", is_error: false, result: null, cost_usd: 0.02, duration_ms: 6200 },
+        {
+            type: "turn_done",
+            is_error: false,
+            result: null,
+            cost_usd: 0.02,
+            duration_ms: 6200,
+            tokens: { input: 21_840, output: 412 },
+        },
         ...specCheckSaid(),
         report("completed", SPEC_CHECK_ANSWER),
         {
             type: "text",
             text: "The spec check found five differences, the column order and the missing `cost_centre` column first. Its whole report is in the sub-agent's answer.",
         },
-        { type: "turn_done", is_error: false, result: null, cost_usd: 0.04, duration_ms: 8800 },
+        {
+            type: "turn_done",
+            is_error: false,
+            result: null,
+            cost_usd: 0.04,
+            duration_ms: 8800,
+            tokens: { input: 6_120, output: 1_384 },
+        },
     ];
 }
 
@@ -2576,11 +2592,33 @@ class MockAgent {
 
     /** Publishes a piece of a reply without keeping it, as the core does. */
     stream(sessionId: number, event: AgentEvent, steps: number) {
-        setTimeout(() => {
-            for (const listener of this.listeners) {
-                listener({ session_id: sessionId, status: null, event });
-            }
-        }, PACE * steps);
+        setTimeout(() => this.shown(sessionId, event), PACE * steps);
+    }
+
+    /** Publishes an event now without keeping it. */
+    private shown(sessionId: number, event: AgentEvent) {
+        for (const listener of this.listeners) {
+            listener({ session_id: sessionId, status: null, event });
+        }
+    }
+
+    /**
+     * Publishes the tokens one request of a turn uses, from step `from` to step `to`, as the
+     * core does for Claude Code: a sub-agent's under `parent`. Says what was used after it.
+     */
+    private request(
+        id: number,
+        parent: string | null,
+        [from, to]: [number, number],
+        before: Tokens,
+        read: number,
+    ): Tokens {
+        const counts = requestCounts(before, read);
+        counts.forEach((count, index) => {
+            const at = from + ((to - from) * index) / (counts.length - 1);
+            this.stream(id, countEvent(count, parent), at);
+        });
+        return counts.at(-1)?.tokens ?? before;
     }
 
     later(sessionId: number, event: AgentEvent, status: SessionStatus | null, steps = 1) {
@@ -2664,9 +2702,13 @@ class MockAgent {
             this.later(id, { ...done, cost_usd: 0, duration_ms: 0 }, "idle");
         } else if (text === "slow") {
             this.later(id, { type: "text", text: "Working on it…" }, "working");
-            this.interrupts.set(id, () =>
-                this.publish(id, { ...done, is_error: true, result: "interrupted" }, "idle"),
-            );
+            const counting = this.saysTokens(id)
+                ? keepCounting((event) => this.shown(id, event), PACE)
+                : null;
+            this.interrupts.set(id, () => {
+                const stopped: AgentEvent = { ...done, is_error: true, result: "interrupted" };
+                this.publish(id, counting ? withTokens(stopped, counting()) : stopped, "idle");
+            });
         } else if (this.configure(id, {}).supervision === "plan") {
             this.presentPlan(id, text, done);
         } else if (!this.scripted(id, text, done)) {
@@ -2852,7 +2894,8 @@ class MockAgent {
             this.later(id, { type: "renamed", title: suggestedTitle(text) }, null, 0.5);
         }
         this.later(id, { type: "text", text: reply }, "working");
-        this.later(id, done, "idle", 2);
+        const used = this.saysTokens(id) ? this.request(id, null, [0, 1], NO_TOKENS, 18_400) : null;
+        this.later(id, used ? withTokens(done, used) : done, "idle", 2);
         this.later(id, SAMPLE_CONTEXT, null, 3);
         this.later(id, sampleLimits(), null, 3);
         this.later(id, SAMPLE_EXTRA_USAGE, null, 3);
@@ -3102,7 +3145,26 @@ class MockAgent {
         this.later(id, answer(routes, "There are two routes, in `src/routes.ts`."), "working", 20);
         this.later(id, answer(tests, "The tests cover one of them."), "working", 32);
         this.later(id, { type: "text", text: "Two routes, one of them tested." }, "working", 33);
-        this.later(id, done, "idle", 34);
+        this.later(id, this.delegatedTokens(id, [routes, tests], done), "idle", 34);
+    }
+
+    /**
+     * The tokens of a turn that started two sub-agents, published as it goes: its own requests
+     * before and after they work, and each sub-agent's apart. Says `done` with its own.
+     */
+    private delegatedTokens(id: number, [routes, tests]: string[], done: AgentEvent): AgentEvent {
+        if (!(this.saysTokens(id) && routes && tests)) {
+            return done;
+        }
+        const first = this.request(id, null, [0.2, 1.8], NO_TOKENS, 21_000);
+        this.request(id, routes, [3, 19], NO_TOKENS, 9_800);
+        this.request(id, tests, [6, 31], NO_TOKENS, 12_500);
+        return withTokens(done, this.request(id, null, [32, 33], first, 2_400));
+    }
+
+    /** Whether the session's agent says what its turns use, as only Claude Code does. */
+    private saysTokens(id: number): boolean {
+        return this.agentOf(id) === "claude";
     }
 
     /** Puts questions to the user the way Claude Code does, and says back what was answered. */

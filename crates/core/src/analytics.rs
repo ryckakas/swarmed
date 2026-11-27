@@ -217,6 +217,7 @@ mod tests {
             result: None,
             cost_usd: total,
             duration_ms: ms,
+            tokens: None,
         }
     }
 

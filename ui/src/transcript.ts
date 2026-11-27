@@ -1,4 +1,4 @@
-import type { AgentEvent, AppCsp, PullChange, ScreenSection, ToolCalls } from "./api/types";
+import type { AgentEvent, AppCsp, PullChange, ScreenSection, Tokens, ToolCalls } from "./api/types";
 import type { ListedElement } from "./elements";
 import { type GitHubMentioned, splitMentioned } from "./githubMentions";
 import { shownHtml } from "./htmlview";
@@ -122,6 +122,8 @@ export type Item =
           costUsd: number | null;
           /** How long the turn took, if it was measured. */
           durationMs: number | null;
+          /** The tokens the session's own agent used in it, if the agent said. */
+          tokens: Tokens | null;
       }
     | { kind: "notice"; key: number; tone: "error" | "warning"; text: string }
     /**
@@ -362,6 +364,7 @@ function single(event: AgentEvent, key: number, words: Words): Item | null {
                 isError: event.is_error,
                 costUsd: event.cost_usd,
                 durationMs: event.duration_ms ?? null,
+                tokens: event.tokens ?? null,
             };
         case "exited":
             return exitNotice(event, key);

@@ -194,6 +194,7 @@ mod tests {
             result: result.map(str::to_string),
             cost_usd: None,
             duration_ms: None,
+            tokens: None,
         };
         event(Some(SessionStatus::Idle), done)
     }

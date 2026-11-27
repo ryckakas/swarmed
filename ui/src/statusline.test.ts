@@ -9,6 +9,7 @@ import {
     movedItem,
     type StatusSource,
     statusParts,
+    tokensUsed,
     withItem,
 } from "./statusline";
 
@@ -203,5 +204,36 @@ describe("the time worked", () => {
         expect(statusParts(["duration"], source())).toEqual([]);
         const parts = statusParts(["duration"], source({ events: [took], running: 9_000 }));
         expect(parts.map((part) => part.text)).toEqual(["1m 10s"]);
+    });
+});
+
+describe("the tokens used", () => {
+    const told = (input: number, output: number): AgentEvent => ({
+        type: "turn_done",
+        is_error: false,
+        result: null,
+        cost_usd: null,
+        tokens: { input, output },
+    });
+
+    it("adds up the turns that said, and the one under way", () => {
+        const events = [told(1000, 20), done(null), told(500, 5)];
+        expect(tokensUsed(events, null)).toEqual({ input: 1500, output: 25 });
+        expect(tokensUsed(events, { input: 10, output: 1 })).toEqual({ input: 1510, output: 26 });
+        expect(tokensUsed([done(null)], { input: 10, output: 1 })).toEqual({
+            input: 10,
+            output: 1,
+        });
+        // Nothing said any: no piece, rather than a count of nothing.
+        expect(tokensUsed([done(null)], null)).toBeNull();
+    });
+
+    it("are a piece of their own, shown once any turn said", () => {
+        expect(statusParts(["tokens"], source({ events: [done(0.1)] }))).toEqual([]);
+        const parts = statusParts(
+            ["tokens"],
+            source({ events: [told(43_790, 97)], runningTokens: { input: 1200, output: 13 } }),
+        );
+        expect(parts.map((part) => part.text)).toEqual(["45.1k tokens"]);
     });
 });

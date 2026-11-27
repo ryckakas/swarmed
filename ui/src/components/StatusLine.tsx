@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useState } from "react";
 import { api } from "../api";
 import type { AgentEvent, FileChange, Session, Task } from "../api/types";
 import { isChats } from "../chats";
+import { scrollKey } from "../scrollSpot";
 import {
     type ContextUsage,
     contextBreakdown,
@@ -81,8 +82,20 @@ function BuiltIn({ project, task, session, events }: Props) {
 
     const words = useWords();
     const running = useRunning(session.id, items.includes("duration"));
+    // Only when it is shown: the count changes many times a second while an answer comes in.
+    const runningTokens = useStore((state) =>
+        items.includes("tokens") ? state.turnTokens[scrollKey(session.id)]?.tokens : undefined,
+    );
     const usualEffort = useEffortDefault(session.agent, session.model);
-    const parts = statusParts(items, { session, task, events, changes, running, usualEffort });
+    const parts = statusParts(items, {
+        session,
+        task,
+        events,
+        changes,
+        running,
+        runningTokens: runningTokens ?? null,
+        usualEffort,
+    });
     const usage = contextUsage(events);
     // Where the context badge starts, while its overview is shown: the overview stands over it.
     const [detail, setDetail] = useState<number | null>(null);

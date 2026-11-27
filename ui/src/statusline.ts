@@ -1,4 +1,4 @@
-import type { AgentEvent, FileChange, Session, StatusItem, Task } from "./api/types";
+import type { AgentEvent, FileChange, Session, StatusItem, Task, Tokens } from "./api/types";
 import { formatDuration, timeWorked } from "./turns";
 import { capitalized, type Words } from "./wording";
 
@@ -13,6 +13,7 @@ export const STATUS_ITEM_LABELS: Record<StatusItem, string> = {
     agent: "Agent",
     worktree: "Worktree",
     duration: "Time worked",
+    tokens: "Tokens",
 };
 
 /** The pieces the style has words of its own for. */
@@ -41,6 +42,8 @@ export interface StatusSource {
     changes: FileChange[] | null;
     /** How long the turn that is running has run so far, in milliseconds, if that is known. */
     running?: number | null;
+    /** What the turn that is running has used so far, if the agent says. */
+    runningTokens?: Tokens | null;
     /** What the agent's default effort last came to, for before this session's agent says. */
     usualEffort?: string | null;
 }
@@ -173,6 +176,28 @@ function worked({ events, running }: StatusSource): string | null {
     return total > 0 ? formatDuration(total) : null;
 }
 
+/**
+ * The tokens the session's agent has used: the turns that said, added up, and the one under
+ * way. `null` when nothing said any.
+ */
+export function tokensUsed(events: AgentEvent[], running: Tokens | null): Tokens | null {
+    let used = running;
+    for (const event of events) {
+        if (event.type === "turn_done" && event.tokens !== undefined) {
+            used = {
+                input: (used?.input ?? 0) + event.tokens.input,
+                output: (used?.output ?? 0) + event.tokens.output,
+            };
+        }
+    }
+    return used;
+}
+
+function tokens({ events, runningTokens }: StatusSource): string | null {
+    const used = tokensUsed(events, runningTokens ?? null);
+    return used === null ? null : `${formatTokens(used.input + used.output)} tokens`;
+}
+
 const plain = (text: string | null): StatusPart["runs"] | null =>
     text === null || text === "" ? null : [[text, "plain"]];
 
@@ -185,6 +210,7 @@ const RUNS: Record<StatusItem, (source: StatusSource) => StatusPart["runs"] | nu
     agent: ({ session }) => plain(session.agent),
     worktree: ({ task }) => plain(task.worktree_path),
     duration: (source) => plain(worked(source)),
+    tokens: (source) => plain(tokens(source)),
 };
 
 /** The chosen pieces that have something to show, in the order chosen. */
