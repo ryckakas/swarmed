@@ -356,11 +356,12 @@ a dev server may never end. Reading what a command printed is Claude Code's alon
 A session whose agent has something running in the background never looks merely idle in the
 sidebar: something circles its mark while that runs. While sub-agents are at work, a small grub
 for each (up to three) runs round it on a faint track, or an arc in the plain style; while only
-commands run, a faint dashed thread creeps round it, quieter. With reduced motion turned on in
-the system, each is a still ring. Pointed at, the mark says what runs, and a folded task or
-repository shows what runs in it the same way, below working and above idle. A command that runs
-for good, such as a dev server, keeps its session marked for good: stop it from the Background
-list once you no longer need it. The session is still idle, and a message goes at once.
+commands run, a small faint fly for each (up to three) drifts round it, quieter. With reduced
+motion turned on in the system, each is a still ring. Pointed at, the mark says what runs, and a
+folded task or repository shows what runs in it the same way, below working and above idle. A
+command that runs for good, such as a dev server, keeps its session marked for good: stop it
+from the Background list once you no longer need it. The session is still idle, and a message
+goes at once.
 
 ## Screenshots and other images tools return
 

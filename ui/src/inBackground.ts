@@ -1,6 +1,6 @@
 // What the sidebar's marks say of work a session's agent left running in the background
 // (#420). Pure, so it can be tested. What runs is drawn moving, since what is still runs
-// nothing: a grub per sub-agent at work, or for commands a thread that creeps round.
+// nothing: a grub per sub-agent at work, or a fly per command left running.
 
 import type { BackgroundCount, SessionStatus } from "./api/types";
 
@@ -104,4 +104,63 @@ export function broodBeads(size: number, period: number): Bead[] {
         }
     }
     return beads;
+}
+
+/** The most flies that buzz round a mark, however many commands are left running. */
+export const FLIES_MOST = 3;
+
+/**
+ * How many flies buzz round a mark: one for each command left running, up to `FLIES_MOST`, so
+ * the eye can count a few. None while no command runs.
+ */
+export function fliesSize(count: BackgroundCount): number {
+    return Math.min(Math.max(count.commands, 0), FLIES_MOST);
+}
+
+/**
+ * One fly buzzing round a mark. It turns round it as a grub does, by two swings a quarter of a
+ * turn apart, and weaves a little across and up and down on top of that, out of step, so it
+ * never keeps to the oval. Each start is negative, so that it is on its way from the first frame.
+ */
+export interface Flight {
+    /** Seconds for half a turn round the mark. */
+    halfTurn: number;
+    /** When the swing across starts, in seconds. */
+    across: number;
+    /** When the swing up and down starts, in seconds: a quarter of a turn either way. */
+    upDown: number;
+    /** Seconds for each weave across, and up and down. */
+    weaveAcross: number;
+    weaveUpDown: number;
+}
+
+/**
+ * Each fly's own pace: how long a turn takes, which way it goes and how quick it weaves. No two
+ * alike, so they never fall into step; the weave is unhurried, so they drift rather than jitter.
+ */
+const PACES: readonly {
+    turn: number;
+    backwards: boolean;
+    weaveAcross: number;
+    weaveUpDown: number;
+}[] = [
+    { turn: 3.4, backwards: false, weaveAcross: 0.62, weaveUpDown: 0.47 },
+    { turn: 4.2, backwards: true, weaveAcross: 0.78, weaveUpDown: 0.66 },
+    { turn: 5, backwards: false, weaveAcross: 0.55, weaveUpDown: 0.71 },
+];
+
+/** The flights of `size` flies, spread round the mark, up to `FLIES_MOST`. */
+export function flights(size: number): Flight[] {
+    const shown = PACES.slice(0, Math.max(size, 0));
+    return shown.map((pace, at) => {
+        const along = -(at * pace.turn) / shown.length;
+        const behind = pace.backwards ? (pace.turn * 3) / 4 : pace.turn / 4;
+        return {
+            halfTurn: seconds(pace.turn / 2),
+            across: seconds(along),
+            upDown: seconds(along - behind),
+            weaveAcross: pace.weaveAcross,
+            weaveUpDown: pace.weaveUpDown,
+        };
+    });
 }

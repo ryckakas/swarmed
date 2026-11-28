@@ -6,6 +6,9 @@ import {
     backgroundShown,
     broodBeads,
     broodSize,
+    FLIES_MOST,
+    fliesSize,
+    flights,
     NOTHING_IN_BACKGROUND,
 } from "./inBackground";
 
@@ -74,5 +77,48 @@ describe("broodBeads", () => {
 
     it("gives no beads for no grubs", () => {
         expect(broodBeads(0, 2.4)).toEqual([]);
+    });
+});
+
+describe("fliesSize", () => {
+    it("is one fly for each command left running, up to a few, and none without", () => {
+        expect(fliesSize({ agents: 4, commands: 0 })).toBe(0);
+        expect(fliesSize({ agents: 0, commands: 2 })).toBe(2);
+        expect(fliesSize({ agents: 0, commands: 9 })).toBe(FLIES_MOST);
+    });
+});
+
+describe("flights", () => {
+    it("gives a flight for each fly, up to a few, and none for none", () => {
+        expect(flights(1)).toHaveLength(1);
+        expect(flights(9)).toHaveLength(FLIES_MOST);
+        expect(flights(0)).toEqual([]);
+    });
+
+    it("has every fly on its way from the first frame", () => {
+        for (const flight of flights(3)) {
+            expect(flight.across).toBeLessThanOrEqual(0);
+            expect(flight.upDown).toBeLessThan(flight.across);
+        }
+    });
+
+    it("gives no two flies the same pace, and not all the same way", () => {
+        const all = flights(3);
+        expect(new Set(all.map((flight) => flight.halfTurn)).size).toBe(3);
+        const ways = all.map((flight) => (flight.across - flight.upDown) / flight.halfTurn);
+        expect(ways.map((way) => Math.round(way * 2))).toEqual([1, 3, 1]);
+    });
+
+    it("weaves a few times a turn, never so quick that it jitters", () => {
+        for (const flight of flights(3)) {
+            for (const weave of [flight.weaveAcross, flight.weaveUpDown]) {
+                expect(weave).toBeLessThan(flight.halfTurn / 2);
+                expect(weave).toBeGreaterThanOrEqual(0.4);
+            }
+        }
+    });
+
+    it("spreads the flies round the mark", () => {
+        expect(flights(2).map((flight) => flight.across)).toEqual([0, -2.1]);
     });
 });

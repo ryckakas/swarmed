@@ -7,6 +7,8 @@ import {
     backgroundShown,
     broodBeads,
     broodSize,
+    fliesSize,
+    flights,
     NOTHING_IN_BACKGROUND,
 } from "../inBackground";
 import { useStore } from "../store";
@@ -61,7 +63,7 @@ interface Props {
  * looked at is told apart from one that is merely idle; a session that is busy, waiting or
  * failed already says more than "unread" would. An idle one with work left in the background
  * is never drawn as merely idle: something circles it while that runs, a grub for each
- * sub-agent at work, or for commands left running a quieter thread that creeps round.
+ * sub-agent at work, or for commands left running a fly for each, quieter, buzzing round.
  */
 export function StatusMark({
     status,
@@ -75,6 +77,7 @@ export function StatusMark({
     const hatching = useHatching(kind);
     const ring = backgroundShown(status, background) ?? undefined;
     const brood = broodSize(background);
+    const flies = fliesSize(background);
     const name = label ?? own;
     if (!swarm) {
         return (
@@ -85,12 +88,12 @@ export function StatusMark({
                 aria-label={name}
                 title={name}
             >
-                {ring && <DotOrbit level={ring} />}
+                {ring && <DotOrbit level={ring} flies={flies} />}
             </span>
         );
     }
     const Shape = SHAPES[kind];
-    return <Shape label={name} hatching={hatching} background={ring} brood={brood} />;
+    return <Shape label={name} hatching={hatching} background={ring} brood={brood} flies={flies} />;
 }
 
 interface ShapeProps {
@@ -101,6 +104,8 @@ interface ShapeProps {
     background?: BackgroundLevel | undefined;
     /** How many grubs circle it: one for each sub-agent at work, up to a few. */
     brood: number;
+    /** How many flies buzz round it: one for each command left running, up to a few. */
+    flies: number;
 }
 
 /** The oval an orbit runs on round a shape, in the shape's own units. */
@@ -126,19 +131,33 @@ const GRUB_ORBIT: OrbitPath = { cx: 8.6, cy: 5, rx: 9.8, ry: 6.8, period: 2.8 };
 /** Round the plain style's dot, where its ring stood. Its arc keeps the pace the styles set. */
 const DOT_ORBIT: Oval = { cx: 4, cy: 4, rx: 6.5, ry: 6.5 };
 
+/** Where flies buzz round the plain style's dot: a little inside its arc, since they weave out. */
+const DOT_FLIES: Oval = { cx: 4, cy: 4, rx: 5.6, ry: 5.6 };
+
 /** An orbit's oval alone, as an ellipse's attributes. */
 function oval(path: Oval): Oval {
     return { cx: path.cx, cy: path.cy, rx: path.rx, ry: path.ry };
 }
 
+/** How many of each circle a shape: grubs for sub-agents at work, flies for commands. */
+interface Counts {
+    brood: number;
+    flies: number;
+}
+
 /**
  * What runs in the background, circling a shape of the swarm's: for sub-agents at work a grub
- * for each, on a faint track; for commands left running, often on purpose, a thread of silk
- * that creeps round, quieter. Drawn under the shape.
+ * for each, on a faint track; for commands left running, often on purpose, a fly for each,
+ * smaller and fainter, buzzing round. Drawn under the shape.
  */
-function Orbit({ path, level, brood }: { path: OrbitPath; level: BackgroundLevel; brood: number }) {
+function Orbit({
+    path,
+    level,
+    brood,
+    flies,
+}: { path: OrbitPath; level: BackgroundLevel } & Counts) {
     if (level === "commands") {
-        return <ellipse className="orbit orbit-silk" {...oval(path)} pathLength={100} />;
+        return <Flies path={path} size={flies} />;
     }
     const style = {
         "--rx": `${path.rx}px`,
@@ -170,14 +189,65 @@ function Orbit({ path, level, brood }: { path: OrbitPath; level: BackgroundLevel
 }
 
 /**
- * The plain style's: round its dot, for sub-agents at work an arc that runs round a faint track,
- * and for commands left running the same quiet thread as the swarm's.
+ * Flies buzzing round a shape, one for each command left running: each turns round it at a pace
+ * of its own, some one way and some the other, weaving a little as it goes. They keep to no
+ * track; the oval they fly round is drawn only without motion, as the still ring for them.
  */
-function DotOrbit({ level }: { level: BackgroundLevel }) {
+function Flies({ path, size }: { path: Oval; size: number }) {
+    const style = { "--rx": `${path.rx}px`, "--ry": `${path.ry}px` } as CSSProperties;
+    return (
+        <g className="orbit" data-level="commands" style={style}>
+            <ellipse className="orbit-track" {...oval(path)} />
+            {flights(Math.max(size, 1)).map((flight) => (
+                <g
+                    key={flight.across}
+                    className="orbit-across"
+                    style={
+                        {
+                            "--half-turn": `${flight.halfTurn}s`,
+                            animationDelay: `${flight.across}s`,
+                        } as CSSProperties
+                    }
+                >
+                    <g className="orbit-up-down" style={{ animationDelay: `${flight.upDown}s` }}>
+                        <Weaving across={flight.weaveAcross} upDown={flight.weaveUpDown}>
+                            <circle className="orbit-bead" cx={path.cx} cy={path.cy} r={0.9} />
+                        </Weaving>
+                    </g>
+                </g>
+            ))}
+        </g>
+    );
+}
+
+/** A fly's weave, across and up and down, out of step, on top of its turn. */
+function Weaving({
+    across,
+    upDown,
+    children,
+}: {
+    across: number;
+    upDown: number;
+    children: React.ReactNode;
+}) {
+    return (
+        <g className="orbit-weave-across" style={{ animationDuration: `${across}s` }}>
+            <g className="orbit-weave-up-down" style={{ animationDuration: `${upDown}s` }}>
+                {children}
+            </g>
+        </g>
+    );
+}
+
+/**
+ * The plain style's: round its dot, for sub-agents at work an arc that runs round a faint track,
+ * and for commands left running the same flies as the swarm's.
+ */
+function DotOrbit({ level, flies }: { level: BackgroundLevel; flies: number }) {
     return (
         <svg className="mark-orbit" viewBox="0 0 8 8" aria-hidden="true">
             {level === "commands" ? (
-                <ellipse className="orbit orbit-silk" {...DOT_ORBIT} pathLength={100} />
+                <Flies path={DOT_FLIES} size={flies} />
             ) : (
                 <g className="orbit" data-level="agents">
                     <ellipse className="orbit-track" {...DOT_ORBIT} />
@@ -193,15 +263,19 @@ export function Egg({
     label,
     background,
     brood = 0,
+    flies = 0,
 }: {
     label: string;
     background?: BackgroundLevel | undefined;
     brood?: number;
+    flies?: number;
 }) {
     return (
         <svg className="egg" viewBox="0 0 12 14" role="img" aria-label={label}>
             <title>{label}</title>
-            {background && <Orbit path={SAC_ORBIT} level={background} brood={brood} />}
+            {background && (
+                <Orbit path={SAC_ORBIT} level={background} brood={brood} flies={flies} />
+            )}
             <path
                 className="swarm-body"
                 d="M6 .8C3.4.8 2 4.2 2 7a4 4 0 0 0 8 0C10 4.2 8.6.8 6 .8z"
@@ -225,7 +299,7 @@ function Crawling({ label }: ShapeProps) {
  * The same grub, glowing: it has hatched an answer nobody has looked at. What it left at work
  * circles it as it circles the sac.
  */
-function Hatched({ label, hatching, background, brood }: ShapeProps) {
+function Hatched({ label, hatching, background, brood, flies }: ShapeProps) {
     return (
         <svg
             className="larva larva-unread"
@@ -235,7 +309,9 @@ function Hatched({ label, hatching, background, brood }: ShapeProps) {
             aria-label={label}
         >
             <title>{label}</title>
-            {background && <Orbit path={GRUB_ORBIT} level={background} brood={brood} />}
+            {background && (
+                <Orbit path={GRUB_ORBIT} level={background} brood={brood} flies={flies} />
+            )}
             <Grub />
         </svg>
     );
