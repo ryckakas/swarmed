@@ -268,7 +268,7 @@ impl Core {
             )));
         }
         let config = self.config_in(&project.name, task.environment.as_deref())?;
-        let fingerprint = taken_with(&task.worktree_path, "HEAD", &config.snapshot_keys).await?;
+        let fingerprint = task_taken_with(&task, &config.snapshot_keys, &hooks::discard).await;
         let folder = self.snapshot_folder(&project.name, task.environment.as_deref());
         let Some(building) = building_lock(&folder)? else {
             return Err(failed(
@@ -309,7 +309,7 @@ impl Core {
     ) -> Result<Option<About>> {
         let folder = self.snapshot_folder(&project.name, task.environment.as_deref());
         let config = self.config_in(&project.name, task.environment.as_deref())?;
-        let fingerprint = taken_with(&task.worktree_path, "HEAD", &config.snapshot_keys).await?;
+        let fingerprint = task_taken_with(task, &config.snapshot_keys, sink).await;
         let newer = match fingerprint.as_deref() {
             Some(taken) => self.has_the_bases(project, task, &config, taken).await,
             None => false,
@@ -525,6 +525,21 @@ async fn taken_with(dir: &Path, commit: &str, keys: &[String]) -> Result<Option<
     args.extend(keys.iter().map(String::as_str));
     let listed = git::git(dir, &args).await?;
     Ok(Some(format!("{:016x}", fnv1a(listed.as_bytes()))))
+}
+
+/// [`taken_with`] in the task's worktree, or `None` when git cannot list the keys, such as a
+/// path outside the repository, which is said: a bad key costs the replacing of a snapshot,
+/// never the keeping of one.
+async fn task_taken_with(task: &Task, keys: &[String], sink: OutputSink<'_>) -> Option<String> {
+    match taken_with(&task.worktree_path, "HEAD", keys).await {
+        Ok(fingerprint) => fingerprint,
+        Err(error) => {
+            sink(&format!(
+                "the files named in snapshot_keys could not be read, so no snapshot takes another's place: {error}"
+            ));
+            None
+        }
+    }
 }
 
 /// The 64-bit FNV-1a hash of `bytes`. The same in every Swarmed, which the standard library's

@@ -1840,6 +1840,33 @@ async fn a_task_whose_setup_ends_after_the_base_moved_on_leaves_the_newer_snapsh
 }
 
 #[tokio::test]
+async fn a_key_git_cannot_read_costs_the_replacing_and_never_the_first_snapshot() {
+    let fx = fixture_with_lock(false, BUILD_FROM_LOCK);
+    write_config(
+        &fx,
+        &format!("snapshot_keys = [\"../outside.lock\"]\n[hooks]\nsetup = \"{BUILD_FROM_LOCK}\"\n"),
+    );
+    let core = core_with_project(&fx).await;
+    let said = Mutex::new(Vec::<String>::new());
+    let note = |line: &str| said.lock().expect("not poisoned").push(line.to_string());
+    let new = |name: &'static str| core.task_new("demo", name, NewTaskOptions::default(), &note);
+
+    // The first is kept all the same, and setup says why no fingerprint was taken.
+    new("one").await.expect("creates");
+    assert_eq!(kept_and_behind(&core).await, [("one".to_string(), false)]);
+    let lines = std::mem::take(&mut *said.lock().expect("not poisoned"));
+    let unread = "the files named in snapshot_keys could not be read";
+    assert!(lines.iter().any(|line| line.contains(unread)), "{lines:?}");
+
+    // Nothing takes its place while the key cannot be read, and saving by hand still works.
+    commit_file(&fx, "deps.lock", "v2\n");
+    new("two").await.expect("creates");
+    assert_eq!(kept_and_behind(&core).await, [("one".to_string(), false)]);
+    let saved = core.snapshot_save("demo", "two").await.expect("saves");
+    assert_eq!(saved.task, "two");
+}
+
+#[tokio::test]
 async fn without_snapshot_keys_the_first_snapshot_stays_until_they_are_named() {
     let fx = fixture_with_lock(false, BUILD_FROM_LOCK);
     let core = core_with_project(&fx).await;
