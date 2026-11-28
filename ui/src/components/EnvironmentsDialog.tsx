@@ -5,6 +5,8 @@ import {
     EMPTY_ENVIRONMENT,
     envFromText,
     envToText,
+    keysFromText,
+    keysToText,
     OWN_SETUP,
     portsFromText,
     portsToText,
@@ -47,6 +49,8 @@ interface Draft {
     maxStacks: string;
     /** How many setups may run at once, as typed; empty for the repository's own limit. */
     maxSetups: string;
+    /** The files its dependencies are pinned in, one to a line; empty for the repository's. */
+    snapshotKeys: string;
 }
 
 /** The form's id, so that the buttons below what scrolls can submit it. */
@@ -64,6 +68,7 @@ const NEW: Draft = {
     ports: "",
     maxStacks: "",
     maxSetups: "",
+    snapshotKeys: "",
 };
 
 function draftOf(name: string, environment: Environment): Draft {
@@ -79,6 +84,7 @@ function draftOf(name: string, environment: Environment): Draft {
         ports: portsToText(environment.ports ?? {}),
         maxStacks: stacksToText(environment.max_stacks),
         maxSetups: stacksToText(environment.max_setups),
+        snapshotKeys: keysToText(environment.snapshot_keys),
     };
 }
 
@@ -86,6 +92,7 @@ function draftOf(name: string, environment: Environment): Draft {
 function environmentOf(draft: Draft): Environment {
     const maxStacks = stacksFromText(draft.maxStacks);
     const maxSetups = setupsFromText(draft.maxSetups);
+    const snapshotKeys = keysFromText(draft.snapshotKeys);
     return {
         ...EMPTY_ENVIRONMENT,
         setup: draft.setup.trim(),
@@ -97,6 +104,7 @@ function environmentOf(draft: Draft): Environment {
         env: envFromText(draft.variables),
         ...(maxStacks === undefined ? {} : { max_stacks: maxStacks }),
         ...(maxSetups === undefined ? {} : { max_setups: maxSetups }),
+        ...(snapshotKeys.length === 0 ? {} : { snapshot_keys: snapshotKeys }),
     };
 }
 
@@ -373,6 +381,13 @@ function Form({ draft, onChange, onSave }: FormProps) {
                     onChange={(event) => set({ maxSetups: event.target.value })}
                 />
             </label>
+            <Script
+                label="Dependency files"
+                hint={`Optional. The files git tracks that its dependencies are pinned in, one path to a line. Once one changes on the base branch, the next ${words.terms.task} started from it is kept as the ${words.snapshot.toLowerCase()} in place of the old one, so new ${words.terms.task}s have less to install. Left empty, the repository's own snapshot_keys apply.`}
+                placeholder={"pnpm-lock.yaml\ncomposer.lock"}
+                value={draft.snapshotKeys}
+                onChange={(snapshotKeys) => set({ snapshotKeys })}
+            />
             <Script
                 label="Ports"
                 hint="One name=number per line. Each task gets its own number for a port, so stacks can run side by side: write {{port.web}} in the commands, variables and address instead of the number."

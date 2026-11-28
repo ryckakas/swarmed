@@ -127,6 +127,8 @@ import type {
 // - `invoice-export`'s first session answered with formulas in every form math is drawn from
 //   (`VAT_ANSWER`). Its second is idle with a sub-agent at work and a dev server left running;
 //   stopping them from the Background list changes its mark.
+// - storefront's `staging` names `package-lock.json` as its dependency files, and its snapshot
+//   is behind the base (`BEHIND_SNAPSHOT`).
 // - A new task's setup (`mockSetups.ts`) is quick in storefront's `staging`, never shown on
 //   storefront's own (nothing to run, so it ends within `SETUP_GRACE`), half a minute in
 //   bonsai-lint, and killed the first time in fsum, then fine when run again.
@@ -988,11 +990,23 @@ function highlightApi(projects: () => Project[]): Pick<Api, "taskHighlight" | "s
     };
 }
 
-/** Snapshots of the sample projects: none to begin with, kept as they are taken. */
+/** A week old, and behind: `package-lock.json` has changed on storefront's base since. */
+const BEHIND_SNAPSHOT: Snapshot = {
+    environment: "staging",
+    task: "checkout-redesign",
+    taken_at: Math.floor(Date.now() / 1000) - 7 * 24 * 3600,
+    entries: 4,
+    behind: true,
+};
+
+/**
+ * Snapshots of the sample projects: storefront's `staging` one is behind the base, the others
+ * none to begin with, kept as they are taken.
+ */
 function snapshotApi(
     projects: () => Project[],
 ): Pick<Api, "snapshots" | "snapshotSave" | "snapshotRemove"> {
-    const kept = new Map<string, Snapshot[]>();
+    const kept = new Map<string, Snapshot[]>([["storefront", [BEHIND_SNAPSHOT]]]);
     const of = (project: string) => kept.get(project) ?? [];
     return {
         snapshots: async (project) => [...of(project)],
@@ -1004,6 +1018,7 @@ function snapshotApi(
                 task: name,
                 taken_at: Math.floor(Date.now() / 1000),
                 entries: 3,
+                behind: false,
             };
             const others = of(project).filter((one) => one.environment !== environment);
             kept.set(project, [...others, snapshot]);
@@ -1517,6 +1532,7 @@ function environmentApi(): EnvironmentApi {
                     open_url: "http://localhost:{{port.web}}",
                     ports: { web: 3000 },
                     env: { APP_ENV: "staging", DATABASE_URL: "postgres://localhost/{{task}}" },
+                    snapshot_keys: ["package-lock.json"],
                 },
             },
         ],

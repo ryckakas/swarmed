@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { Snapshot } from "../api/types";
-import { type SnapshotRow, snapshotRows, takenAt } from "../snapshots";
+import { type SnapshotRow, snapshotHint, snapshotRows } from "../snapshots";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
 import { withArticle } from "../wording";
@@ -39,7 +39,7 @@ export function Snapshots({ project, environments }: Props) {
         <section className="snapshots" aria-label={words.snapshots}>
             <h3>{words.snapshots}</h3>
             <p className="settings-hint">
-                {`Setting a task up again and again repeats the same installing and building. The first task set up well in an environment is kept as its ${words.snapshot.toLowerCase()}, and new tasks start with what git ignores in it already in place: dependencies, build output, local configuration. Their setup still runs, with less to do. Take it again from another task once what setup makes has changed. On this Mac's disk the copies share their space until they change.`}
+                {`Setting a task up again and again repeats the same installing and building. The first task set up well in an environment is kept as its ${words.snapshot.toLowerCase()}, and new tasks start with what git ignores in it already in place: dependencies, build output, local configuration. Their setup still runs, with less to do. With the files its dependencies are pinned in named (an environment's dependency files, or snapshot_keys in the repository's config), the next ${words.terms.task} started from the base branch is kept in its place once they change there. Otherwise take it again from another task once what setup makes has changed. On this Mac's disk the copies share their space until they change.`}
             </p>
             <ul className="snapshot-list">
                 {snapshotRows(environments, snapshots, tasks ?? []).map((row) => (
@@ -74,7 +74,7 @@ function Row({ row, busy, onTake, onForget }: RowProps) {
                 <p className="settings-label">{row.environment ?? words.ownSetup}</p>
                 <p className="settings-hint">
                     {snapshot
-                        ? `From ${snapshot.task}, ${takenAt(snapshot)}`
+                        ? snapshotHint(snapshot, words.terms.task)
                         : `No ${words.snapshot.toLowerCase()} yet: the next ${words.terms.task} set up well is kept as one.`}
                 </p>
             </div>

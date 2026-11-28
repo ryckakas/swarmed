@@ -1593,10 +1593,11 @@ pub(crate) fn session_interrupt(core: CoreState<'_>, id: i64) -> Command<()> {
     Ok(core.session_interrupt(id)?)
 }
 
-/// The project's snapshots: what tasks of each environment start from.
-#[tauri::command(async)]
-pub(crate) fn snapshots(core: CoreState<'_>, project: String) -> Command<Vec<Snapshot>> {
-    Ok(core.snapshots(&project)?)
+/// The project's snapshots: what tasks of each environment start from, and whether each is
+/// behind the base.
+#[tauri::command]
+pub(crate) async fn snapshots(core: CoreState<'_>, project: String) -> Command<Vec<Snapshot>> {
+    Ok(core.snapshots(&project).await?)
 }
 
 /// Keeps what a task's setup produced as the snapshot of its environment.

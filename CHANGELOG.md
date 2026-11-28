@@ -15,6 +15,16 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Snapshots keep up with the base branch.** Name the files your dependencies are pinned in,
+  such as `snapshot_keys = ["pnpm-lock.yaml", "composer.lock"]` in a repository's config or an
+  environment's **Dependency files**, and once they change on the base branch, the next task
+  started from it is kept as the snapshot in place of the old one, so new tasks stop
+  reinstalling more each week. Its setup says so. A task started from another branch or a pull
+  request's never replaces one. The snapshot list in the app and `swarmed snapshot list` say
+  when a snapshot is behind the base. Without the key, nothing changes.
+
 ### Changed
 
 - **Swarmed built-in folds away.** In Settings → MCP servers, the Swarmed built-in block is

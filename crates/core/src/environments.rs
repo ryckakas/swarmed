@@ -1,9 +1,10 @@
 //! Named environments of a project: different ways of setting a task up on this machine.
 //!
 //! An environment is a `setup` command, a `start` command for what is to keep running, `stop`
-//! and `teardown` commands, environment variables, the address of what it runs and how many
-//! stacks may run at once. Each is laid over the project's own configuration, so one says only
-//! what it does differently. A task is created in one of them, or in none, and keeps it.
+//! and `teardown` commands, environment variables, the address of what it runs, how many
+//! stacks may run at once and the files its dependencies are pinned in. Each is laid over the
+//! project's own configuration, so one says only what it does differently. A task is created
+//! in one of them, or in none, and keeps it.
 //!
 //! They live in a file of their own beside the project's configuration, written from a front
 //! end. Their variables may hold credentials: the file is readable by the user alone, and the
@@ -61,6 +62,11 @@ pub struct Environment {
     /// limit. `None` leaves the project's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_setups: Option<u32>,
+    /// The tracked files this environment's dependencies are pinned in, in place of the
+    /// project's `snapshot_keys`: once one differs from what its snapshot was taken with, the
+    /// next task started from the base takes its place.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub snapshot_keys: Vec<String>,
 }
 
 impl std::fmt::Debug for Environment {
@@ -76,6 +82,7 @@ impl std::fmt::Debug for Environment {
             .field("env", &self.env.keys().collect::<Vec<_>>())
             .field("max_stacks", &self.max_stacks)
             .field("max_setups", &self.max_setups)
+            .field("snapshot_keys", &self.snapshot_keys)
             .finish()
     }
 }
@@ -95,6 +102,9 @@ impl Environment {
         }
         if let Some(limit) = self.max_setups {
             config.max_setups = limit;
+        }
+        if !self.snapshot_keys.is_empty() {
+            config.snapshot_keys.clone_from(&self.snapshot_keys);
         }
         config
     }
@@ -370,6 +380,24 @@ mod tests {
         assert_eq!(unlimited.over(config).max_setups, 0);
         let plain = toml::to_string(&Environment::default()).expect("writes");
         assert!(!plain.contains("max_setups"), "{plain}");
+    }
+
+    #[test]
+    fn an_environments_snapshot_keys_take_the_place_of_the_projects() {
+        let config = ProjectConfig {
+            snapshot_keys: vec!["Cargo.lock".to_string()],
+            ..ProjectConfig::default()
+        };
+        let plain = Environment::default();
+        assert_eq!(plain.over(config.clone()).snapshot_keys, ["Cargo.lock"]);
+        let own = Environment {
+            snapshot_keys: vec!["pnpm-lock.yaml".to_string(), "composer.lock".to_string()],
+            ..Environment::default()
+        };
+        let seen = own.over(config).snapshot_keys;
+        assert_eq!(seen, ["pnpm-lock.yaml", "composer.lock"]);
+        let written = toml::to_string(&Environment::default()).expect("writes");
+        assert!(!written.contains("snapshot_keys"), "{written}");
     }
 
     #[test]

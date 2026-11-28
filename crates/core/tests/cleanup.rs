@@ -419,7 +419,7 @@ async fn a_snapshot_being_taken_is_kept_and_one_cut_short_goes() {
         "{cleaned:?}"
     );
     assert!(!snapshots.join("_new.staging").exists());
-    assert_eq!(core.snapshots("demo").expect("reads").len(), 1);
+    assert_eq!(core.snapshots("demo").await.expect("reads").len(), 1);
 
     lock.unlock().expect("unlocks");
     let cleaned = core
@@ -427,7 +427,7 @@ async fn a_snapshot_being_taken_is_kept_and_one_cut_short_goes() {
         .await
         .expect("cleans");
     assert_eq!(cleaned.deleted, [listed[0].key.clone()]);
-    assert_eq!(core.snapshots("demo").expect("reads"), []);
+    assert_eq!(core.snapshots("demo").await.expect("reads"), []);
 }
 
 #[tokio::test]

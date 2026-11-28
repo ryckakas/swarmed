@@ -320,6 +320,11 @@ export interface Snapshot {
     taken_at: number;
     /** How many files and folders git ignores were kept, counted at the top of each. */
     entries: number;
+    /**
+     * Whether the files its environment's dependencies are pinned in have changed on the base
+     * branch since: the next task started from the base takes its place.
+     */
+    behind: boolean;
 }
 
 /** The turns of one day on one model of one agent in one task, added up. */
@@ -499,6 +504,11 @@ export interface Environment {
      * tasks to run its own; 0 is no limit. Left out, the project's own `max_setups`.
      */
     max_setups?: number;
+    /**
+     * The tracked files its dependencies are pinned in: once one changes on the base branch, the
+     * next task started from it keeps a newer snapshot. Left out, the project's `snapshot_keys`.
+     */
+    snapshot_keys?: string[];
 }
 
 /** One file or folder in a folder of a task's worktree. */
