@@ -39,19 +39,45 @@ jobs:
       #
       # Still asked of the mirror every time: it is small, and it is what says which versions
       # are current, so a cached package is never installed in place of a newer one.
+      #
+      # A runner has come with no Ubuntu archive among its sources at all, only Microsoft's
+      # (one on AWS, in November 2026), and apt then knew none of the packages. One that has
+      # read no list of the release is given the mirrors the image itself falls back to.
       - name: Read the package lists
         if: runner.os == 'Linux'
-        run: sudo apt-get update -o Acquire::Retries=3
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          codename=$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release)
+          if apt-cache policy | grep -q "o=Ubuntu,a=$codename,"; then
+            exit 0
+          fi
+          echo "::warning::The runner has no Ubuntu archive among its apt sources: adding it"
+          sudo tee /etc/apt/sources.list.d/ubuntu-archive.sources > /dev/null <<EOF
+          Types: deb
+          URIs: https://archive.ubuntu.com/ubuntu/
+          Suites: $codename $codename-updates $codename-backports
+          Components: main universe restricted multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+          Types: deb
+          URIs: https://security.ubuntu.com/ubuntu/
+          Suites: $codename-security
+          Components: main universe restricted multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          sudo apt-get update -o Acquire::Retries=3
 
       # What apt would download, by file name and checksum and not by address: the mirror
       # differs from runner to runner, the packages do not. A new version of any of them gives
-      # a new key, so a cache is either everything that is needed or not used at all.
+      # a new key, so a cache is either everything that is needed or not used at all. Without
+      # pipefail, apt failing here went unseen: the step took awk's word and named nothing.
       - name: Name what is to be installed
         if: runner.os == 'Linux'
         id: wanted
         env:
           PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
         run: |
+          set -o pipefail
           mkdir -p "$HOME/apt-archives/partial"
           read -r -a packages <<< "$PACKAGES"
           wanted=$(sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 \
@@ -76,6 +102,7 @@ jobs:
         env:
           PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
         run: |
+          set -o pipefail
           read -r -a packages <<< "$PACKAGES"
           sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 "${packages[@]}" |
             while read -r _ name _ sum; do
@@ -276,19 +303,45 @@ jobs:
       #
       # Still asked of the mirror every time: it is small, and it is what says which versions
       # are current, so a cached package is never installed in place of a newer one.
+      #
+      # A runner has come with no Ubuntu archive among its sources at all, only Microsoft's
+      # (one on AWS, in November 2026), and apt then knew none of the packages. One that has
+      # read no list of the release is given the mirrors the image itself falls back to.
       - name: Read the package lists
         if: runner.os == 'Linux'
-        run: sudo apt-get update -o Acquire::Retries=3
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          codename=$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release)
+          if apt-cache policy | grep -q "o=Ubuntu,a=$codename,"; then
+            exit 0
+          fi
+          echo "::warning::The runner has no Ubuntu archive among its apt sources: adding it"
+          sudo tee /etc/apt/sources.list.d/ubuntu-archive.sources > /dev/null <<EOF
+          Types: deb
+          URIs: https://archive.ubuntu.com/ubuntu/
+          Suites: $codename $codename-updates $codename-backports
+          Components: main universe restricted multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+          Types: deb
+          URIs: https://security.ubuntu.com/ubuntu/
+          Suites: $codename-security
+          Components: main universe restricted multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+          EOF
+          sudo apt-get update -o Acquire::Retries=3
 
       # What apt would download, by file name and checksum and not by address: the mirror
       # differs from runner to runner, the packages do not. A new version of any of them gives
-      # a new key, so a cache is either everything that is needed or not used at all.
+      # a new key, so a cache is either everything that is needed or not used at all. Without
+      # pipefail, apt failing here went unseen: the step took awk's word and named nothing.
       - name: Name what is to be installed
         if: runner.os == 'Linux'
         id: wanted
         env:
           PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
         run: |
+          set -o pipefail
           mkdir -p "$HOME/apt-archives/partial"
           read -r -a packages <<< "$PACKAGES"
           wanted=$(sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 \
@@ -313,6 +366,7 @@ jobs:
         env:
           PACKAGES: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
         run: |
+          set -o pipefail
           read -r -a packages <<< "$PACKAGES"
           sudo apt-get install --print-uris -qq -o Acquire::ForceHash=SHA256 "${packages[@]}" |
             while read -r _ name _ sum; do
