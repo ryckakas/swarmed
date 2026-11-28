@@ -2,6 +2,7 @@
 // Pure, so it can be tested.
 
 import type { Project, Session } from "./api/types";
+import { snoozed } from "./snooze";
 
 /** Why a session is in the inbox. */
 export type InboxKind = "waiting" | "errored" | "unread";
@@ -27,15 +28,16 @@ function kindOf(session: Session): InboxKind | null {
 
 /**
  * The sessions that wait for the user: those that ask for a decision, then those that failed,
- * then those with an answer nobody has looked at. Within a kind, in the sidebar's order.
+ * then those with an answer nobody has looked at. Within a kind, in the sidebar's order. One
+ * snoozed at `now`, in milliseconds since 1970, is left out until it wakes.
  */
-export function inbox(projects: Project[]): InboxItem[] {
+export function inbox(projects: Project[], now: number): InboxItem[] {
     const items = projects.flatMap((project) =>
         project.tasks
             .filter((task) => !task.archived)
             .flatMap((task) =>
                 task.sessions.flatMap((session): InboxItem[] => {
-                    const kind = kindOf(session);
+                    const kind = snoozed(session, now) ? null : kindOf(session);
                     return kind ? [{ session, project: project.name, task: task.name, kind }] : [];
                 }),
             ),

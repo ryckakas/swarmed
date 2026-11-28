@@ -1,16 +1,26 @@
-import { forkSession } from "../actions";
+import { forkSession, snoozeSession } from "../actions";
 import type { AgentEvent, Project, Session, Task } from "../api/types";
 import { isSwarm } from "../appearance";
 import { placeName } from "../chats";
+import { writtenHotkey } from "../hotkeys";
 import { agentName, iconForAgent } from "../providerIcons";
 import { scrollKey } from "../scrollSpot";
+import { snoozed, wakeTime } from "../snooze";
 import { useStore } from "../store";
 import { findSession, findSessionHome } from "../tree";
 import { useWords } from "../useWords";
 import { capitalized } from "../wording";
 import { CarryOnButton } from "./CarryOnDialog";
 import { Composer } from "./Composer";
-import { CloudIcon, EndIcon, ForkIcon, GlobeIcon, IconButton, PanelIcon } from "./IconButton";
+import {
+    CloudIcon,
+    EndIcon,
+    ForkIcon,
+    GlobeIcon,
+    IconButton,
+    PanelIcon,
+    SnoozeIcon,
+} from "./IconButton";
 import { NewTask } from "./NewTask";
 import { CLAUDE, useAgents, useSendsToBackground } from "./options";
 import { Picker } from "./Picker";
@@ -44,6 +54,7 @@ export function SessionPane() {
         selectedSessionId === null ? undefined : state.events[selectedSessionId],
     );
     const askToClose = useStore((state) => state.askToClose);
+    const askToSnooze = useStore((state) => state.askToSnooze);
     const words = useWords();
     const panelOpen = useStore((state) => state.panelOpen);
     const togglePanel = useStore((state) => state.togglePanel);
@@ -103,6 +114,12 @@ export function SessionPane() {
                             <PanelIcon />
                         </IconButton>
                     )}
+                    <IconButton
+                        label={`Snooze: out of the sidebar's list and the inbox until a time (${writtenHotkey("snooze")})`}
+                        onClick={() => askToSnooze(session.id)}
+                    >
+                        <SnoozeIcon />
+                    </IconButton>
                     {/* Last, at the far right: it ends the session, apart from what carries it on. */}
                     <IconButton
                         label={`${words.closeSession}: ${words.archiveSession.toLowerCase()} it, or ${words.deleteSession.toLowerCase()} it for good`}
@@ -118,6 +135,7 @@ export function SessionPane() {
                 <SessionTitle key={session.id} session={session} />
                 <div className="session-meta">
                     <StatusWords session={session} />
+                    <SnoozedUntil session={session} />
                     <p className="session-agent">
                         <ProviderMark icon={iconForAgent(session.agent)} />
                         {agentName(session.agent)}
@@ -237,6 +255,32 @@ function Facts({ session, task }: { session: Session; task: Task }) {
                 <dd>{session.model ?? "Claude Code's default"}</dd>
             </dl>
         </div>
+    );
+}
+
+/**
+ * While the session is snoozed, until when, beside its status: pressing it wakes the session
+ * now, as the clock beside one that goes on by itself cancels that.
+ */
+function SnoozedUntil({ session }: { session: Session }) {
+    const now = useStore((state) => state.snoozeNow);
+    if (!snoozed(session, now) || session.snoozed_until === null) {
+        return null;
+    }
+    const said = `Snoozed until ${wakeTime(session.snoozed_until, new Date(now))}`;
+    return (
+        <button
+            type="button"
+            className="session-snoozed"
+            title={`${said}: out of the sidebar's list and the inbox until then. Press to wake it now.`}
+            aria-label={`${said}. Wake it now.`}
+            onClick={() => void snoozeSession(session.id, null)}
+        >
+            <svg className="session-continues-clock" viewBox="0 0 16 16" aria-hidden="true">
+                <SnoozeIcon />
+            </svg>
+            <span>{said}</span>
+        </button>
     );
 }
 

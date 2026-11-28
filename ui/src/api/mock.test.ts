@@ -646,3 +646,40 @@ describe("the mock's browsers", () => {
         await expect(api.browserOpen(task?.id ?? 0)).rejects.toThrow("no Google Chrome");
     });
 });
+
+describe("the mock's snoozes", () => {
+    const inSeconds = (seconds: number) => Math.floor(Date.now() / 1000) + seconds;
+
+    it("start with one sample session snoozed for a minute", async () => {
+        const api = createMockApi();
+        const until = (await sessionOf(api, 5))?.snoozed_until ?? 0;
+        expect(until - Date.now() / 1000).toBeGreaterThan(55);
+        expect(until - Date.now() / 1000).toBeLessThanOrEqual(60);
+    });
+
+    it("are set and taken off, and refused for a time past or a closed session", async () => {
+        const api = createMockApi();
+        const told: SessionEvent[] = [];
+        await api.onSessionEvent((event) => told.push(event));
+        const until = inSeconds(3600);
+        await api.sessionSnooze(3, until);
+        expect((await sessionOf(api, 3))?.snoozed_until).toBe(until);
+        expect(told.at(-1)).toMatchObject({ session_id: 0, event: { type: "tree_changed" } });
+        await api.sessionSnooze(3, null);
+        expect((await sessionOf(api, 3))?.snoozed_until).toBeNull();
+        await expect(api.sessionSnooze(3, inSeconds(-60))).rejects.toThrow("passed");
+        await api.sessionClose(8, false);
+        await expect(api.sessionSnooze(8, until)).rejects.toThrow("closed");
+    });
+
+    it("wake when the user writes or the session is closed, as the core has it", async () => {
+        const api = createMockApi();
+        await api.sessionSnooze(3, inSeconds(3600));
+        await api.sessionSend(3, "and now?");
+        expect((await sessionOf(api, 3))?.snoozed_until).toBeNull();
+        await api.sessionSnooze(8, inSeconds(3600));
+        await api.sessionClose(8, false);
+        await api.sessionReopen(8);
+        expect((await sessionOf(api, 8))?.snoozed_until).toBeNull();
+    });
+});

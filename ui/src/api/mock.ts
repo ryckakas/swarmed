@@ -3,6 +3,7 @@ import { CHATS } from "../chats";
 import { deepestFirst, descendantsOf, type KeptSession } from "../closing";
 import { movedAmong, pinnedAmong } from "../ordering";
 import { calledCommand } from "../slash";
+import { awakeSessions, snoozed } from "../snooze";
 import { PLAN_TOOL } from "../transcript";
 import { parentHere, titleFrom } from "../tree";
 import type { Api } from "./client";
@@ -157,6 +158,11 @@ import type {
 //   page; waiting on three registrations, the old server and an idle session, then on the old
 //   server stopped but still held by a session outside Swarmed; on with a warning, its old
 //   setup offered for the Trash; and off again.
+// - bonsai-lint's "A very long conversation", unread, is snoozed until a minute after the
+//   window opens (`SAMPLE_SNOOZED`): it is in its task's Snoozed fold and out of the inbox
+//   until then, and wakes into the inbox by itself, with no reload. Snoozing is refused for a
+//   time already past, as the core refuses it; writing to a snoozed session, a permission
+//   request or question (`run:`, `ask`), an error and closing it wake it (`snoozeApi`).
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>
@@ -255,6 +261,8 @@ function session(id: number, taskId: number, title: string, status: SessionStatu
         // What its agent left running, as the core counts it from the reports.
         background: backgroundIn(id, sampleEvents(id)),
         highlight: SAMPLE_HIGHLIGHTS[id] ?? null,
+        // Snoozed by `MockAgent` as the window opens, so that the sample data stays timeless.
+        snoozed_until: null,
     };
 }
 
@@ -929,9 +937,14 @@ function orderApi(
         },
         sessionMove: async (id, by) => {
             const { task, session } = taskOf(id);
-            const parent = parentHere(task.sessions, session);
+            // A snoozed session is not listed with the others: it neither moves nor is passed.
+            const now = Date.now();
+            const listed = awakeSessions(task.sessions, now);
+            const parent = parentHere(listed, session);
             const siblings = (one: Session) =>
-                parentHere(task.sessions, one) === parent && one.pinned === session.pinned;
+                !snoozed(one, now) &&
+                parentHere(listed, one) === parent &&
+                one.pinned === session.pinned;
             const moved = movedAmong(task.sessions, siblings, (one) => one.id === id, by);
             replace(task.sessions, moved);
         },
@@ -995,6 +1008,16 @@ function highlightApi(projects: () => Project[]): Pick<Api, "taskHighlight" | "s
             }
             session.highlight = colour;
         },
+    };
+}
+
+/**
+ * Snoozing the sample's sessions, as the core does: refused for a closed session and for a time
+ * not in the future, and published as a change to the tree, so that every window reads it.
+ */
+function snoozeApi(agent: MockAgent): Pick<Api, "sessionSnooze"> {
+    return {
+        sessionSnooze: async (id, until) => agent.snooze(id, until),
     };
 }
 
@@ -2315,6 +2338,20 @@ export function suggestedTitle(message: string): string {
     return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** The sample session snoozed as the window opens, and for how long. */
+const SAMPLE_SNOOZED = 5;
+const SAMPLE_SNOOZE_SECONDS = 60;
+
+/**
+ * Whether an event wakes its session, as the core has it: the user writing to it, a permission
+ * request or a question, or an error. A turn that ends well does not.
+ */
+function wakesSnoozed(event: AgentEvent, status: SessionStatus | null): boolean {
+    return (
+        event.type === "user_message" || event.type === "permission_request" || status === "errored"
+    );
+}
+
 class MockAgent {
     readonly projects = sampleProjects();
     readonly events = new Map<number, AgentEvent[]>();
@@ -2349,6 +2386,12 @@ class MockAgent {
     constructor() {
         // The core follows pull requests and says what changed; here, one check fails.
         setTimeout(() => this.failCheck("fix-login-redirect"), CHECK_FAILS_AFTER);
+        // One session is snoozed for a minute, and wakes with nothing told: the window's timer
+        // draws it again.
+        const sleeper = this.openSession(SAMPLE_SNOOZED);
+        if (sleeper) {
+            sleeper.snoozed_until = Math.floor(Date.now() / 1000) + SAMPLE_SNOOZE_SECONDS;
+        }
     }
 
     /** A task's pull request as the core last read it. */
@@ -2474,6 +2517,9 @@ class MockAgent {
         }
         session.status = status ?? session.status;
         session.background = background ?? session.background;
+        if (wakesSnoozed(event, status)) {
+            session.snoozed_until = null;
+        }
         if (event.type === "turn_done") {
             session.unread = true;
         } else if (event.type === "renamed") {
@@ -2525,6 +2571,23 @@ class MockAgent {
         if (this.openSession(id)?.continue_at != null) {
             this.publish(id, { type: "continuation", at: null }, null);
         }
+    }
+
+    /**
+     * Snoozes a session until `until`, or with `null` wakes it, as the core does: refused for a
+     * closed session and for a time not in the future, and told as a change to the tree.
+     */
+    snooze(id: number, until: number | null) {
+        const session = this.openSession(id);
+        if (!session) {
+            const closed = this.keptSessions().some((kept) => kept.session.id === id);
+            throw new Error(closed ? `session ${id} is closed` : `session ${id} not found`);
+        }
+        if (until !== null && until <= Date.now() / 1000) {
+            throw new Error("that time has passed: snooze until a time still to come");
+        }
+        session.snoozed_until = until;
+        this.tell(0, { type: "tree_changed" }, null);
     }
 
     /** Sends the message a session goes on with, first in its queue, as the core does. */
@@ -3560,6 +3623,10 @@ class MockAgent {
         this.continuations.schedule(id, null);
         for (const task of this.tasks()) {
             const closing = task.sessions.filter((candidate) => candidate.id === id);
+            for (const one of closing) {
+                // Closing wakes it, as the core does: put back, it is listed with the others.
+                one.snoozed_until = null;
+            }
             task.sessions = task.sessions.filter((candidate) => candidate.id !== id);
             this.closedSessions.set(task.id, [...closing, ...this.closed(task.id)]);
             task.closed = this.closed(task.id).length;
@@ -4025,6 +4092,8 @@ export function createMockApi(): Api {
         put_away_idle_days: 14,
         put_away_closes_sessions: false,
         put_away_remove_days: 0,
+        snooze_morning_hour: 9,
+        snooze_evening_hour: 18,
         browser_program: "",
         browser_idle_minutes: 30,
         browser_display: "pane",
@@ -4056,6 +4125,7 @@ export function createMockApi(): Api {
         ...snapshotApi(() => agent.projects),
         ...orderApi(() => agent.projects),
         ...highlightApi(() => agent.projects),
+        ...snoozeApi(agent),
         analytics: async () => sampleAnalytics(new Date()),
         effortDefault: sampleEffortDefault,
         ...setupApi(hookListeners),

@@ -193,6 +193,31 @@ export function highlightFocusedRow() {
     }
 }
 
+/**
+ * Opens the snooze dialog for the session row that has the keyboard, or for the session on
+ * screen when no row has it. A repository, a task or a cloud task has none.
+ */
+export function snoozeFocusedRow() {
+    const target = rowInHand()?.target;
+    if (target?.kind === "session") {
+        useStore.getState().askToSnooze(target.id);
+    }
+}
+
+/**
+ * Snoozes session `id` until `until`, in seconds since 1970, or with `null` wakes it, then reads
+ * the tree again. What went wrong is said.
+ */
+export async function snoozeSession(id: number, until: number | null) {
+    const { refresh, report } = useStore.getState();
+    try {
+        await api.sessionSnooze(id, until);
+        await refresh(api);
+    } catch (error) {
+        report(error);
+    }
+}
+
 /** Asks for a folder and registers the repository it is in. */
 export async function addProject() {
     const { refresh, report } = useStore.getState();

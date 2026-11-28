@@ -1599,11 +1599,11 @@ code {
  * browser's own padding is taken off: it leaves less room than the icon needs, and the icon then
  * starts at the padding and sits right of its button's centre.
  */
-:is(.row-add, .row-note, .row-pin, .row-highlight, .row-close) {
+:is(.row-add, .row-note, .row-pin, .row-highlight, .row-snooze, .row-close) {
     padding: 0;
 }
 
-:is(.row-add, .row-note, .row-pin, .row-highlight, .row-close) svg {
+:is(.row-add, .row-note, .row-pin, .row-highlight, .row-snooze, .row-close) svg {
     width: 13px;
     height: 13px;
     fill: none;
@@ -1727,6 +1727,28 @@ code {
 
 .session-line .row-highlight:is(:hover, :focus-visible, [aria-expanded="true"]) {
     background: var(--line);
+}
+
+/*
+ * The snooze on a session's row, among what it offers: shown while the row is pointed at or has
+ * the keyboard, and taking no room otherwise, as the highlight. It opens the snooze dialog.
+ */
+.row-snooze {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--faint);
+}
+
+.row-snooze:hover,
+.row-snooze:focus-visible {
+    background: var(--line);
+    color: var(--text);
 }
 
 /* The palette a highlight is chosen from: a swatch per colour, then none. */
@@ -1992,13 +2014,14 @@ code {
  * beside a session's mark, continuation or parent: then these take no room even so, in this
  * order (#500):
  *   on a task with badges, its cloud below 19.5em, then a note with nothing in it below 16.5em;
- *   on a session with one of those, its pin while not pinned below 17.25em; with two, that pin
- *   and its highlight below 19.5em.
+ *   on a session with one of those, its pin while not pinned and its snooze below 17.25em; with
+ *   two, those and its highlight below 19.5em.
  * A pinned pin stays, as what it says: the session's title gives it its room, short of the
  * narrowest line with all three of those (below). Each that goes is still a tab stop with its
  * name, out of sight, and shows over the start of the name (`--over-name`, in the button's own
  * units) while it has the keyboard, or its palette is open. With the pointer they are reached
- * otherwise: ⌘D pins and ⌘⇧H highlights the open session or the focused row, ⌘⇧N opens the
+ * otherwise: ⌘D pins, ⌘⇧H highlights and ⌘⇧D snoozes the open session or the focused row, the
+ * session's header snoozes it too, ⌘⇧N opens the
  * note of the open session's task, and the session's header hands work to the cloud.
  */
 .row-head {
@@ -2052,7 +2075,7 @@ code {
 
 @container sidebar (max-width: 17.25em) {
     .session-line:has(.session-mark, .session-continues, .parent-link)
-        .row-pin:not([data-pinned="true"]) {
+        :is(.row-pin:not([data-pinned="true"]), .row-snooze) {
         position: absolute;
         inset-block: 0;
         inset-inline-start: var(--over-name);
@@ -2061,7 +2084,7 @@ code {
     }
 
     .session-line:has(.session-mark, .session-continues, .parent-link)
-        .row-pin:not([data-pinned="true"], :focus-visible) {
+        :is(.row-pin:not([data-pinned="true"]), .row-snooze):not(:focus-visible) {
         width: 1px;
         height: 1px;
         overflow: hidden;
@@ -2074,7 +2097,7 @@ code {
             :has(.session-mark):has(.session-continues, .parent-link),
             :has(.session-continues):has(.parent-link)
         )
-        :is(.row-pin:not([data-pinned="true"]), .row-highlight) {
+        :is(.row-pin:not([data-pinned="true"]), .row-highlight, .row-snooze) {
         position: absolute;
         inset-block: 0;
         inset-inline-start: var(--over-name);
@@ -2086,7 +2109,7 @@ code {
             :has(.session-mark):has(.session-continues, .parent-link),
             :has(.session-continues):has(.parent-link)
         )
-        :is(.row-pin:not([data-pinned="true"]), .row-highlight):not(
+        :is(.row-pin:not([data-pinned="true"]), .row-highlight, .row-snooze):not(
             :focus-visible,
             [aria-expanded="true"]
         ) {
@@ -2404,6 +2427,28 @@ code {
     border-color: var(--muted);
 }
 
+/* In a session's header while it is snoozed: until when, and pressing it wakes it. */
+.session-snoozed {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+.session-snoozed:hover,
+.session-snoozed:focus-visible {
+    color: var(--text);
+    border-color: var(--muted);
+}
+
 .session-continues-clock {
     flex: none;
     width: 10px;
@@ -2669,6 +2714,114 @@ code {
 .closed-reopen:focus-visible {
     border-color: var(--faint);
     color: var(--text);
+}
+
+/*
+ * A task's snoozed sessions: one quiet line, as its closed ones have, that unfolds into them.
+ * While one of them works, the line carries its mark, moving.
+ */
+.snoozed-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.snoozed-row[data-current="true"] {
+    color: var(--muted);
+}
+
+/* A snoozed session's mark and title: pressing them opens it. */
+.snoozed-open {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+}
+
+.snoozed-open .session-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.snoozed-open:hover,
+.snoozed-open:focus-visible {
+    color: var(--text);
+}
+
+.snoozed-until {
+    flex: none;
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The snooze dialog's choices: each a line with its name, and its time at the end. */
+.snooze-choices {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-3) 0;
+    padding: 0;
+    list-style: none;
+}
+
+.snooze-choice {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+}
+
+.snooze-choice:hover,
+.snooze-choice:focus-visible {
+    border-color: var(--faint);
+    background: var(--raised);
+}
+
+.snooze-when {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.snooze-own {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2);
+}
+
+.snooze-own-label {
+    display: grid;
+    flex: 1;
+    gap: var(--space-1);
+    color: var(--muted);
+    font-size: var(--text-sm);
+}
+
+/* The settings' two hours a snooze wakes at. */
+.snooze-hours {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.snooze-hour {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
 }
 
 .project-toggle .row-icon {

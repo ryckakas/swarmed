@@ -1,11 +1,12 @@
 import { type CSSProperties, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
-import { addProject, moveRow, newSession, pinRow } from "../actions";
+import { addProject, moveRow, newSession, pinRow, snoozeSession } from "../actions";
 import { api } from "../api";
 import type { CloudTask, Mark, Project, Session, Task } from "../api/types";
 import { sessionForBrowser } from "../browser";
 import { CHATS, chatsOf, repositoriesOf } from "../chats";
 import { cloudProvider, cloudTitle, cloudTone, cloudTooltip, isUnfinished } from "../cloud";
 import { taskTooltip } from "../environments";
+import { writtenHotkey } from "../hotkeys";
 import {
     gripTitle,
     orderAttributes,
@@ -18,6 +19,7 @@ import { agentName, iconForAgent } from "../providerIcons";
 import { doneSaid, doneTasks, openTasks } from "../putAway";
 import { clockTime } from "../rateLimit";
 import { isSettingUp, setupShown, sidebarSays } from "../setup";
+import { awakeSessions, snoozedAtWork, snoozedSessions, statusSeen, wakeTime } from "../snooze";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
 import { listedUnder } from "../subagents";
@@ -40,7 +42,14 @@ import { useWords } from "../useWords";
 import { type Words, withArticle, wordsFor } from "../wording";
 import { ForgetCloudDialog } from "./ForgetCloudDialog";
 import { HighlightButton, HighlightWords } from "./Highlight";
-import { CloseIcon, CloudIcon, PlusIcon, PlusMinusIcon, TurningGlobeIcon } from "./IconButton";
+import {
+    CloseIcon,
+    CloudIcon,
+    PlusIcon,
+    PlusMinusIcon,
+    SnoozeIcon,
+    TurningGlobeIcon,
+} from "./IconButton";
 import { Incubating } from "./Incubating";
 import { ProviderMark } from "./ProviderMark";
 import { PullBadge } from "./PullRequest";
@@ -59,8 +68,10 @@ export function Sidebar() {
     const update = useStore((state) => state.update);
     // A newer version that is out or ready marks the version, which opens the About view.
     const fresh = newVersion(update);
-    const waiting = countWaiting(projects);
-    const unread = countUnread(projects);
+    // A snoozed session does not count until it wakes.
+    const now = useStore((state) => state.snoozeNow);
+    const waiting = countWaiting(projects, now);
+    const unread = countUnread(projects, now);
     const words = useStore((state) => wordsFor(state.settings?.style));
     const startDrag = useRowDrag(moveRow);
     const chats = chatsOf(projects);
@@ -176,10 +187,11 @@ function ProjectGroup({ project }: { project: Project }) {
     const startNew = useStore((state) => state.startNew);
     const folded = useStore((state) => state.folded.includes(project.id));
     const toggleFolded = useStore((state) => state.toggleFolded);
+    const now = useStore((state) => state.snoozeNow);
     const tasks = openTasks(project);
     const done = doneTasks(project);
     // A folded repository still shows whether one of its sessions needs something.
-    const status = folded ? projectStatus(project) : null;
+    const status = folded ? projectStatus(project, now) : null;
     const target = { kind: "project", project: project.name } as const;
     const order = orderAttributes(target, orderGroup.projects(project.pinned));
     return (
@@ -216,7 +228,7 @@ function ProjectGroup({ project }: { project: Project }) {
                             {status && (
                                 <StatusMark
                                     status={status}
-                                    unread={projectUnread(project)}
+                                    unread={projectUnread(project, now)}
                                     background={projectBackground(project)}
                                 />
                             )}
@@ -260,11 +272,12 @@ function ChatsGroup({ home }: { home: Project }) {
     const startNew = useStore((state) => state.startNew);
     const folded = useStore((state) => state.folded.includes(home.id));
     const toggleFolded = useStore((state) => state.toggleFolded);
+    const now = useStore((state) => state.snoozeNow);
     const chats = home.tasks.filter((task) => !task.archived);
     if (chats.length === 0) {
         return null;
     }
-    const status = folded ? projectStatus(home) : null;
+    const status = folded ? projectStatus(home, now) : null;
     return (
         <section className="project project-chats">
             <div className="row-head">
@@ -282,7 +295,7 @@ function ChatsGroup({ home }: { home: Project }) {
                         {status && (
                             <StatusMark
                                 status={status}
-                                unread={projectUnread(home)}
+                                unread={projectUnread(home, now)}
                                 background={projectBackground(home)}
                             />
                         )}
@@ -457,16 +470,19 @@ function TaskShown({ project, task, chat }: { project: string; task: Task; chat:
 /**
  * A task's name, which folds its sessions away and brings them back, as a repository's name
  * does its tasks. Folded, it still says how many sessions are open, what the most urgent of
- * them needs and whether one holds an unread answer, as a folded repository does.
+ * them needs and whether one holds an unread answer, as a folded repository does, a snoozed one
+ * counting as idle and read but for its work; and how many of them are snoozed, in its title.
  */
 function TaskHeading({ task, folded, chat }: { task: Task; folded: boolean; chat: boolean }) {
     const words = useStore((state) => wordsFor(state.settings?.style));
     const toggleTaskFolded = useStore((state) => state.toggleTaskFolded);
-    const summary = folded ? foldedSummary(task) : null;
+    const now = useStore((state) => state.snoozeNow);
+    const summary = folded ? foldedSummary(task, now) : null;
     const fold = folded ? words.showSessions : words.hideSessions;
     const done = doneSaid(task, Date.now() / 1000);
     const where = chat ? `A ${words.chat}, in ${task.worktree_path}` : taskTooltip(task, words);
-    const what = done === null ? where : `${where}. ${done}`;
+    const asleep = summary && summary.snoozed > 0 ? `. ${words.snoozed(summary.snoozed)}` : "";
+    const what = `${done === null ? where : `${where}. ${done}`}${asleep}`;
     return (
         <h3 className="task-name">
             <button
@@ -528,42 +544,48 @@ function SetupLine({ task }: { task: Task }) {
 const DRAWN_DEPTH = 4;
 
 /**
- * A task's open sessions, each under the one it works for, the sub-agents at work under them,
- * and the line to its closed ones.
+ * A task's open sessions that are awake, each under the one it works for, the sub-agents at
+ * work under them, then the line to its snoozed ones and the line to its closed ones. A session
+ * that works for a snoozed one is listed with the others, as the core counts it among them when
+ * a row is moved.
  */
 function TaskSessions({ project, task }: { project: string; task: Task }) {
     const words = useWords();
+    const now = useStore((state) => state.snoozeNow);
+    const listed = awakeSessions(task.sessions, now);
+    const asleep = snoozedSessions(task.sessions, now);
     // A session is moved among the others under its parent, or among the task's others.
     const sessionOrder = (session: Session) =>
         orderAttributes(
             { kind: "session", id: session.id },
-            orderGroup.sessions(task.id, parentHere(task.sessions, session), session.pinned),
+            orderGroup.sessions(task.id, parentHere(listed, session), session.pinned),
         );
     return (
         <>
             <SetupLine task={task} />
             {saysNoSessions(task) && <p className="hint">{words.noSessions}</p>}
             <ul className="sessions">
-                {nestedSessions(task.sessions).map(({ session, depth }) => (
+                {nestedSessions(listed).map(({ session, depth }) => (
                     <li
                         key={session.id}
                         {...sessionOrder(session)}
                         data-nested={depth > 0}
                         style={{ "--depth": Math.min(depth, DRAWN_DEPTH) } as CSSProperties}
                         // One that others work for is drawn larger, as the head of its brood.
-                        data-brood={task.sessions.some(
-                            (other) => parentHere(task.sessions, other) === session.id,
+                        data-brood={listed.some(
+                            (other) => parentHere(listed, other) === session.id,
                         )}
                     >
                         <SessionRow
                             session={session}
                             nested={depth > 0}
-                            elsewhere={parentElsewhere(task.sessions, session)}
+                            elsewhere={parentElsewhere(listed, session)}
                         />
                         <SubAgentRows session={session} />
                     </li>
                 ))}
             </ul>
+            {asleep.length > 0 && <SnoozedSessions task={task.id} sessions={asleep} />}
             {task.closed > 0 && (
                 <ClosedSessions project={project} task={task.name} count={task.closed} />
             )}
@@ -1057,6 +1079,91 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
     );
 }
 
+/**
+ * A task's snoozed sessions, folded away under its open ones as its closed ones are, the one to
+ * wake first first. Each opens from its title, says when it wakes, and wakes now from its
+ * button. While one of them works, or has something running in the background, the line says
+ * so with the busiest one's mark: work under the fold is never hidden.
+ */
+function SnoozedSessions({ task, sessions }: { task: number; sessions: Session[] }) {
+    const words = useWords();
+    const shown = useStore((state) => state.snoozedShown.includes(task));
+    const toggleSnoozedShown = useStore((state) => state.toggleSnoozedShown);
+    const atWork = snoozedAtWork(sessions);
+    return (
+        <div className="closed-sessions snoozed-sessions">
+            <button
+                type="button"
+                className="closed-toggle snoozed-toggle"
+                aria-expanded={shown}
+                title={shown ? "Hide the snoozed sessions" : "Show the snoozed sessions"}
+                onClick={() => toggleSnoozedShown(task)}
+            >
+                {atWork && <StatusMark status={atWork.status} background={atWork.background} />}
+                {words.snoozed(sessions.length)}
+            </button>
+            {shown && sessions.map((session) => <SnoozedRow key={session.id} session={session} />)}
+        </div>
+    );
+}
+
+/** A snoozed session under its task's Snoozed line: its mark and title, when it wakes, and Wake. */
+function SnoozedRow({ session }: { session: Session }) {
+    const words = useWords();
+    const now = useStore((state) => state.snoozeNow);
+    const selected = useStore((state) => state.selectedSessionId === session.id);
+    const open = useStore((state) => state.open);
+    const title = session.title || words.untitled;
+    const until = session.snoozed_until ?? 0;
+    const when = wakeTime(until, new Date(now));
+    return (
+        <div className="closed-row snoozed-row" data-current={selected}>
+            <button
+                type="button"
+                className="snoozed-open"
+                title={`${title}. Snoozed until ${when}`}
+                aria-current={selected ? "true" : undefined}
+                onClick={() => void open(api, session.id)}
+            >
+                {/* Counted as idle and read while snoozed, but its work still shows. */}
+                <StatusMark status={statusSeen(session, now)} background={session.background} />
+                <span className="session-title">{title}</span>
+            </button>
+            <span className="snoozed-until">{when}</span>
+            <button
+                type="button"
+                className="closed-reopen"
+                aria-label={`${words.wake} ${title} now`}
+                title={`${words.wake} now: listed with the others again`}
+                onClick={() => void snoozeSession(session.id, null)}
+            >
+                {words.wake}
+            </button>
+        </div>
+    );
+}
+
+/**
+ * Snoozes a session until a time, among what its row offers under the pointer or with the
+ * keyboard: the dialog of choices opens.
+ */
+function SnoozeButton({ id, name }: { id: number; name: string }) {
+    const askToSnooze = useStore((state) => state.askToSnooze);
+    return (
+        <button
+            type="button"
+            className="row-snooze"
+            aria-label={`Snooze ${name}`}
+            title={`Snooze: out of the list and the inbox until a time. ${writtenHotkey("snooze")} on the focused row, or the open session.`}
+            onClick={() => askToSnooze(id)}
+        >
+            <ButtonIcon>
+                <SnoozeIcon />
+            </ButtonIcon>
+        </button>
+    );
+}
+
 /** Asks to remove a repository, a task or a chat. Nothing goes before the question is answered. */
 function RemoveButton(props: { project: string; task: string | null; chat?: boolean }) {
     const { project, task } = props;
@@ -1101,11 +1208,14 @@ function SessionRow(props: { session: Session; nested: boolean; elsewhere: numbe
             <Grip />
             <RowParts
                 offered={
-                    <HighlightButton
-                        target={{ kind: "session", id: session.id }}
-                        colour={session.highlight}
-                        name={title}
-                    />
+                    <>
+                        <HighlightButton
+                            target={{ kind: "session", id: session.id }}
+                            colour={session.highlight}
+                            name={title}
+                        />
+                        <SnoozeButton id={session.id} name={title} />
+                    </>
                 }
                 pin={
                     <PinButton

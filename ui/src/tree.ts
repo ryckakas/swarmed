@@ -10,6 +10,7 @@ import type {
 import { addedUp } from "./inBackground";
 import { mentionsAsWords } from "./mentions";
 import { isSettingUp } from "./setup";
+import { snoozed as isSnoozed, statusSeen, unreadSeen } from "./snooze";
 
 // Pure functions over the project tree, kept apart from the store so they can be tested.
 
@@ -96,9 +97,19 @@ function withBackground(projects: Project[], published: SessionEvent): Project[]
 }
 
 /**
+ * Whether an event wakes a snoozed session, as the core has it: the user writing to it, a
+ * permission request or a question, or an error. A turn that ends well does not.
+ */
+function wakes({ event, status }: SessionEvent): boolean {
+    return (
+        event.type === "user_message" || event.type === "permission_request" || status === "errored"
+    );
+}
+
+/**
  * Applies what a published event means for the sidebar: the session's new status, what it has
- * running in the background, and, for the first message of an untitled session, the title the
- * core has just given it.
+ * running in the background, a snooze the core took off, and, for the first message of an
+ * untitled session, the title the core has just given it.
  */
 export function applySessionEvent(tree: Project[], published: SessionEvent): Project[] {
     const { session_id: id, status, event } = published;
@@ -108,7 +119,8 @@ export function applySessionEvent(tree: Project[], published: SessionEvent): Pro
         return mapSession(projects, id, change);
     }
     const firstMessage = event.type === "user_message" ? event.text : null;
-    if (status === null && firstMessage === null) {
+    const woken = wakes(published);
+    if (status === null && !woken) {
         return projects;
     }
     // Writing to a session starts something new: its mark was about what came before, and it
@@ -119,6 +131,7 @@ export function applySessionEvent(tree: Project[], published: SessionEvent): Pro
         unread: unreadAfter(session.unread, published),
         status: status ?? session.status,
         ...written,
+        snoozed_until: woken ? null : session.snoozed_until,
         title:
             session.title === "" && firstMessage !== null ? titleFrom(firstMessage) : session.title,
     }));
@@ -238,18 +251,21 @@ export function withRead(projects: Project[], sessionId: number): Project[] {
     );
 }
 
-/** How many sessions hold an answer nobody has looked at. */
-export function countUnread(projects: Project[]): number {
+/**
+ * How many sessions hold an answer nobody has looked at, at `now` in milliseconds since 1970: a
+ * snoozed one does not count until it wakes.
+ */
+export function countUnread(projects: Project[], now: number): number {
     return projects
         .flatMap((project) => project.tasks)
         .filter((task) => !task.archived)
         .flatMap((task) => task.sessions)
-        .filter((session) => session.unread).length;
+        .filter((session) => unreadSeen(session, now)).length;
 }
 
-/** Whether any session of a project holds an answer nobody has looked at. */
-export function projectUnread(project: Project): boolean {
-    return countUnread([project]) > 0;
+/** Whether any session of a project holds an answer nobody has looked at, snoozed ones aside. */
+export function projectUnread(project: Project, now: number): boolean {
+    return countUnread([project], now) > 0;
 }
 
 export function findSession(projects: Project[], sessionId: number | null): Session | undefined {
@@ -300,30 +316,40 @@ export function countBusy(projects: Project[]): number {
         .filter((session) => session.status === "working" || session.status === "waiting").length;
 }
 
-/** How many sessions are waiting for a decision. */
-export function countWaiting(projects: Project[]): number {
+/** How many sessions are waiting for a decision at `now`, snoozed ones aside. */
+export function countWaiting(projects: Project[], now: number): number {
     return projects
         .flatMap((project) => project.tasks)
         .flatMap((task) => task.sessions)
-        .filter((session) => session.status === "waiting").length;
+        .filter((session) => statusSeen(session, now) === "waiting").length;
+}
+
+/** The statuses, the most urgent first. */
+const URGENCY: SessionStatus[] = ["waiting", "errored", "working", "idle"];
+
+/**
+ * The one status that best describes `sessions` at `now`: the most urgent among them, a snoozed
+ * one counting as idle unless it works.
+ */
+function mostUrgent(sessions: Session[], now: number): SessionStatus | null {
+    const seen = sessions.map((session) => statusSeen(session, now));
+    return URGENCY.find((status) => seen.includes(status)) ?? null;
 }
 
 /** The one status that best describes a task: the most urgent among its sessions. */
-export function taskStatus(task: Task): SessionStatus | null {
-    const urgency: SessionStatus[] = ["waiting", "errored", "working", "idle"];
-    return urgency.find((status) => task.sessions.some((s) => s.status === status)) ?? null;
+export function taskStatus(task: Task, now: number): SessionStatus | null {
+    return mostUrgent(task.sessions, now);
 }
 
 /** The one status that best describes a repository: the most urgent among its open tasks. */
-export function projectStatus(project: Project): SessionStatus | null {
+export function projectStatus(project: Project, now: number): SessionStatus | null {
     const sessions = project.tasks.filter((task) => !task.archived).flatMap((t) => t.sessions);
-    const urgency: SessionStatus[] = ["waiting", "errored", "working", "idle"];
-    return urgency.find((status) => sessions.some((s) => s.status === status)) ?? null;
+    return mostUrgent(sessions, now);
 }
 
-/** Whether any session of a task holds an answer nobody has looked at. */
-export function taskUnread(task: Task): boolean {
-    return task.sessions.some((session) => session.unread);
+/** Whether any session of a task holds an answer nobody has looked at, snoozed ones aside. */
+export function taskUnread(task: Task, now: number): boolean {
+    return task.sessions.some((session) => unreadSeen(session, now));
 }
 
 /**
@@ -340,20 +366,26 @@ export function projectBackground(project: Project): BackgroundCount {
 }
 
 /**
- * What a folded task still shows of its sessions in its heading: how many are open, the one
- * status that best describes them, whether one holds an unread answer, and what they have
- * running in the background.
+ * What a folded task still shows of its sessions in its heading at `now`: how many are open and
+ * how many of those are snoozed, the one status that best describes them, whether one holds an
+ * unread answer, and what they have running in the background. A snoozed session counts as idle
+ * and read, but its work and its background still count.
  */
-export function foldedSummary(task: Task): {
+export function foldedSummary(
+    task: Task,
+    now: number,
+): {
     count: number;
+    snoozed: number;
     status: SessionStatus | null;
     unread: boolean;
     background: BackgroundCount;
 } {
     return {
         count: task.sessions.length,
-        status: taskStatus(task),
-        unread: taskUnread(task),
+        snoozed: task.sessions.filter((session) => isSnoozed(session, now)).length,
+        status: taskStatus(task, now),
+        unread: taskUnread(task, now),
         background: taskBackground(task),
     };
 }

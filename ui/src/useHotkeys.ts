@@ -5,6 +5,7 @@ import {
     moveFocusedRow,
     newSession,
     pinFocusedRow,
+    snoozeFocusedRow,
 } from "./actions";
 import { api } from "./api";
 import type { Project } from "./api/types";
@@ -14,6 +15,7 @@ import { quoteSelected } from "./components/QuoteButton";
 import { type HotkeyId, matchHotkey, stepThrough } from "./hotkeys";
 import { issuesRepository } from "./issues";
 import { type ShortcutRequest, shortcutRequest } from "./pending";
+import { awakeSessions, snoozed } from "./snooze";
 import { useStore } from "./store";
 import { toItems } from "./transcript";
 import { findSession, findSessionHome, nestedSessions } from "./tree";
@@ -22,12 +24,12 @@ import { findSession, findSessionHome, nestedSessions } from "./tree";
 const TEXT_STEP = 10;
 const TEXT_RANGE = { min: 80, max: 150 };
 
-/** The ids of the sessions in the order the sidebar lists them. */
-function sessionIds(projects: Project[]): number[] {
+/** The ids of the sessions in the order the sidebar lists them, the snoozed ones left out. */
+function sessionIds(projects: Project[], now: number): number[] {
     return inSidebarOrder(projects)
         .flatMap((project) => project.tasks)
         .filter((task) => !task.archived)
-        .flatMap((task) => nestedSessions(task.sessions))
+        .flatMap((task) => nestedSessions(awakeSessions(task.sessions, now)))
         .map(({ session }) => session.id);
 }
 
@@ -46,15 +48,17 @@ function current() {
 }
 
 function step(by: number) {
-    const { projects, selectedSessionId } = useStore.getState();
-    openSession(stepThrough(sessionIds(projects), selectedSessionId, by));
+    const { projects, selectedSessionId, snoozeNow } = useStore.getState();
+    openSession(stepThrough(sessionIds(projects, snoozeNow), selectedSessionId, by));
 }
 
+/** Opens the next session that needs the user or holds an unread answer; a snoozed one waits. */
 function nextWaiting() {
-    const { projects, selectedSessionId } = useStore.getState();
+    const { projects, selectedSessionId, snoozeNow } = useStore.getState();
     const waiting = projects
         .flatMap((project) => project.tasks)
         .flatMap((task) => task.sessions)
+        .filter((session) => !snoozed(session, snoozeNow))
         .filter((session) => session.status === "waiting" || session.unread)
         .map((session) => session.id);
     openSession(stepThrough(waiting, selectedSessionId, 1));
@@ -167,6 +171,7 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
     "move-down": () => void moveFocusedRow(1),
     pin: () => void pinFocusedRow(),
     highlight: highlightFocusedRow,
+    snooze: snoozeFocusedRow,
     search: () => useStore.getState().showSearch(!useStore.getState().searchOpen),
     inbox: () => useStore.getState().showInbox(!useStore.getState().inboxOpen),
     "focus-message": focusMessage,
@@ -203,7 +208,8 @@ const ACTIONS: Partial<Record<HotkeyId, () => void>> = {
 function run(id: HotkeyId) {
     const nth = /^session-(\d)$/.exec(id);
     if (nth) {
-        const ids = sessionIds(useStore.getState().projects);
+        const { projects, snoozeNow } = useStore.getState();
+        const ids = sessionIds(projects, snoozeNow);
         return openSession(ids[Number(nth[1]) - 1] ?? null);
     }
     ACTIONS[id]?.();

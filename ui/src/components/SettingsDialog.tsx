@@ -508,6 +508,7 @@ function Sessions({ settings }: { settings: Settings }) {
                     onChange={(event) => void change(api, { notifications: event.target.checked })}
                 />
             </Row>
+            <SnoozeTimes settings={settings} />
             <Row
                 label="HTML views"
                 hint="Agents are told they may answer with a small interactive view, such as a sortable table. It runs in a sandboxed frame with no access to the app or the network. Applies to sessions started from now on."
@@ -520,6 +521,44 @@ function Sessions({ settings }: { settings: Settings }) {
                 />
             </Row>
         </section>
+    );
+}
+
+/** The hours of a day, as the snooze times are chosen from. */
+const HOURS: [string, string][] = Array.from({ length: 24 }, (_, hour) => [
+    String(hour),
+    `${String(hour).padStart(2, "0")}:00`,
+]);
+
+/** The hours a snooze until the morning or this evening wakes at. */
+function SnoozeTimes({ settings }: { settings: Settings }) {
+    const change = useStore((state) => state.changeSettings);
+    return (
+        <Row
+            label="Snooze times"
+            hint="When a session snoozed until the morning or this evening comes back. Next Monday uses the morning's hour too."
+        >
+            <span className="snooze-hours">
+                <span className="snooze-hour">
+                    Morning
+                    <Picker
+                        label="Snooze until the morning: the hour"
+                        value={String(settings.snooze_morning_hour)}
+                        onChange={(hour) => void change(api, { snooze_morning_hour: Number(hour) })}
+                        options={HOURS}
+                    />
+                </span>
+                <span className="snooze-hour">
+                    Evening
+                    <Picker
+                        label="Snooze until this evening: the hour"
+                        value={String(settings.snooze_evening_hour)}
+                        onChange={(hour) => void change(api, { snooze_evening_hour: Number(hour) })}
+                        options={HOURS}
+                    />
+                </span>
+            </span>
+        </Row>
     );
 }
 
