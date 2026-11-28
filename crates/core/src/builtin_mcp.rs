@@ -34,8 +34,9 @@
 //! and no server like repolore in Swarmed's own readers. A registration that comes back in
 //! one of those stops the built-in at once; one in another client, at the next reading.
 //! Nothing reads on a timer. A repository's own repolore, in its `.mcp.json`, is no
-//! registration of the user's: a session there gets that one and not the built-in
-//! (`repolore_use`), and the row stays as it is.
+//! registration of the user's: once the user approved it in Claude Code, a session there gets
+//! that one and not the built-in (`repolore_use`), and the row stays as it is. Unapproved, the
+//! branch's file alone changes nothing.
 //!
 //! **Held sessions** are the sessions running here whose agent got a repolore other than the
 //! built-in (`RepoloreUse`, kept with the run in `sessions.rs`): they keep the old server
@@ -46,8 +47,9 @@
 //! running here: another's `repolore` may be the old one.
 //!
 //! **The page**, `repolore ui`, is started by the Swarmed that keeps the house alone
-//! (`presence.rs`), one at a time, and ended as that one leaves; one started as it leaves,
-//! or as the built-in is turned off, is ended at once. Nothing is held while it starts. Its
+//! (`presence.rs`), one at a time, and ended as that one leaves or the built-in is turned off,
+//! even while it starts: it is kept from when its process starts. Nothing is held while it
+//! says where it is, and a page dropped is ended. Its
 //! address carries a token: it stays in memory, never in a view, an error or a log. The old
 //! setup's folders can be moved to the Trash once the built-in is on and every check of a
 //! check made then passed, as a step the user takes; never a folder that is, holds or is
@@ -68,7 +70,7 @@ use crate::hooks::{self, OutputSink};
 use crate::mcp::{self, McpServer, McpTransport};
 use crate::mcp_own::quoted;
 use crate::repolore::{
-    self, Doctor, Home, MANAGED_ENV, MANAGER, MINIMUM, Page, Registration, Repolore,
+    self, Doctor, FirstLine, Home, MANAGED_ENV, MANAGER, MINIMUM, Page, Registration, Repolore,
     SERVER_PROGRAM, ServerStatus,
 };
 use crate::sessions::SessionStatus;
@@ -252,12 +254,28 @@ impl DoctorCheck {
     }
 }
 
-/// repolore's page while this Swarmed runs it, and whether Swarmed is leaving, after which
-/// none is kept: one would outlive it.
+/// repolore's page while this Swarmed runs it, from when its process is started, before it
+/// says where it is, so that turning off and leaving end a page still starting too; and
+/// whether Swarmed is leaving, after which none is started: one would outlive it.
 #[derive(Debug, Default)]
 pub(crate) struct PageSlot {
-    page: Option<Page>,
+    /// The page, with which start it is: a start that finds another number there when the
+    /// page has said where it is was ended meanwhile.
+    page: Option<(u64, Page)>,
+    /// How many pages were started.
+    started: u64,
     leaving: bool,
+}
+
+/// What opening the page found, with the page held.
+#[derive(Debug)]
+enum Opening {
+    /// A page that runs, at this address.
+    Running(String),
+    /// A page still starting, which another open started: that one opens the browser.
+    Starting,
+    /// A page just started, by its number, with its first line to come.
+    Started(u64, FirstLine),
 }
 
 /// Which repolore a session's agent was started with.
@@ -853,8 +871,10 @@ impl Core {
     /// Opens the built-in's own page in the user's browser, starting it if it does not run.
     ///
     /// Only the Swarmed that keeps the house starts it, so that one runs, and it ends as that
-    /// one leaves. With the standard library's processes alone: a window's command that is not
-    /// `async` runs where no Tokio runtime is. The address is never logged or said.
+    /// one leaves, even while it starts. Opened again while it starts, nothing more is done:
+    /// the open that started it opens the browser. With the standard library's processes
+    /// alone: a window's command that is not `async` runs where no Tokio runtime is. The
+    /// address is never logged or said.
     pub fn builtin_mcp_open(&self, name: &str) -> Result<()> {
         let name = builtin(name)?;
         if !self.keeps_house()? {
@@ -864,56 +884,58 @@ impl Core {
                     .to_string(),
             ));
         }
-        if !self.store().builtin_mcp_row(name)?.0 {
-            return Err(Error::Mcp(format!("turn {name} on first")));
-        }
-        if let Some(address) = self.page_running() {
-            return show(&address);
-        }
-        let repolore = Repolore::find(&self.tool_dirs)
-            .ok_or_else(|| Error::Mcp(format!("{name} is not installed")))?;
-        // Started with nothing held: it can take a while, and every view asks whether a page
-        // runs, as does turning it off and quitting.
-        let started = Page::start(&repolore, &self.paths.repolore_home()).map_err(Error::Mcp)?;
-        let address = self.page_kept(started)?;
+        let (number, first) = match self.page_opening(name)? {
+            Opening::Running(address) => return show(&address),
+            Opening::Starting => return Ok(()),
+            Opening::Started(number, first) => (number, first),
+        };
+        // Waited for with nothing held: it can take a while, and every view asks whether a
+        // page runs, as do turning it off and quitting, which end this one meanwhile.
+        let address = self.page_ready(number, first.wait())?;
         show(&address)
     }
 
-    /// The address of the page this Swarmed runs, if it still runs. One that has gone is
-    /// forgotten.
-    fn page_running(&self) -> Option<String> {
+    /// With the page held: the one that runs or starts already, or else a new one, started
+    /// and kept as starting. Whether the built-in is on is read with the page held, so that
+    /// turning it off, which ends the page after it writes, ends this one or is seen here.
+    fn page_opening(&self, name: &str) -> Result<Opening> {
         let mut slot = lock(&self.repolore_page);
-        if let Some(page) = slot.page.as_mut()
-            && page.alive()
-        {
-            return Some(page.address().to_string());
+        if !self.store().builtin_mcp_row(name)?.0 {
+            return Err(Error::Mcp(format!("turn {name} on first")));
         }
-        slot.page = None;
-        None
-    }
-
-    /// Keeps the page `started`, and says where the page is: another's, if one was started
-    /// meanwhile, and `started` is ended. So is it if the built-in was turned off meanwhile, or
-    /// Swarmed is leaving, which would leave it running after Swarmed. Whether it is on is
-    /// read with the page held, so that turning off, which ends the page after it writes, ends
-    /// this one or is seen here.
-    fn page_kept(&self, started: Page) -> Result<String> {
-        let mut slot = lock(&self.repolore_page);
-        let on = self.store().builtin_mcp_row(REPOLORE)?.0;
-        if slot.leaving || !on {
-            started.end();
-            let why = "it was turned off, or Swarmed is quitting";
+        if slot.leaving {
+            let why = "Swarmed is quitting";
             return Err(Error::Mcp(format!("repolore's page was not opened: {why}")));
         }
-        if let Some(running) = slot.page.as_mut()
-            && running.alive()
-        {
-            started.end();
-            return Ok(running.address().to_string());
+        if slot.page.as_mut().is_some_and(|(_, page)| page.alive()) {
+            let address = slot.page.as_ref().and_then(|(_, page)| page.address());
+            let address = address.map(String::from);
+            return Ok(address.map_or(Opening::Starting, Opening::Running));
         }
-        let address = started.address().to_string();
-        slot.page = Some(started);
-        Ok(address)
+        let repolore = Repolore::find(&self.tool_dirs)
+            .ok_or_else(|| Error::Mcp(format!("{name} is not installed")))?;
+        let home = self.paths.repolore_home();
+        let (page, first) = Page::spawn(&repolore, &home).map_err(Error::Mcp)?;
+        slot.started += 1;
+        // One that has gone is dropped here, which sends it nothing.
+        slot.page = Some((slot.started, page));
+        Ok(Opening::Started(slot.started, first))
+    }
+
+    /// Takes the first line of start `number`, `said`, as its page's address, and says it: if
+    /// that page is still the one kept, and said an address. One that said none is ended; one
+    /// no longer kept was ended meanwhile, by turning off or leaving.
+    fn page_ready(&self, number: u64, said: Option<String>) -> Result<String> {
+        let mut slot = lock(&self.repolore_page);
+        let Some((_, page)) = slot.page.as_mut().filter(|(kept, _)| *kept == number) else {
+            let why = "it was turned off, or Swarmed is quitting";
+            return Err(Error::Mcp(format!("repolore's page was not opened: {why}")));
+        };
+        let ready = page.ready(said);
+        if ready.is_err() {
+            slot.page = None;
+        }
+        ready.map_err(Error::Mcp)
     }
 
     /// Moves the user's setup from before to the Trash: only once the built-in is on, passes
@@ -995,20 +1017,19 @@ impl Core {
         }
     }
 
-    /// Ends repolore's page, if this Swarmed started it.
+    /// Ends repolore's page, if this Swarmed started it, even one still starting: dropped, it
+    /// is ended.
     pub(crate) fn repolore_page_end(&self) {
-        if let Some(page) = lock(&self.repolore_page).page.take() {
-            page.end();
-        }
+        let page = lock(&self.repolore_page).page.take();
+        drop(page);
     }
 
-    /// Ends repolore's page as Swarmed leaves, and has none started from now on.
+    /// Ends repolore's page as Swarmed leaves, even one still starting, and has none started
+    /// from now on.
     pub(crate) fn repolore_page_leave(&self) {
         let mut slot = lock(&self.repolore_page);
         slot.leaving = true;
-        if let Some(page) = slot.page.take() {
-            page.end();
-        }
+        drop(slot.page.take());
     }
 
     /// How the built-in `name` stands: repolore asked, without the network unless `full`,
@@ -1203,7 +1224,10 @@ impl Core {
                 let repo = project.and_then(|project| project.repo().ok().map(Path::to_path_buf));
                 let repo = repo.unwrap_or_else(|| task.worktree_path.clone());
                 let worktree = &task.worktree_path;
-                let mut own = mcp::claude_code_servers(&paths.claude_config, &repo, worktree);
+                // Of the repository's `.mcp.json`, only what the user approved in Claude Code:
+                // a branch's file alone does not take the built-in away.
+                let config = &paths.claude_config;
+                let mut own = mcp::claude_code_servers_to_share(config, &repo, worktree);
                 let home = paths
                     .claude_config
                     .parent()
@@ -1247,10 +1271,11 @@ impl Core {
         sessions.map(held).collect()
     }
 
-    /// Whether repolore's page runs, started by this Swarmed.
+    /// Whether repolore's page runs, started by this Swarmed, and has said where it is.
     fn repolore_page_open(&self) -> bool {
         let mut slot = lock(&self.repolore_page);
-        slot.page.as_mut().is_some_and(Page::alive)
+        let open = |(_, page): &mut (u64, Page)| page.alive() && page.address().is_some();
+        slot.page.as_mut().is_some_and(open)
     }
 }
 

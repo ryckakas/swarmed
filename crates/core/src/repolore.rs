@@ -384,28 +384,50 @@ pub(crate) struct Registration {
     pub(crate) remove_text: String,
 }
 
-/// repolore's page for the built-in home, while it runs: its process, and its address, which
-/// carries the page's token.
+/// repolore's page for the built-in home: its process, and once it said it, its address, which
+/// carries the page's token. It is ended when it is dropped, with whatever it started, so that
+/// none is left running by a way out that forgot it.
 pub(crate) struct Page {
-    child: Child,
-    address: String,
+    /// Always there until it is dropped.
+    child: Option<Child>,
+    address: Option<String>,
+}
+
+/// What a page says first, from a thread of its own: [`Page::ready`] takes it.
+#[derive(Debug)]
+pub(crate) struct FirstLine(mpsc::Receiver<String>);
+
+impl FirstLine {
+    /// Waits for the page's first line, for as long as a page may take to start. `None` if it
+    /// took longer.
+    pub(crate) fn wait(self) -> Option<String> {
+        self.0.recv_timeout(PAGE_LIMIT).ok()
+    }
 }
 
 impl fmt::Debug for Page {
     /// Names the process, never the address.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let pid = self.child.id();
         f.debug_struct("Page")
-            .field("pid", &pid)
+            .field("pid", &self.pid())
+            .field("ready", &self.address.is_some())
             .finish_non_exhaustive()
     }
 }
 
+impl Drop for Page {
+    fn drop(&mut self) {
+        if let Some(child) = self.child.take() {
+            end(child);
+        }
+    }
+}
+
 impl Page {
-    /// Starts repolore's page for `home`, in a process group of its own, and waits for its
-    /// address. Without the standard library's processes alone: this may run where no Tokio
-    /// runtime is.
-    pub(crate) fn start(repolore: &Repolore, home: &Path) -> Result<Self, String> {
+    /// Starts repolore's page for `home`, in a process group of its own, without waiting for
+    /// it: its first line comes on what is returned beside it. With the standard library's
+    /// processes alone: this may run where no Tokio runtime is.
+    pub(crate) fn spawn(repolore: &Repolore, home: &Path) -> Result<(Self, FirstLine), String> {
         let mut command = repolore.command(Home::Builtin(home));
         command
             .args(["ui", "--no-browser"])
@@ -415,40 +437,45 @@ impl Page {
         let mut child = command
             .spawn()
             .map_err(|error| format!("repolore's page could not be started: {error}"))?;
-        let Some(stdout) = child.stdout.take() else {
-            end(child);
+        let stdout = child.stdout.take();
+        let page = Self {
+            child: Some(child),
+            address: None,
+        };
+        let Some(stdout) = stdout else {
             return Err("repolore's page could not be started".to_string());
         };
-        match first_line(stdout).recv_timeout(PAGE_LIMIT) {
-            Ok(line) if web_address(&line) => Ok(Self {
-                child,
-                address: line.trim().to_string(),
-            }),
-            Ok(_) => {
-                end(child);
-                Err("repolore's page did not say where it is".to_string())
-            }
-            Err(_) => {
-                end(child);
-                let limit = PAGE_LIMIT.as_secs();
-                Err(format!("repolore's page did not start within {limit} s"))
-            }
+        Ok((page, first_line(stdout)))
+    }
+
+    /// Takes `said`, the page's first line or `None` if it took too long, as its address, and
+    /// says it; else why not. One that failed is to be dropped, which ends it.
+    pub(crate) fn ready(&mut self, said: Option<String>) -> Result<String, String> {
+        let Some(line) = said else {
+            let limit = PAGE_LIMIT.as_secs();
+            return Err(format!("repolore's page did not start within {limit} s"));
+        };
+        if !web_address(&line) {
+            return Err("repolore's page did not say where it is".to_string());
         }
+        let address = line.trim().to_string();
+        self.address = Some(address.clone());
+        Ok(address)
     }
 
     /// Whether its process still runs.
     pub(crate) fn alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        let running = |child: &mut Child| matches!(child.try_wait(), Ok(None));
+        self.child.as_mut().is_some_and(running)
     }
 
-    /// Where it is. Never to be logged or shown: it carries the page's token.
-    pub(crate) fn address(&self) -> &str {
-        &self.address
+    /// Where it is, once it said. Never to be logged or shown: it carries the page's token.
+    pub(crate) fn address(&self) -> Option<&str> {
+        self.address.as_deref()
     }
 
-    /// Ends it, with whatever it started, if it still runs.
-    pub(crate) fn end(self) {
-        end(self.child);
+    fn pid(&self) -> Option<u32> {
+        self.child.as_ref().map(Child::id)
     }
 }
 
@@ -461,7 +488,7 @@ fn web_address(line: &str) -> bool {
 
 /// The first line `stdout` gives, from a thread of its own, which then reads on and drops the
 /// rest: a pipe nobody reads would stop the page once it is full.
-fn first_line(stdout: ChildStdout) -> mpsc::Receiver<String> {
+fn first_line(stdout: ChildStdout) -> FirstLine {
     let (sender, receiver) = mpsc::channel();
     let reading = move || {
         let mut reader = BufReader::new(stdout);
@@ -471,7 +498,7 @@ fn first_line(stdout: ChildStdout) -> mpsc::Receiver<String> {
         std::io::copy(&mut reader, &mut std::io::sink()).ok();
     };
     drop(std::thread::spawn(reading));
-    receiver
+    FirstLine(receiver)
 }
 
 /// Ends a process that leads a group of its own, with everything in the group: asked first,
@@ -668,8 +695,11 @@ mod tests {
         );
         let repolore = stand_in(dir.path(), &script);
         let home = dir.path().join("home");
-        let mut page = Page::start(&repolore, &home).expect("starts");
-        assert_eq!(page.address(), "http://127.0.0.1:9/?token=secret");
+        let (mut page, first) = Page::spawn(&repolore, &home).expect("starts");
+        assert_eq!(page.address(), None);
+        let address = page.ready(first.wait()).expect("says where it is");
+        assert_eq!(address, "http://127.0.0.1:9/?token=secret");
+        assert_eq!(page.address(), Some(address.as_str()));
         let said = std::fs::read_to_string(&env).expect("written");
         assert_eq!(said.trim(), format!("{} Swarmed", home.display()));
         assert!(page.alive());
@@ -679,8 +709,9 @@ mod tests {
             .trim()
             .parse()
             .expect("a pid");
-        let pid = page.child.id();
-        page.end();
+        let pid = page.pid().expect("a process");
+        // Dropped, it is ended with what it started.
+        drop(page);
         assert!(gone(pid) && gone(child));
     }
 
@@ -688,11 +719,15 @@ mod tests {
     fn a_page_that_says_no_address_is_ended() {
         let dir = tempfile::tempdir().expect("temp dir");
         let repolore = stand_in(dir.path(), "echo 'Starting up'\nexec sleep 60");
-        let refused = Page::start(&repolore, dir.path()).map(|page| page.address().to_string());
+        let (mut page, first) = Page::spawn(&repolore, dir.path()).expect("starts");
+        let pid = page.pid().expect("a process");
         assert_eq!(
-            refused,
+            page.ready(first.wait()),
             Err("repolore's page did not say where it is".to_string())
         );
+        assert!(!format!("{page:?}").contains("Starting"));
+        drop(page);
+        assert!(gone(pid));
     }
 
     #[test]

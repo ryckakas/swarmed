@@ -33,7 +33,10 @@ case "$1" in
     fi
     mkdir -p "$2" && echo "repos = []" > "$2/repolore.toml" ;;
   session-start) ;;
-  ui) echo $$ > "$state/ui-pid"; echo "http://127.0.0.1:9/?token=secret"; exec sleep 60 ;;
+  ui)
+    echo $$ > "$state/ui-pid"
+    if [ -f "$state/ui-slow" ]; then sleep 30; fi
+    echo "http://127.0.0.1:9/?token=secret"; exec sleep 60 ;;
   *) exit 2 ;;
 esac
 "#;
@@ -438,7 +441,7 @@ async fn sessions_are_given_the_built_in_only_while_no_other_repolore_is_about()
     assert_eq!(said(&core, first, "mcp: repolore").await, "none");
     a_clear_from_before_counts_for_nothing(&stand, &core).await;
     let second = on_gives_the_built_in(&stand, &core).await;
-    a_repository_of_its_own_goes_first(&core).await;
+    a_repository_of_its_own_goes_first(&stand, &core).await;
     registered_again(&stand, &core, second).await;
 }
 
@@ -493,13 +496,30 @@ async fn on_gives_the_built_in(stand: &Stand, core: &Core) -> i64 {
     session
 }
 
-/// A repository's own repolore, in its `.mcp.json`, goes before the built-in: the session gets
-/// no second one and is held, while the row stays on, since no registration is the user's.
-async fn a_repository_of_its_own_goes_first(core: &Core) {
+/// A repository's own repolore, in its `.mcp.json`, goes before the built-in once the user
+/// approved it in Claude Code: the session gets no second one and is held, while the row
+/// stays on, since no registration is the user's. Unapproved, the branch's file alone changes
+/// nothing.
+async fn a_repository_of_its_own_goes_first(stand: &Stand, core: &Core) {
     let worktree = core.task("demo", "one").expect("there").1.worktree_path;
     let file = worktree.join(".mcp.json");
     let own = serde_json::json!({ "mcpServers": { "lore": { "command": "repolore-mcp" } } });
     std::fs::write(&file, own.to_string()).expect("test setup");
+    let unapproved = started(core);
+    let program = stand.tools.join("repolore-mcp");
+    assert_eq!(
+        said(core, unapproved, "mcp: repolore").await,
+        program.to_string_lossy()
+    );
+    assert_eq!(status(core).await.sessions, []);
+    core.session_stop(unapproved);
+
+    // Approved in Claude Code, which writes it where git does not track it.
+    let settings = worktree.join(".claude");
+    std::fs::create_dir_all(&settings).expect("test setup");
+    let approved = serde_json::json!({ "enabledMcpjsonServers": ["lore"] });
+    let local = settings.join("settings.local.json");
+    std::fs::write(&local, approved.to_string()).expect("test setup");
     let session = started(core);
     assert_eq!(said(core, session, "mcp: repolore").await, "none");
     let view = status(core).await;
@@ -508,6 +528,7 @@ async fn a_repository_of_its_own_goes_first(core: &Core) {
     assert_eq!(held, [session]);
     core.session_stop(session);
     std::fs::remove_file(file).expect("test setup");
+    std::fs::remove_dir_all(settings).expect("test setup");
 }
 
 /// repolore registered with Claude Code again: new sessions go without the built-in at once,
@@ -544,35 +565,88 @@ async fn registered_again(stand: &Stand, core: &Core, given: i64) {
     assert!(core.running_sessions().contains(&given));
 }
 
+/// Opens the built-in's page as the window does, on a thread of its own, and waits until the
+/// stand-in's process started: the open and the process's id.
+async fn opening(
+    stand: &Stand,
+    core: &Arc<Core>,
+) -> (tokio::task::JoinHandle<Result<(), String>>, String) {
+    std::fs::remove_file(stand.state.join("ui-pid")).ok();
+    let core = Arc::clone(core);
+    let open = move || core.builtin_mcp_open(REPOLORE).map_err(|e| e.to_string());
+    let opened = tokio::task::spawn_blocking(open);
+    for _ in 0..200 {
+        let pid = stand.read("ui-pid");
+        if !pid.trim().is_empty() {
+            return (opened, pid.trim().to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("the page's process did not start");
+}
+
+/// Whether process `pid` has gone, waiting a moment for it.
+async fn gone(pid: &str) -> bool {
+    let there = || {
+        let asked = std::process::Command::new("kill")
+            .args(["-0", pid])
+            .stderr(std::process::Stdio::null())
+            .status();
+        asked.is_ok_and(|status| status.success())
+    };
+    for _ in 0..200 {
+        if !there() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    !there()
+}
+
+/// A page still starting is ended by turning the built-in off, and its open says so.
+async fn ended_by_turning_off(stand: &Stand, core: &Arc<Core>) {
+    let (opened, pid) = opening(stand, core).await;
+    assert!(!status(core).await.page_open, "it has not said where it is");
+    core.builtin_mcp_turn_off(REPOLORE)
+        .await
+        .expect("turns off");
+    let refused = opened.await.expect("joins");
+    assert!(refused.is_err_and(|e| e.contains("not opened") && !e.contains("token")));
+    assert!(gone(&pid).await, "the page's process {pid} still runs");
+}
+
+/// A page still starting is ended as Swarmed leaves, and none is started after. Opened again
+/// meanwhile, the second open starts nothing of its own.
+async fn ended_by_leaving(stand: &Stand, core: &Arc<Core>) {
+    let (opened, pid) = opening(stand, core).await;
+    let again = core.builtin_mcp_open(REPOLORE).map_err(|e| e.to_string());
+    assert_eq!(again, Ok(()));
+    assert_eq!(stand.read("ui-pid").trim(), pid, "no second page");
+    core.leave().await;
+    let refused = opened.await.expect("joins");
+    assert!(refused.is_err_and(|e| e.contains("not opened") && !e.contains("token")));
+    assert!(gone(&pid).await, "the page's process {pid} still runs");
+    let after = core.builtin_mcp_open(REPOLORE).map_err(|e| e.to_string());
+    assert!(after.is_err_and(|e| e.contains("quitting")));
+    assert!(!status(core).await.page_open);
+}
+
 #[tokio::test]
-async fn a_page_started_as_swarmed_leaves_is_ended_not_kept() {
+async fn a_page_still_starting_is_ended_by_turning_off_and_by_leaving() {
     let stand = Stand::new();
     stand.install("repolore", REPOLORE_SCRIPT);
     stand.install("repolore-mcp", "#!/bin/sh\nexit 0\n");
     stand.write("version", "repolore 0.5.1\n");
-    let core = stand.core().await;
+    stand.write("ui-slow", "");
+    let core = Arc::new(stand.core().await);
     let on = core
         .builtin_mcp_turn_on(REPOLORE, false)
         .await
         .expect("turns on");
     assert_eq!(on.state, BuiltinState::On, "{on:?}");
-    core.leave().await;
-    // Started, then ended at once: nothing is opened, and nothing outlives Swarmed.
-    let refused = core.builtin_mcp_open(REPOLORE).map_err(|e| e.to_string());
-    assert!(refused.is_err_and(|e| e.contains("not opened") && !e.contains("token")));
-    let pid = stand.read("ui-pid");
-    let gone = || {
-        let asked = std::process::Command::new("kill")
-            .args(["-0", pid.trim()])
-            .stderr(std::process::Stdio::null())
-            .status();
-        !asked.is_ok_and(|status| status.success())
-    };
-    let mut waited = 0;
-    while !gone() && waited < 200 {
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        waited += 1;
-    }
-    assert!(gone(), "the page's process {pid} still runs");
-    assert!(!status(&core).await.page_open);
+    ended_by_turning_off(&stand, &core).await;
+    core.builtin_mcp_turn_on(REPOLORE, false)
+        .await
+        .expect("turns on again");
+    ended_by_leaving(&stand, &core).await;
 }
