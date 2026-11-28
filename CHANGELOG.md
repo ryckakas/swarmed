@@ -28,6 +28,13 @@ notice adds its line under Unreleased.
   `swarmed session snooze <id> --until <time>` or `--for <duration>`, and
   `swarmed session wake <id>`, do the same from the command line.
 
+### Fixed
+
+- **Several questions at once can be answered.** When an agent asked several questions
+  together, a click anywhere, on one of the answers too, could make the whole card vanish
+  until the session was opened again, so the questions could not be answered. The card now
+  stays until it is sent.
+
 ## [0.4.13] - 2026-11-28
 
 ### Added
