@@ -167,7 +167,7 @@ class MockBuiltin {
             version: this.installed ? "0.5.1" : null,
             minimum: "0.5.1",
             install_command:
-                "uv tool install --managed-python --python 3.12 --upgrade 'repolore-mcp>=0.5.1'",
+                "uv tool install --managed-python --python 3.12 --exclude-newer-package repolore-mcp=false --upgrade 'repolore-mcp>=0.5.1'",
             home: "/Users/you/Library/Application Support/Swarmed/repolore",
             home_ready: this.homeReady,
             existing: this.existing && { ...this.existing },

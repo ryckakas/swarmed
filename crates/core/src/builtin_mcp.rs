@@ -7,6 +7,12 @@
 //! else is configured in repolore's own page, which Swarmed opens. What is asked of repolore,
 //! and how, is in `repolore.rs`.
 //!
+//! **Installing** is uv's `tool install`, shown before it runs. A cooldown the user set in uv
+//! (`exclude-newer`) would hide a minimum published only days ago, so the command lets
+//! `repolore-mcp` alone past it (`--exclude-newer-package repolore-mcp=false`), wherever uv
+//! takes that ([`UV_OPTS_OUT`] on); its dependencies keep the cooldown. A failed install says
+//! the installer's last error as it printed it ([`installer_said`]), never only its exit code.
+//!
 //! **One repolore at a time.** Two would hold two models, so the built-in is given to sessions
 //! only while repolore is registered nowhere else and the old home's shared server is not in
 //! use: stopped, and no session connected to it, since each would start it again. A row is in
@@ -61,8 +67,11 @@
 //! check made then passed, as a step the user takes; never a folder that is, holds or is
 //! inside Swarmed's data directory.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Mutex;
+use std::time::Duration;
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -657,9 +666,91 @@ fn argv_for_shell(program: &Path, args: &[String]) -> (String, Vec<(String, Stri
     (quoted.join(" "), env)
 }
 
-/// The arguments `uv` installs or upgrades repolore with.
-fn install_args() -> String {
-    format!("--managed-python --python 3.12 --upgrade 'repolore-mcp>={MINIMUM}'")
+/// The arguments `uv` installs or upgrades repolore with: past a cooldown the user set in uv
+/// (`exclude-newer`) for `repolore-mcp` alone with `opts_out`, so that a minimum published
+/// days ago installs. Its dependencies keep the cooldown.
+fn install_args(opts_out: bool) -> String {
+    let past_cooldown = if opts_out {
+        format!("--exclude-newer-package {SERVER_PROGRAM}=false ")
+    } else {
+        String::new()
+    };
+    format!("--managed-python --python 3.12 {past_cooldown}--upgrade '{SERVER_PROGRAM}>={MINIMUM}'")
+}
+
+/// The oldest uv that lets one package past a cooldown, with `--exclude-newer-package
+/// <package>=false`.
+const UV_OPTS_OUT: &str = "0.9.25";
+
+/// How long `uv --version` may take.
+const UV_VERSION_LIMIT: Duration = Duration::from_secs(10);
+
+/// The version `uv --version` says, `uv X.Y.Z (…)`, if it says one in time.
+async fn uv_version(uv: &Path) -> Option<String> {
+    let mut command = tokio::process::Command::new(uv);
+    command
+        .arg("--version")
+        .env("PATH", crate::shellenv::path())
+        .stdin(Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(UV_VERSION_LIMIT, command.output()).await;
+    let output = output.ok()?.ok()?;
+    let printed = String::from_utf8_lossy(&output.stdout);
+    let mut words = printed.split_whitespace();
+    if words.next()? != "uv" {
+        return None;
+    }
+    words.next().map(String::from)
+}
+
+/// What an installer printed last: enough to say why it failed.
+#[derive(Debug, Default)]
+struct Printed(Mutex<VecDeque<String>>);
+
+impl Printed {
+    const KEPT: usize = 40;
+
+    fn keep(&self, line: &str) {
+        let mut lines = lock(&self.0);
+        if lines.len() == Self::KEPT {
+            lines.pop_front();
+        }
+        lines.push_back(line.to_string());
+    }
+
+    /// Why it failed, as it said it: see [`installer_said`].
+    fn said(&self) -> Option<String> {
+        installer_said(lock(&self.0).iter().map(String::as_str))
+    }
+}
+
+/// The installer's last error, from what it printed, `lines`, on one line: from the last line
+/// that opens one (uv's `×` or `error:`, Homebrew's `Error:`) to the end, with uv's tree
+/// drawing left out; else its last line that holds anything. At most a few hundred characters.
+fn installer_said<'a>(lines: impl Iterator<Item = &'a str>) -> Option<String> {
+    const LONGEST: usize = 600;
+    let lines: Vec<&str> = lines
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let opens = |line: &&str| line.starts_with('×') || line.to_lowercase().starts_with("error:");
+    let last = lines.len().saturating_sub(1);
+    let start = lines.iter().rposition(opens).unwrap_or(last);
+    let drawing = |c: char| "×│├╰─▶ ".contains(c);
+    let words: Vec<&str> = lines
+        .get(start..)?
+        .iter()
+        .flat_map(|line| line.trim_start_matches(drawing).split_whitespace())
+        .collect();
+    let said = words.join(" ");
+    if said.is_empty() {
+        return None;
+    }
+    if said.chars().count() <= LONGEST {
+        return Some(said);
+    }
+    let cut: String = said.chars().take(LONGEST).collect();
+    Some(format!("{}…", cut.trim_end()))
 }
 
 /// Whether a folder is empty or not there at all.
@@ -831,7 +922,8 @@ impl Core {
     }
 
     /// Installs the built-in `name`, or upgrades it, with `uv`, first installing `uv` with
-    /// Homebrew where it is missing. What the installer prints goes to `sink`.
+    /// Homebrew where it is missing. What the installer prints goes to `sink`; if it fails,
+    /// the error says its last error as it printed it.
     pub async fn builtin_mcp_install(
         &self,
         name: &str,
@@ -842,9 +934,20 @@ impl Core {
             agent: name.to_string(),
             reason,
         };
-        let (command, env) = self.install_run().map_err(failed)?;
-        let ran = hooks::run("install", &command, &std::env::temp_dir(), &env, sink).await;
-        ran.map_err(|error| failed(error.to_string()))?;
+        let opts_out = self.uv_opts_out().await;
+        let (command, env) = self.install_run(opts_out).map_err(failed)?;
+        let printed = Printed::default();
+        let passed_on = |line: &str| {
+            printed.keep(line);
+            sink(line);
+        };
+        let ran = hooks::run("install", &command, &std::env::temp_dir(), &env, &passed_on).await;
+        ran.map_err(|error| match (&error, printed.said()) {
+            (Error::HookFailed { status, .. }, Some(said)) => {
+                failed(format!("the installer ended with {status}, saying: {said}"))
+            }
+            _ => failed(error.to_string()),
+        })?;
         if !self.repolore_installed() {
             let reason = "the installer finished, but `repolore` is nowhere to be found";
             return Err(failed(reason.to_string()));
@@ -1101,7 +1204,7 @@ impl Core {
     /// with whether it stands clear stored when the answers say.
     async fn builtin_view(&self, name: &str, full: bool) -> Result<BuiltinMcpView> {
         let (turned_on, stored) = self.store().builtin_mcp_row(name)?;
-        let mut view = self.view_without_answers(name);
+        let mut view = self.view_without_answers(name, self.uv_opts_out().await);
         let found = self.repolore_found().filter(|_| self.repolore_installed());
         let Some(repolore) = found else {
             view.state = state_of(Facts::default());
@@ -1130,15 +1233,16 @@ impl Core {
         Ok(view)
     }
 
-    /// What is known of the built-in `name` without asking repolore.
-    fn view_without_answers(&self, name: &str) -> BuiltinMcpView {
+    /// What is known of the built-in `name` without asking repolore, with whether its install
+    /// command lets repolore past a cooldown (`opts_out`).
+    fn view_without_answers(&self, name: &str, opts_out: bool) -> BuiltinMcpView {
         let status = self.builtin_status(name);
         BuiltinMcpView {
             name: name.to_string(),
             state: BuiltinState::Missing,
             version: None,
             minimum: MINIMUM.to_string(),
-            install_command: self.install_shown(),
+            install_command: self.install_shown(opts_out),
             home: self.paths.repolore_home().to_string_lossy().into_owned(),
             home_ready: false,
             existing: None,
@@ -1207,21 +1311,34 @@ impl Core {
         Ok(repolore)
     }
 
+    /// Whether the uv that installs repolore lets it past a cooldown ([`UV_OPTS_OUT`]): the one
+    /// found, if it says it is new enough, or the one Homebrew installs, which is.
+    async fn uv_opts_out(&self) -> bool {
+        let Some(uv) = find_program("uv", &self.tool_dirs) else {
+            return true;
+        };
+        let version = uv_version(&uv).await;
+        version.is_some_and(|version| repolore::not_older(&version, UV_OPTS_OUT))
+    }
+
     /// The install command as the user would type it.
-    fn install_shown(&self) -> String {
+    fn install_shown(&self, opts_out: bool) -> String {
         let uv = find_program("uv", &self.tool_dirs);
         let first = if uv.is_some() {
             ""
         } else {
             "brew install uv && "
         };
-        format!("{first}uv tool install {}", install_args())
+        format!("{first}uv tool install {}", install_args(opts_out))
     }
 
     /// The install command as the shell runs it, with the programs' whole paths, which a
     /// desktop app's `PATH` may lack, handed over as variables.
-    fn install_run(&self) -> std::result::Result<(String, Vec<(String, String)>), String> {
-        let install = format!("\"$SWARMED_UV\" tool install {}", install_args());
+    fn install_run(
+        &self,
+        opts_out: bool,
+    ) -> std::result::Result<(String, Vec<(String, String)>), String> {
+        let install = format!("\"$SWARMED_UV\" tool install {}", install_args(opts_out));
         let path = |program: PathBuf| program.to_string_lossy().into_owned();
         if let Some(uv) = find_program("uv", &self.tool_dirs) {
             return Ok((install, vec![("SWARMED_UV".to_string(), path(uv))]));
@@ -2091,5 +2208,71 @@ mod tests {
             std::fs::write(&settings, not).expect("written");
             assert!(!repolore_hook(&config), "{not}");
         }
+    }
+
+    #[test]
+    fn the_install_command_lets_repolore_alone_past_a_cooldown_where_uv_takes_it() {
+        assert_eq!(
+            install_args(true),
+            "--managed-python --python 3.12 --exclude-newer-package repolore-mcp=false \
+             --upgrade 'repolore-mcp>=0.5.1'"
+        );
+        assert_eq!(
+            install_args(false),
+            "--managed-python --python 3.12 --upgrade 'repolore-mcp>=0.5.1'"
+        );
+    }
+
+    #[test]
+    fn a_failed_install_says_the_installers_last_error() {
+        // uv 0.11.8, with `exclude-newer = "3 days"` in its configuration.
+        let uv = [
+            "Resolving dependencies",
+            "  × No solution found when resolving dependencies:",
+            "  ╰─▶ Because only repolore-mcp<=0.5.0 is available and you require",
+            "      repolore-mcp>=0.5.1, we can conclude that your requirements are",
+            "      unsatisfiable.",
+            "",
+            "      hint: `repolore-mcp` was filtered by `exclude-newer` to only",
+            "      include packages uploaded before 2026-11-25T10:29:31.437782Z.",
+        ];
+        assert_eq!(
+            installer_said(uv.into_iter()).as_deref(),
+            Some(
+                "No solution found when resolving dependencies: Because only \
+                 repolore-mcp<=0.5.0 is available and you require repolore-mcp>=0.5.1, we can \
+                 conclude that your requirements are unsatisfiable. hint: `repolore-mcp` was \
+                 filtered by `exclude-newer` to only include packages uploaded before \
+                 2026-11-25T10:29:31.437782Z."
+            )
+        );
+        let brew = [
+            "==> Fetching uv",
+            "Error: No such keg: /opt/homebrew/Cellar/uv",
+        ];
+        assert_eq!(
+            installer_said(brew.into_iter()).as_deref(),
+            Some("Error: No such keg: /opt/homebrew/Cellar/uv")
+        );
+        // No error opened: its last line.
+        let plain = ["Downloading cpython", "connection reset by peer", "  "];
+        assert_eq!(
+            installer_said(plain.into_iter()).as_deref(),
+            Some("connection reset by peer")
+        );
+        assert_eq!(installer_said(["", " "].into_iter()), None);
+        let long = format!("error: {}", "word ".repeat(200));
+        let said = installer_said(std::iter::once(long.as_str())).expect("said");
+        assert!(said.ends_with('…') && said.chars().count() <= 601, "{said}");
+    }
+
+    #[test]
+    fn what_an_installer_printed_is_kept_to_its_last_lines() {
+        let printed = Printed::default();
+        printed.keep("error: an old one");
+        for line in 0..Printed::KEPT {
+            printed.keep(&format!("line {line}"));
+        }
+        assert_eq!(printed.said().as_deref(), Some("line 39"));
     }
 }

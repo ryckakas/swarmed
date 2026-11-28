@@ -226,8 +226,13 @@ fn version_said(printed: &str) -> Option<String> {
 
 /// Whether `version` is [`MINIMUM`] or newer.
 pub(crate) fn current(version: &str) -> bool {
-    let minimum = Version::parse(MINIMUM);
-    Version::parse(version).is_some_and(|version| Some(version) >= minimum)
+    not_older(version, MINIMUM)
+}
+
+/// Whether `version` is `oldest` or newer, by their numbers: false when either is no version.
+pub(crate) fn not_older(version: &str, oldest: &str) -> bool {
+    let oldest = Version::parse(oldest);
+    oldest.is_some() && Version::parse(version).is_some_and(|version| Some(version) >= oldest)
 }
 
 /// A version's numbers, compared in order. What follows a number, such as `rc1`, is left out.
@@ -610,6 +615,8 @@ mod tests {
         assert!(!current("0.5.0"));
         assert!(!current("0.4.99"));
         assert!(!current("not a version"));
+        assert!(not_older("0.11.8", "0.9.25") && not_older("0.9.25", "0.9.25"));
+        assert!(!not_older("0.9.24", "0.9.25") && !not_older("0.9.25", "no version"));
     }
 
     #[test]
