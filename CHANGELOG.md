@@ -15,6 +15,12 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Changed
+
+- **Swarmed built-in folds away.** In Settings → MCP servers, the Swarmed built-in block is
+  folded, as each agent's own servers are, and its heading still shows each built-in's state.
+  A dot pulses on it while something inside runs.
+
 ### Fixed
 
 - **A failed install of the built-in repolore says why.** It said only "exit status: 1"; now
