@@ -256,8 +256,10 @@ snapshot_keys = ["pnpm-lock.yaml", "composer.lock"]
 
 A snapshot then notes a fingerprint of those files as they were in the task it was taken from,
 from what git keeps of them (`git ls-tree`), so no file is read. A new task started from the
-base branch whose files differ, one added or removed included, is kept in the snapshot's place,
-at the same moment and in the same way as the first one, and its setup says so. The copy is
+base branch whose files differ, one added or removed included, and are still the base's, is
+kept in the snapshot's place, at the same moment and in the same way as the first one, and its
+setup says so. One whose setup ends after the base has moved on again, such as one set up again
+after it failed, leaves a newer snapshot alone. The copy is
 built beside the old snapshot, which stays if it fails. A task whose files match copies nothing.
 A task started from another branch, or on an existing branch such as a pull request's, has that
 branch's dependencies, so it never takes the place of a snapshot; it is still kept as the first

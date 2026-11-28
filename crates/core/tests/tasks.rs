@@ -1811,6 +1811,35 @@ async fn a_task_from_or_on_another_branch_keeps_only_a_first_snapshot() {
 }
 
 #[tokio::test]
+async fn a_task_whose_setup_ends_after_the_base_moved_on_leaves_the_newer_snapshot() {
+    // Setup fails while `hold` is in the repository, as one stopped or failed would.
+    let fx = fixture_with_lock(
+        true,
+        &format!("test ! -f {{{{repo}}}}/hold && {BUILD_FROM_LOCK}"),
+    );
+    let core = core_with_project(&fx).await;
+    let new = |name: &'static str| {
+        core.task_new("demo", name, NewTaskOptions::default(), &hooks::discard)
+    };
+    new("one").await.expect("creates");
+    std::fs::write(fx.repo.join("hold"), "").expect("writes");
+    assert!(new("old").await.is_err());
+    std::fs::remove_file(fx.repo.join("hold")).expect("removes");
+
+    // The base moves on, and a task from it keeps the newer dependencies.
+    commit_file(&fx, "deps.lock", "v2\n");
+    new("new").await.expect("creates");
+    assert_eq!(kept_and_behind(&core).await, [("new".to_string(), false)]);
+
+    // Set up well at last, the older task differs from the snapshot, but not by being newer.
+    core.task_setup("demo", "old", None, &hooks::discard)
+        .await
+        .expect("sets up");
+    assert_eq!(kept_and_behind(&core).await, [("new".to_string(), false)]);
+    assert_eq!(held(&fx), "v2\n");
+}
+
+#[tokio::test]
 async fn without_snapshot_keys_the_first_snapshot_stays_until_they_are_named() {
     let fx = fixture_with_lock(false, BUILD_FROM_LOCK);
     let core = core_with_project(&fx).await;

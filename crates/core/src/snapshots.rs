@@ -18,8 +18,8 @@
 //! unless the environment names the files its dependencies are pinned in (`snapshot_keys`,
 //! such as `pnpm-lock.yaml`). Then a snapshot notes a fingerprint of them as they were in the
 //! task it was taken from ([`taken_with`]), and a new task started from the base whose own
-//! differ takes its place: the base has moved on, and every task after it would otherwise
-//! reinstall what changed. Kept at the same moment as the first, after its setup and before
+//! differ, and are the base's still, takes its place: the base has moved on, and every task
+//! after it would otherwise reinstall what changed. Kept at the same moment as the first, after its setup and before
 //! its stack writes logs and caches beside what setup made. A task started from another
 //! branch, or on one that was there already, has that branch's dependencies, so it never takes
 //! the place of one; it may still keep the first. The list says when a snapshot is behind the
@@ -222,23 +222,31 @@ impl Core {
         Ok(now != about.fingerprint)
     }
 
-    /// Whether the task's branch was made for it from the project's base, rather than from
-    /// another branch or checked out as it was: only then are the dependencies it was set up
-    /// with those the next tasks start with. Not when that cannot be told, nor for a task made
-    /// before Swarmed kept which it was.
-    async fn started_from_base(
+    /// Whether a task set up with `fingerprint` may take the place of a snapshot: its branch
+    /// was made for it from the project's base, rather than from another branch or checked
+    /// out as it was, and the base still has those dependencies. A task whose setup ends after
+    /// the base moved on, waiting for a place or run again after it failed, would otherwise
+    /// put back older dependencies than a task after it kept. Not when that cannot be told,
+    /// nor for a task made before Swarmed kept which it was.
+    async fn has_the_bases(
         &self,
         project: &Project,
         task: &Task,
         config: &ProjectConfig,
+        fingerprint: &str,
     ) -> bool {
         let made = self.store().task_branch_made(task.id);
         let (Ok(Some(true)), Ok(repo)) = (made, project.repo()) else {
             return false;
         };
-        base_of(repo, config)
-            .await
-            .is_ok_and(|base| base == task.base_ref)
+        let Ok(base) = base_of(repo, config).await else {
+            return false;
+        };
+        if base != task.base_ref {
+            return false;
+        }
+        let now = taken_with(repo, &base, &config.snapshot_keys).await;
+        now.is_ok_and(|now| now.as_deref() == Some(fingerprint))
     }
 
     /// Keeps what the task's setup produced as the snapshot of its environment, in place of
@@ -302,7 +310,10 @@ impl Core {
         let folder = self.snapshot_folder(&project.name, task.environment.as_deref());
         let config = self.config_in(&project.name, task.environment.as_deref())?;
         let fingerprint = taken_with(&task.worktree_path, "HEAD", &config.snapshot_keys).await?;
-        let newer = fingerprint.is_some() && self.started_from_base(project, task, &config).await;
+        let newer = match fingerprint.as_deref() {
+            Some(taken) => self.has_the_bases(project, task, &config, taken).await,
+            None => false,
+        };
         let why = || keeping(&folder, fingerprint.as_deref(), newer);
         if why().is_none() {
             return Ok(None);
