@@ -15,6 +15,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.14] - 2026-11-28
+
 ### Added
 
 - **Snooze a session.** Not now, but not done either: press ⌘⇧D, the clock on a session's row
@@ -1240,7 +1242,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.13...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.14...HEAD
+[0.4.14]: https://github.com/ryckakas/swarmed/compare/v0.4.13...v0.4.14
 [0.4.13]: https://github.com/ryckakas/swarmed/compare/v0.4.12...v0.4.13
 [0.4.12]: https://github.com/ryckakas/swarmed/compare/v0.4.11...v0.4.12
 [0.4.11]: https://github.com/ryckakas/swarmed/compare/v0.4.10...v0.4.11
