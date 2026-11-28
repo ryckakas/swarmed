@@ -21,58 +21,28 @@ once: each has its own worktree and ports, so they don't step on each other. A d
 
 ## Why this one
 
-- **A task is a branch, a worktree and a stack.** Your setup hook runs in each new worktree,
-  your dev server keeps running beside it, and every task gets ports of its own, so two of them
-  can run the same app at once. Agents keep to their task's worktree, so skills that make a
-  worktree or branch of their own are best left out:
-  [see why](docs/coding-agents.md#skills-that-make-their-own-worktree-or-branch).
-- **Any agent, on its own login.** Claude Code runs as you set it up, with your login,
-  settings and plugins. Others are installed and set up from Settings → Agents. Swarmed never
-  signs you in to anything and keeps no GitHub token: it uses each agent's own login and your
-  `gh`.
-- **One pool of MCP servers and skills.** A server set up for Claude Code, Codex or OpenCode
-  reaches the other agents too, and so does a skill, without copying anything into their
-  configuration. [repolore](docs/coding-agents.md#repolore-built-in), which searches your own
-  GitHub history, can be built in: Swarmed installs it and gives every session one copy of it.
-- **Supervise from one window.** Permission requests, questions and plans are answered in the
-  conversation, and a notification says when a session needs you.
-- **Sessions outlive a restart.** Every session is kept on disk with its whole conversation, and
-  its task's worktree stays where it was, so quitting Swarmed or restarting the machine loses
-  none of them. Write to a session afterwards and its agent carries on where it left off:
-  Claude Code, Codex and OpenCode pick up their own conversation, and a turn the restart cut
-  short no longer shows as working. For an agent that cannot resume, fork the session: the fork
-  starts with the conversation so far, on the same agent or another. A turn that went the wrong
-  way can be taken back: the session goes back to before your message, its files too if you
-  choose, and the message waits in the box to be changed and sent again.
-- **Answers you can see.** An agent can answer with HTML, such as a chart, a table or a mock-up,
-  and Swarmed shows it in the conversation, in a sandbox with no way out to the app or the
-  network. Apps that MCP servers attach to their tools show under the call, sandboxed the same
-  way.
-- **A browser per task.** Each task can have a Chrome of its own, shown live beside its
-  sessions: click and type in its page, read its console. Its profile is the task's own, so
-  what you sign in to there stays with the task and never reaches another's. Agents' own
-  browser tools, Playwright MCP and Chrome DevTools MCP, act in it instead of opening windows,
-  so you watch them work. Pick an element on its page to point the agent at exactly that one,
-  with a picture of it.
-- **From issue to pull request.** A task started from one of the repository's GitHub issues,
-  the task's diff, comments on lines sent back to the agent, commit, push, a pull request with
-  its checks that closes the issue, and merging it, now or once its checks pass.
-  A finished task is put away, its agents and stack stopped and nothing deleted, by hand or by
-  itself once its pull request merged or it sat idle, if you turn that on.
-- **Chats, with no repository.** New task starts a chat unless you pick a repository: for a
-  question, a repository you have not added, or several agents' opinions on one thing. Each
-  chat gets an empty folder of its own and is listed under General. A chat can read and message
-  the sessions in your repositories, which can answer it, and when it turns into work, it
-  carries on in a new task of a repository with the whole conversation.
-- **Made yours, by hand or by an agent.** Six palettes, a layout of your own sizes, fonts and
-  colours, and a stylesheet of your own for the rest; the terminal and the status line; buttons
-  that send a prompt or run a command; saved prompts, rules for every agent, and environments for
-  setting tasks up. Change them in the app, in their files or with `swarmed`, or ask an agent: it
-  changes the looks at once, apart from your stylesheet, which only you change, and proposes
-  rules, environments and commands for your yes.
-- **No files of its own in your repository.** Swarmed keeps its configuration and state in a
-  folder of its own. The repository gains only the tasks' branches (and an empty first commit
-  if it had none), and their worktrees live under `~/swarmed`, beside the chats' folders.
+- **Any agent, one pool.** Claude Code, Codex, OpenCode, Antigravity or any ACP agent, each on
+  its own login, sharing one pool of MCP servers and skills.
+- **Agents that delegate.** Give a session a role (architect, planner, implementer, reviewer)
+  and it splits the work into sessions and tasks of their own, which report back to it.
+- **Sessions survive restarts.** Quit or reboot and every session is still there: write to it
+  and its agent carries on, or fork it onto another agent.
+- **Answers you can see.** Agents answer with charts, tables and mock-ups, drawn in a sandbox
+  right in the conversation, as are the apps MCP servers attach to their tools.
+- **From issue to merged pull request.** Start a task from a GitHub issue, review its diff,
+  commit, push, open the pull request and merge it, while Swarmed tells you when checks fail or
+  a review comes in.
+- **A browser per task.** Each task has a live Chrome beside its sessions, on a profile of its
+  own, where agents' Playwright and DevTools tools act while you watch.
+- **Cloud and phone.** Hand work to a Codex or Claude Code cloud agent, or carry a Claude Code
+  session on from your phone with Remote Control.
+- **Made yours.** Palettes, layouts, your own stylesheet, the status line, actions and rules,
+  changed by hand, in files, from the command line or by asking an agent.
+- **Scriptable.** The `swarmed` command drives the same core and data as the app, from a
+  terminal, a script or an agent's shell.
+
+There is more: chats with no repository, a diff and a rewind for every turn, usage and cost,
+and the rest in **[Features](docs/features.md)**.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.png">
@@ -124,6 +94,7 @@ swarmed session run shop fix-login "Fix the login form's error message"
 The documentation site is at **[swarmed.kauneckas.dev](https://swarmed.kauneckas.dev)**. It is
 written from the files below, which can also be read here:
 
+- [Features](docs/features.md): everything Swarmed does, in short
 - [Projects and configuration](docs/configuration.md): hooks, ports, environments and where
   Swarmed keeps things
 - [Coding agents](docs/coding-agents.md): adding agents, MCP servers, skills, and the tools
