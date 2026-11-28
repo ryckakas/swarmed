@@ -88,12 +88,14 @@ describe("a built-in's state", () => {
         expect(stateTone("off")).toBe("plain");
     });
 
-    it("says which version is too old, and which is needed", () => {
+    it("says which version is too old, which is needed, and that a copy can come after", () => {
         const old = view({ state: "outdated", version: "0.5.0" });
         expect(summaryLine(old)).toBe(
-            "repolore 0.5.0 is installed, and Swarmed needs 0.5.1 or later.",
+            "repolore 0.5.0 is installed, and Swarmed needs 0.5.1 or later. A setup of your own is left as it is: if it was not copied yet, copying it is offered once updated.",
         );
-        expect(summaryLine({ ...old, version: null })).toContain("needs 0.5.1 or later");
+        const unsaid = summaryLine({ ...old, version: null });
+        expect(unsaid).toContain("needs 0.5.1 or later");
+        expect(unsaid).toContain("if it was not copied yet");
     });
 
     it("offers a copy while off only for a setup of the user's not copied yet", () => {

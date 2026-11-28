@@ -18,8 +18,8 @@ use swarmed_core::{
 /// Answers each of repolore's commands from a file in `$state`, and notes every call with the
 /// home it was about and the folder it ran in. Its doctor exits 1 when a check failed, as
 /// repolore's does. `uv` stands in for the installer, putting repolore where it is looked
-/// for; `claude` and `codex` for Claude Code and Codex, whose remove commands take a
-/// registration out.
+/// for, or failing as uv does with what `$state/uv-fails` holds; `claude` and `codex` for
+/// Claude Code and Codex, whose remove commands take a registration out.
 const REPOLORE_SCRIPT: &str = r#"#!/bin/sh
 state="__STATE__"
 echo "$* | home=${REPOLORE_HOME-unset} managed=${REPOLORE_MANAGED_BY-unset} cwd=$(pwd -P)" >> "$state/calls"
@@ -51,6 +51,7 @@ esac
 
 const UV_SCRIPT: &str = r#"#!/bin/sh
 echo "$*" >> "__STATE__/uv-calls"
+if [ -f "__STATE__/uv-fails" ]; then cat "__STATE__/uv-fails" >&2; exit 1; fi
 echo "Installed 2 executables: repolore, repolore-mcp"
 cp "__STATE__/repolore.source" "__TOOLS__/repolore"
 cp "__STATE__/repolore-mcp.source" "__TOOLS__/repolore-mcp"
@@ -122,6 +123,10 @@ impl Stand {
 
     fn read(&self, name: &str) -> String {
         std::fs::read_to_string(self.state.join(name)).unwrap_or_default()
+    }
+
+    fn forget(&self, name: &str) {
+        std::fs::remove_file(self.state.join(name)).expect("test setup");
     }
 
     async fn core(&self) -> Core {
@@ -229,12 +234,37 @@ async fn installed_from_nothing(stand: &Stand, core: &Core) {
     installed_too_old(stand, core).await;
 }
 
-/// uv installs it, in a version too old.
+/// uv installs it, in a version too old, once a cooldown in uv hid it and the error said so.
 async fn installed_too_old(stand: &Stand, core: &Core) {
-    // Printing as it goes.
     stand.sources();
     stand.install("uv", UV_SCRIPT);
     stand.write("version", "repolore 0.5.0\n");
+    stand.write(
+        "uv-fails",
+        "  × No solution found when resolving dependencies:\n  ╰─▶ Because only \
+         repolore-mcp<=0.5.0 is available and you require\n      repolore-mcp>=0.5.1.\n\n      \
+         hint: `repolore-mcp` was filtered by `exclude-newer`.\n",
+    );
+    let failed = core.builtin_mcp_install(REPOLORE, &hooks::discard).await;
+    let said = failed.expect_err("uv failed").to_string();
+    assert!(
+        said.starts_with(
+            "could not set up repolore: a cooldown in uv's configuration (`exclude-newer`) \
+             hides repolore-mcp 0.5.1 and newer"
+        ),
+        "{said}"
+    );
+    assert!(
+        said.ends_with(
+            "uv said: No solution found when resolving dependencies: Because only \
+             repolore-mcp<=0.5.0 is available and you require repolore-mcp>=0.5.1. hint: \
+             `repolore-mcp` was filtered by `exclude-newer`."
+        ),
+        "{said}"
+    );
+    stand.forget("uv-fails");
+    stand.forget("uv-calls");
+    // Printing as it goes.
     let printed = Mutex::new(Vec::new());
     let sink = |line: &str| printed.lock().expect("not poisoned").push(line.to_string());
     let outdated = core
