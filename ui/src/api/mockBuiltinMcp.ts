@@ -51,7 +51,7 @@ const REGISTRATIONS: BuiltinRegistration[] = [
         key: "claude:user",
         client: "Claude Code",
         scope: "user",
-        command: "claude mcp remove repolore -s user",
+        command: "claude mcp remove repolore --scope user",
         runs_here: true,
         step: null,
     },
@@ -130,7 +130,7 @@ class MockBuiltin {
     private existing: ExistingSetup | null = { folders: OLD_FOLDERS, indexed: true };
     private registrations = [...REGISTRATIONS];
     /** Held by the idle session below and by one outside Swarmed. */
-    private oldServer: OldServer | null = { pid: 48213, relays: 2 };
+    private oldServer: OldServer | null = { running: true, pid: 48213, relays: 2 };
     private sessions: HeldSession[] = [
         { id: 2, title: "Write a regression test for the loop", idle: true },
     ];
@@ -206,7 +206,10 @@ class MockBuiltin {
         if (this.oldServer === null || this.sessions.length > 0) {
             return this.oldServer;
         }
-        return this.oldServer.pid === null ? null : { pid: null, relays: this.oldServer.relays };
+        if (!this.oldServer.running) {
+            return null;
+        }
+        return { running: false, pid: null, relays: this.oldServer.relays };
     }
 
     async install(): Promise<BuiltinMcpView> {

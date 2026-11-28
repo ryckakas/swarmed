@@ -71,7 +71,7 @@ function registration(change: Partial<BuiltinRegistration> = {}): BuiltinRegistr
         key: "claude:user",
         client: "Claude Code",
         scope: "user",
-        command: "claude mcp remove repolore -s user",
+        command: "claude mcp remove repolore --scope user",
         runs_here: true,
         step: null,
         ...change,
@@ -170,7 +170,7 @@ describe("what a built-in waits for", () => {
             leftLine({
                 ...waiting,
                 registrations: [registration(), registration({ key: "codex" })],
-                old_server: { pid: 41, relays: 1 },
+                old_server: { running: true, pid: 41, relays: 1 },
             }),
         ).toContain(
             "2 registrations outside Swarmed remain and the old shared server is still in use",
@@ -181,7 +181,7 @@ describe("what a built-in waits for", () => {
     it("runs a command shown first, or leaves a step to the user", () => {
         expect(registrationStep(registration())).toEqual({
             kind: "run",
-            command: "claude mcp remove repolore -s user",
+            command: "claude mcp remove repolore --scope user",
         });
         const opencode = registration({
             client: "OpenCode",
@@ -202,6 +202,18 @@ describe("what a built-in waits for", () => {
         // A command Swarmed may not run is shown for the user to run by hand.
         const cursor = registration({ client: "Cursor", runs_here: false, command: "cursor x" });
         expect(registrationStep(cursor)).toMatchObject({ kind: "user", command: "cursor x" });
+        // A folder's own, as the core gives it: where to run it, then the command.
+        const local = registration({
+            scope: "local",
+            runs_here: false,
+            command: "claude mcp remove repolore --scope local",
+            step: "Run it yourself, in that project's folder:",
+        });
+        expect(registrationStep(local)).toEqual({
+            kind: "user",
+            text: "Run it yourself, in that project's folder:",
+            command: "claude mcp remove repolore --scope local",
+        });
         // One Swarmed would run but that has no command is the user's too.
         expect(registrationStep(registration({ command: null })).kind).toBe("user");
         expect(registrationPlace(registration())).toBe("Claude Code, user scope");
@@ -209,18 +221,30 @@ describe("what a built-in waits for", () => {
     });
 
     it("says whether the old server runs, and how many sessions are connected to it", () => {
-        expect(oldServerLine({ pid: 4242, relays: 2 })).toBe(
+        const runs = (pid: number | null, relays: number) => ({ running: true, pid, relays });
+        expect(oldServerLine(runs(4242, 2))).toBe(
             "The old shared server (process 4242) runs, with 2 sessions connected. It stops by itself 10 minutes after the last one ends.",
         );
-        expect(oldServerLine({ pid: 4242, relays: 1 })).toContain("with 1 session connected");
-        expect(oldServerLine({ pid: 4242, relays: 0 })).toContain("with no session connected");
+        expect(oldServerLine(runs(4242, 1))).toContain("with 1 session connected");
+        expect(oldServerLine(runs(4242, 0))).toContain("with no session connected");
         // Stopped, it is still in use: each session connected would start it again.
-        expect(oldServerLine({ pid: null, relays: 2 })).toBe(
+        const stopped = (relays: number) => ({ running: false, pid: null, relays });
+        expect(oldServerLine(stopped(2))).toBe(
             "The old shared server is stopped, but 2 sessions are still connected to it and would start it again.",
         );
-        expect(oldServerLine({ pid: null, relays: 1 })).toContain(
-            "but 1 session is still connected",
+        expect(oldServerLine(stopped(1))).toContain("but 1 session is still connected");
+        expect(oldServerLine(stopped(0))).toBe("The old shared server is stopped.");
+    });
+
+    it("says the old server is starting, never stopped, before it names its process", () => {
+        const starting = (relays: number) => ({ running: true, pid: null, relays });
+        expect(oldServerLine(starting(0))).toBe(
+            "The old shared server is starting, with no session connected.",
         );
+        expect(oldServerLine(starting(2))).toBe(
+            "The old shared server is starting, with 2 sessions connected.",
+        );
+        expect(oldServerLine(starting(1))).not.toContain("stopped");
     });
 
     it("names the sessions on the old server, and whether restarting them helps now", () => {
@@ -282,7 +306,9 @@ describe("a built-in that is on", () => {
         expect(trashOffered({ ...well, existing: null })).toBe(false);
         expect(trashOffered({ ...well, checks: [passing, failing] })).toBe(false);
         expect(trashOffered({ ...well, checked: null })).toBe(false);
-        expect(trashOffered({ ...well, old_server: { pid: 1, relays: 0 } })).toBe(false);
+        expect(trashOffered({ ...well, old_server: { running: true, pid: 1, relays: 0 } })).toBe(
+            false,
+        );
         expect(trashOffered({ ...well, state: "waiting" })).toBe(false);
         // The core refuses while the last reading or step failed.
         expect(trashOffered({ ...well, problem: "the doctor timed out" })).toBe(false);

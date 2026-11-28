@@ -16,17 +16,22 @@ use swarmed_core::{
 };
 
 /// Answers each of repolore's commands from a file in `$state`, and notes every call with the
-/// home it was about. `uv` stands in for the installer, putting repolore where it is looked
+/// home it was about and the folder it ran in. Its doctor exits 1 when a check failed, as
+/// repolore's does. `uv` stands in for the installer, putting repolore where it is looked
 /// for; `claude` and `codex` for Claude Code and Codex, whose remove commands take a
 /// registration out.
 const REPOLORE_SCRIPT: &str = r#"#!/bin/sh
 state="__STATE__"
-echo "$* | home=${REPOLORE_HOME-unset} managed=${REPOLORE_MANAGED_BY-unset}" >> "$state/calls"
+echo "$* | home=${REPOLORE_HOME-unset} managed=${REPOLORE_MANAGED_BY-unset} cwd=$(pwd -P)" >> "$state/calls"
 which=old
 if [ -n "$REPOLORE_HOME" ]; then which=builtin; fi
 case "$1" in
   version) cat "$state/version" ;;
-  doctor) cat "$state/doctor-$which.json" 2>/dev/null || echo '{"checks": [], "registrations": []}' ;;
+  doctor)
+    answer="$state/doctor-$which.json"
+    if [ ! -f "$answer" ]; then echo '{"checks": [], "registrations": []}'; exit 0; fi
+    cat "$answer"
+    if grep -q '"ok": *false' "$answer"; then exit 1; fi ;;
   server) cat "$state/server-$which.json" 2>/dev/null || echo '{"running": false}' ;;
   copy)
     if [ -f "$state/copy-fails" ]; then
@@ -322,6 +327,7 @@ async fn off_with_a_setup_from_before(stand: &Stand, core: &Core) -> Value {
         Some("delete repolore from /Users/me/.config/opencode/opencode.json")
     );
     let old_server = off.old_server.expect("in use");
+    assert!(old_server.running);
     assert_eq!((old_server.pid, old_server.relays), (Some(4242), 1));
     assert_eq!(off.checked, Some(CheckKind::Offline));
     assert!(!off.home_ready);
@@ -329,9 +335,13 @@ async fn off_with_a_setup_from_before(stand: &Stand, core: &Core) -> Value {
     opencode
 }
 
-/// Each home is asked with its own environment: the user's own with none of repolore's.
+/// Each home is asked with its own environment: the user's own with none of repolore's. Every
+/// command runs in the data directory, a folder of no project, wherever the test runs.
 fn asked_each_home_apart(stand: &Stand) {
     let calls = stand.read("calls");
+    let data = stand.fx.paths.data_dir.canonicalize().expect("real");
+    let ran_in = format!(" cwd={}", data.display());
+    assert!(calls.lines().all(|call| call.ends_with(&ran_in)), "{calls}");
     let home = stand.home();
     let builtin = format!(
         "doctor --json --offline | home={} managed=Swarmed",
@@ -442,8 +452,25 @@ async fn stopped_but_still_connected(stand: &Stand, core: &Core) {
     assert_eq!(waiting.state, BuiltinState::Waiting, "{waiting:?}");
     assert_eq!(waiting.registrations, []);
     let old_server = waiting.old_server.expect("in use");
+    assert!(!old_server.running);
     assert_eq!((old_server.pid, old_server.relays), (None, 1));
     assert_eq!(waiting.problem, None);
+}
+
+/// The old server starting, as repolore says it until it has written its address: running,
+/// with no process yet. The row waits, and the server is never shown as stopped.
+async fn starting_counts_as_running(stand: &Stand, core: &Core) {
+    let starting = json!({"running": true, "starting": true, "pid": null, "url": null,
+        "version": null, "started_at": null, "model_ready": null, "sessions": 0});
+    stand.write("server-old.json", &starting.to_string());
+    let waiting = core
+        .builtin_mcp_check(REPOLORE, false)
+        .await
+        .expect("checks");
+    assert_eq!(waiting.state, BuiltinState::Waiting, "{waiting:?}");
+    let old_server = waiting.old_server.expect("in use");
+    assert!(old_server.running);
+    assert_eq!((old_server.pid, old_server.relays), (None, 0));
 }
 
 /// Nothing left elsewhere and the old server no longer in use: on, with its checks. Then off
@@ -451,6 +478,7 @@ async fn stopped_but_still_connected(stand: &Stand, core: &Core) {
 async fn on_then_off(stand: &Stand, core: &Core) {
     let home = stand.home();
     stand.write("doctor-builtin.json", &doctor(&[], &home, true));
+    starting_counts_as_running(stand, core).await;
     stopped_but_still_connected(stand, core).await;
     stand.write("server-old.json", &server(false, None, 0));
     let on = core

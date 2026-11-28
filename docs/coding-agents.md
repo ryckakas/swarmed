@@ -515,22 +515,27 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
   repository's `.mcp.json` server named repolore, once you approved it in Claude Code, keeps the
   built-in from that repository's sessions.
 - **Taking registrations out.** Swarmed runs a remove command, shown before it runs, only for a
-  registration for your whole user: Claude Code's user scope (`claude mcp remove … -s user`),
-  its plugin (`claude plugin uninstall`), and Codex's user-level one (`codex mcp remove`, where
-  repolore itself only says to delete it from `~/.codex/config.toml`). Swarmed never writes into
-  an agent's files, so any other is a step for you, shown in the row: Codex's for one project,
-  Claude Code's for one repository (local or project scope), OpenCode's, Claude Desktop's and
-  those of clients without a remove command. A `repolore session-start` hook in Claude Code's
+  registration for your whole user: Claude Code's user scope (`claude mcp remove <name> --scope
+  user`), its plugin when it is installed for your user (`claude plugin uninstall <id> --scope
+  user`), and Codex's user-level one (`codex mcp remove <name>`, where repolore itself only says
+  to delete it from `~/.codex/config.toml`). Swarmed never writes into an agent's files, so any
+  other is a step for you, shown in the row: a plugin installed for one project, Codex's for one
+  project, Claude Code's for one repository (local or project scope), OpenCode's, Claude
+  Desktop's and those of clients without a remove command. Where repolore names a command, the
+  row shows it for you to run, in that project's folder when it belongs to one. Swarmed runs
+  repolore in its own data folder, so what is found never depends on the folder `swarmed` was
+  typed in; Claude Code's servers for one repository are found by Swarmed's own reading of its
+  settings, with the folder they belong to. A `repolore session-start` hook in Claude Code's
   `settings.json` is pointed out for you to remove, never edited: the built-in refreshes by
   itself. A registration that comes back, from running `repolore setup` again say, puts the row
   back to waiting, and new sessions go without the built-in: at once if Swarmed reads that
   client itself, else from the next check.
 - **The old server.** Sessions started before their registration went stay connected to the old
   shared server until they end, and start it again if it was stopped. It stops by itself 10
-  minutes after the last one ends. The row says whether it runs and how many sessions are
-  connected, and names Swarmed's sessions among them; **Restart idle ones** stops the agents of
-  the idle ones, which start again with their next message. Sessions outside Swarmed are yours
-  to close.
+  minutes after the last one ends. The row says whether it runs, starts or has stopped, and how
+  many sessions are connected, and names Swarmed's sessions among them; **Restart idle ones**
+  stops the agents of the idle ones, which start again with their next message. Sessions
+  outside Swarmed are yours to close.
 - **Checks.** Opening the settings runs repolore's doctor without the network
   (`repolore doctor --json --offline`). **Check** runs the full one, which asks GitHub and
   whether Claude Code connects too. Nothing runs on a timer, and a session's start asks

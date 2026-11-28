@@ -33,7 +33,10 @@
 //! `REPOLORE_HOME=<data dir>/repolore` with `REPOLORE_MANAGED_BY=Swarmed`, which is repolore's
 //! managed mode: it registers itself nowhere, and reports every other registration as a
 //! conflict. The user's own, the old home, is asked with both removed. Every command gets the
-//! `PATH` of the user's shell (`shellenv.rs`).
+//! `PATH` of the user's shell (`shellenv.rs`), and runs in Swarmed's data directory, a folder
+//! of no project: repolore reads a project's registrations (its `.mcp.json`, its
+//! `.codex/config.toml`, Claude Code's local scope) from the folder it runs in, and where
+//! `swarmed` was typed would make one repository's entries everybody's.
 //!
 //! The page's address carries its token: it is never logged, never in a view, never in an
 //! error, and [`Page`]'s `Debug` leaves it out.
@@ -84,6 +87,8 @@ const POLL: Duration = Duration::from_millis(50);
 #[derive(Debug, Clone)]
 pub(crate) struct Repolore {
     program: PathBuf,
+    /// The folder its commands run in, which belongs to no project.
+    folder: PathBuf,
 }
 
 /// Which of repolore's homes a command is about.
@@ -113,17 +118,20 @@ pub(crate) fn builtin_env(home: &Path) -> BTreeMap<String, String> {
 }
 
 impl Repolore {
-    /// repolore's command line, if it is in one of `dirs`.
-    pub(crate) fn find(dirs: &[PathBuf]) -> Option<Self> {
-        find_program(PROGRAM, dirs).map(|program| Self { program })
+    /// repolore's command line, if it is in one of `dirs`, to run in `folder`, which has to
+    /// be there and belong to no project.
+    pub(crate) fn find(dirs: &[PathBuf], folder: &Path) -> Option<Self> {
+        let folder = folder.to_path_buf();
+        find_program(PROGRAM, dirs).map(|program| Self { program, folder })
     }
 
-    /// A command about `home`, with the user's `PATH`, and nothing tied to this process's
-    /// input.
+    /// A command about `home`, with the user's `PATH`, in a folder of no project, and with
+    /// nothing tied to this process's input.
     fn command(&self, home: Home<'_>) -> std::process::Command {
         let mut command = std::process::Command::new(&self.program);
         command
             .env("PATH", crate::shellenv::path())
+            .current_dir(&self.folder)
             .stdin(Stdio::null());
         match home {
             Home::Builtin(dir) => {
@@ -394,21 +402,27 @@ pub(crate) struct Registration {
     /// Where in the client: `user`, `local`, `project`, `plugin` and the like.
     #[serde(deserialize_with = "lenient")]
     pub(crate) scope: String,
+    /// Whether it is there for every project, or belongs to one folder; unknown if not said.
+    #[serde(deserialize_with = "lenient")]
+    pub(crate) for_every_project: Option<bool>,
     /// How to take it out, said for the user: a command in backticks, or a step.
     #[serde(deserialize_with = "lenient")]
     pub(crate) remove: String,
 }
 
 impl Registration {
-    /// The command `remove` names, word by word, when the whole of it is one command in
-    /// backticks; none when it is a step to take by hand.
-    pub(crate) fn remove_command(&self) -> Option<Vec<String>> {
+    /// The command `remove` names, as repolore wrote it, when the whole of it is one command
+    /// in backticks; none when it is a step to take by hand.
+    pub(crate) fn backticked(&self) -> Option<&str> {
         let text = self.remove.trim();
-        let inside = text.strip_prefix('`')?.strip_suffix('`')?;
-        if inside.contains('`') {
-            return None;
-        }
-        let words = crate::mcp_own::words(inside);
+        let inside = text.strip_prefix('`')?.strip_suffix('`')?.trim();
+        (!inside.is_empty() && !inside.contains('`')).then_some(inside)
+    }
+
+    /// That command word by word. repolore writes names unquoted: a name with a space in it
+    /// comes apart here, so a name is never to be taken from these words.
+    pub(crate) fn remove_command(&self) -> Option<Vec<String>> {
+        let words = crate::mcp_own::words(self.backticked()?);
         (!words.is_empty()).then_some(words)
     }
 }
@@ -631,6 +645,8 @@ mod tests {
         assert!(doctor.checks[1].warning && doctor.checks[1].fix.is_none());
         let registration = &doctor.registrations[0];
         assert_eq!(registration.client, "claude");
+        assert_eq!(registration.for_every_project, Some(true));
+        assert_eq!(doctor.registrations[1].for_every_project, None);
         assert_eq!(
             registration.remove,
             "`claude mcp remove repolore --scope user`"
@@ -680,6 +696,14 @@ mod tests {
             };
             registration.remove_command()
         };
+        let text = Registration {
+            remove: " ` claude mcp remove my lore --scope user `\n".into(),
+            ..Registration::default()
+        };
+        assert_eq!(
+            text.backticked(),
+            Some("claude mcp remove my lore --scope user")
+        );
         let words = |line: &str| Some(line.split(' ').map(String::from).collect::<Vec<_>>());
         assert_eq!(
             command("`claude mcp remove repolore --scope user`"),
@@ -785,7 +809,10 @@ mod tests {
             .status()
             .expect("installs");
         assert!(installed.success());
-        Repolore { program }
+        Repolore {
+            program,
+            folder: dir.to_path_buf(),
+        }
     }
 
     /// Whether process `pid` is there, waiting a moment for it to go.
@@ -802,6 +829,31 @@ mod tests {
             std::thread::sleep(POLL);
         }
         !there()
+    }
+
+    #[tokio::test]
+    async fn the_doctor_is_read_whatever_it_exits_with_in_a_folder_of_no_project() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (folder, asked) = (dir.path().join("neutral"), dir.path().join("asked"));
+        std::fs::create_dir_all(&folder).expect("made");
+        // As repolore does when a check fails: the whole answer, then exit 1.
+        let script = format!(
+            "pwd -P > '{}'\n\
+             echo '{{\"ok\": false, \"db\": \"default\", \"checks\": [{{\"name\": \"index default\", \"ok\": false}}], \"registrations\": []}}'\n\
+             exit 1",
+            asked.display()
+        );
+        let mut repolore = stand_in(dir.path(), &script);
+        repolore.folder.clone_from(&folder);
+        let doctor = repolore.doctor(Home::Old, false).await.expect("read");
+        assert_eq!(doctor.checks.len(), 1);
+        assert!(!doctor.indexed());
+        let ran_in = std::fs::read_to_string(&asked).expect("written");
+        let folder = folder.canonicalize().expect("real");
+        assert_eq!(Path::new(ran_in.trim()), folder);
+        // Found for the data directory, it runs there.
+        let found = Repolore::find(&[dir.path().to_path_buf()], &folder).expect("found");
+        assert_eq!(found.folder, folder);
     }
 
     #[test]

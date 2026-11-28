@@ -225,15 +225,20 @@ export function registrationPlace(registration: BuiltinRegistration): string {
 }
 
 /**
- * The old shared server: whether it runs, and how many sessions are connected to it. Stopped,
- * it is still in use while any is, since each would start it again.
+ * The old shared server: whether it runs, starts or is stopped, and how many sessions are
+ * connected to it. Stopped, it is still in use while any is, since each would start it again.
+ * Starting, it runs with no process said yet: never shown as stopped.
  */
 export function oldServerLine(server: OldServer): string {
     const sessions = server.relays === 1 ? "1 session" : `${server.relays} sessions`;
-    if (server.pid === null) {
+    if (!server.running) {
         return server.relays === 0
             ? "The old shared server is stopped."
             : `The old shared server is stopped, but ${sessions} ${server.relays === 1 ? "is" : "are"} still connected to it and would start it again.`;
+    }
+    if (server.pid === null) {
+        const connected = server.relays === 0 ? "no session" : sessions;
+        return `The old shared server is starting, with ${connected} connected.`;
     }
     if (server.relays === 0) {
         return `The old shared server (process ${server.pid}) runs, with no session connected. It stops by itself within 10 minutes.`;

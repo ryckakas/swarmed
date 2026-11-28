@@ -20,14 +20,16 @@
 //!
 //! Registrations come from repolore's doctor, which knows every client repolore registers
 //! with, and from Swarmed's own readers of Claude Code, its plugins, Codex, OpenCode and
-//! `mcp.toml`. repolore says how each is taken out as text (`removal`): a command in
-//! backticks for Claude Code, a step elsewhere. Swarmed runs a command only for one of
-//! repolore's doctor, found again by its key, and only Claude Code's or Codex's own that
-//! belongs to no folder (`remover`): a folder's would run in none. For Codex's own, of which
-//! repolore says to edit its file, Swarmed runs `codex mcp remove <name>`. The command is
-//! shown before it runs. Anything else is a step for the user, as repolore says it. Nothing
-//! is written into an agent's files, and a `repolore session-start` hook in Claude Code's
-//! settings is pointed out, never edited.
+//! `mcp.toml`. Swarmed runs a command only for one of repolore's doctor, found again by its
+//! key, and only for one that belongs to no folder (`removal`): a folder's would run in none.
+//! The user's own server in Claude Code or Codex is removed by its client's command, built
+//! from its name (`claude mcp remove <name> --scope user`, `codex mcp remove <name>`), never
+//! read from repolore's text, which writes names unquoted; a plugin installed for the user, by
+//! repolore's `claude plugin uninstall <id> --scope user` in exactly that shape (`remover`).
+//! The command is shown before it runs. What else repolore says is the user's: a command in
+//! backticks is shown for them to run, in its project's folder where it has one, and anything
+//! else as the step repolore wrote. Nothing is written into an agent's files, and a `repolore
+//! session-start` hook in Claude Code's settings is pointed out, never edited.
 //!
 //! **Whether it stands clear** is stored (`builtin_mcp` in the database, beside whether it is
 //! turned on), so that a session starts without asking repolore anything: no Python runs
@@ -209,6 +211,8 @@ pub struct BuiltinRegistration {
 /// connected, which would start it again. The field names are kept for the front ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct OldServer {
+    /// Whether it runs, or is starting: repolore says it runs before it says where.
+    pub running: bool,
     /// Its process: none while it is stopped, or starting and not saying yet.
     pub pid: Option<u32>,
     /// How many sessions are connected to it (repolore's `sessions`), counted while it is
@@ -405,10 +409,11 @@ impl Reading {
     }
 }
 
-/// The old server as a front end shows it, while it is in use: its process only while it
-/// runs, and its sessions as `relays`.
+/// The old server as a front end shows it, while it is in use: running while it runs or
+/// starts, its process only while it runs, and its sessions as `relays`.
 fn old_server_of(server: &ServerStatus) -> Option<OldServer> {
     server.in_use().then(|| OldServer {
+        running: server.running || server.starting,
         pid: server.pid.filter(|_| server.running),
         relays: server.sessions,
     })
@@ -505,50 +510,58 @@ fn client_name(client: &str) -> &str {
     }
 }
 
-/// The command Swarmed takes out a registration repolore's doctor lists with, if it runs
-/// one: for Codex's user scope, of which repolore says to delete the entry from its file,
-/// `codex mcp remove <name>`; else the command repolore names in backticks, if it is one
-/// Swarmed runs (`remover`). Codex's other scopes belong to a folder, and are the user's step,
-/// as is anything repolore says that is no command.
+/// The command Swarmed takes out a registration repolore's doctor lists with, if it runs one:
+/// the user's own server in Claude Code or Codex, by `claude mcp remove <name> --scope user`
+/// or `codex mcp remove <name>`, built from its name; and a plugin installed for the user, by
+/// repolore's `claude plugin uninstall <id> --scope user`, the one place its id is said. What
+/// repolore writes is never parsed for a name: it writes it unquoted. Anything else belongs
+/// to a folder, or is no command, and is the user's step.
 fn removal(said: &Registration) -> Option<Vec<String>> {
+    let name = said.name.as_str();
     let argv = match (said.client.as_str(), said.scope.as_str()) {
-        (mcp_codex::ORIGIN, "user") => codex_removal(&said.name)?,
-        (mcp_codex::ORIGIN, _) => return None,
-        _ => said.remove_command()?,
+        (CLAUDE, "user") => owned(&["claude", "mcp", "remove", name, "--scope", "user"]),
+        (CLAUDE, "plugin") => plugin_removal(said)?,
+        (mcp_codex::ORIGIN, "user") => owned(&["codex", "mcp", "remove", name]),
+        _ => return None,
     };
     remover(&argv).is_some().then_some(argv)
 }
 
-/// Codex's command that takes out its server `name`, unless the name would read as an option.
-fn codex_removal(name: &str) -> Option<Vec<String>> {
-    let plain = !name.trim().is_empty() && !name.starts_with('-');
-    plain.then(|| ["codex", "mcp", "remove", name].map(String::from).to_vec())
+fn owned(words: &[&str]) -> Vec<String> {
+    words.iter().map(ToString::to_string).collect()
 }
 
-/// The program a registration's remove command `argv` starts with, if Swarmed runs it itself:
-/// Claude Code's `mcp remove` of the user's own servers, its `plugin uninstall`, and Codex's
-/// `mcp remove`. Claude Code's other scopes, or none named, belong to a folder, and the
-/// command would run in none: they are the user's step, as is any other command.
+/// repolore's command that uninstalls the plugin bringing `said`, if it has the six words of
+/// `claude plugin uninstall <id> --scope <scope>`, for the plugin the registration is named
+/// after (`plugin:<plugin>:<server>`). Its exact shape is `remover`'s to hold.
+fn plugin_removal(said: &Registration) -> Option<Vec<String>> {
+    let argv = said.remove_command()?;
+    let [_, _, _, id, _, _] = argv.as_slice() else {
+        return None;
+    };
+    let plugin = id.split('@').next().unwrap_or_default();
+    let named = said.name.starts_with(&format!("plugin:{plugin}:"));
+    named.then_some(argv)
+}
+
+/// The program a remove command `argv` starts with, if Swarmed runs it itself: exactly
+/// Claude Code's `mcp remove <name> --scope user`, its `plugin uninstall <id> --scope user`,
+/// or Codex's `mcp remove <name>`, with a name that reads as one. Any other scope belongs to a
+/// folder, and the command would run in none; any other word could make it something else.
 fn remover(argv: &[String]) -> Option<&str> {
     let words: Vec<&str> = argv.iter().map(String::as_str).collect();
-    let scope = scope_of(words.get(1..).unwrap_or_default());
     let runs = match words.as_slice() {
-        ["claude", "mcp", "remove", _, ..] => scope == Some("user"),
-        ["claude", "plugin", "uninstall", _, ..] => scope.is_none_or(|scope| scope == "user"),
-        ["codex", "mcp", "remove", _, ..] => true,
+        ["claude", "mcp", "remove", name, "--scope", "user"]
+        | ["claude", "plugin", "uninstall", name, "--scope", "user"]
+        | ["codex", "mcp", "remove", name] => plain(name),
         _ => false,
     };
     argv.first().map(String::as_str).filter(|_| runs)
 }
 
-/// The scope a command's arguments name: `-s X`, `--scope X` or `--scope=X`.
-fn scope_of<'a>(args: &[&'a str]) -> Option<&'a str> {
-    let named = |pair: &&[&str]| matches!(pair.first(), Some(&("-s" | "--scope")));
-    let after = args
-        .windows(2)
-        .find(named)
-        .and_then(|pair| pair.get(1).copied());
-    after.or_else(|| args.iter().find_map(|arg| arg.strip_prefix("--scope=")))
+/// Whether `name` is read as a name by a command: not blank, and no option.
+fn plain(name: &str) -> bool {
+    !name.trim().is_empty() && !name.starts_with('-')
 }
 
 /// A command's words on one line, to show.
@@ -558,30 +571,53 @@ fn shown_line(argv: &[String]) -> String {
 }
 
 /// One registration repolore's doctor lists, as a front end shows it: with the command Swarmed
-/// would run, or else repolore's step. `runs_here` says whether a program is on this machine.
+/// would run; or else, when repolore names a command Swarmed does not run, that command for the
+/// user to run, in the folder it belongs to where it belongs to one; or else repolore's step.
+/// `runs_here` says whether a program is on this machine.
 fn registration_of(
     said: &Registration,
     key: String,
     runs_here: &dyn Fn(&str) -> bool,
 ) -> BuiltinRegistration {
-    let argv = removal(said);
-    let here = argv.as_deref().and_then(remover).is_some_and(runs_here);
     let client = if said.client_name.trim().is_empty() {
         client_name(&said.client).to_string()
     } else {
         said.client_name.clone()
     };
-    let step = match said.remove.trim() {
-        "" => format!("Remove `{}` from {client} yourself.", said.name),
-        text => text.to_string(),
-    };
-    BuiltinRegistration {
+    let shown = BuiltinRegistration {
         key,
         client,
         scope: said.scope.clone(),
-        command: argv.as_deref().map(shown_line),
-        runs_here: here,
-        step: argv.is_none().then_some(step),
+        command: None,
+        runs_here: false,
+        step: None,
+    };
+    if let Some(argv) = removal(said) {
+        return BuiltinRegistration {
+            command: Some(shown_line(&argv)),
+            runs_here: remover(&argv).is_some_and(runs_here),
+            ..shown
+        };
+    }
+    if let Some(command) = said.backticked() {
+        let step = if said.for_every_project == Some(false) {
+            "Run it yourself, in that project's folder:"
+        } else {
+            "Run it yourself:"
+        };
+        return BuiltinRegistration {
+            command: Some(command.to_string()),
+            step: Some(step.to_string()),
+            ..shown
+        };
+    }
+    let step = match said.remove.trim() {
+        "" => format!("Remove `{}` from {} yourself.", said.name, shown.client),
+        text => text.to_string(),
+    };
+    BuiltinRegistration {
+        step: Some(step),
+        ..shown
     }
 }
 
@@ -940,7 +976,8 @@ impl Core {
             let address = address.map(String::from);
             return Ok(address.map_or(Opening::Starting, Opening::Running));
         }
-        let repolore = Repolore::find(&self.tool_dirs)
+        let repolore = self
+            .repolore_found()
             .ok_or_else(|| Error::Mcp(format!("{name} is not installed")))?;
         let home = self.paths.repolore_home();
         let (page, first) = Page::spawn(&repolore, &home).map_err(Error::Mcp)?;
@@ -1040,7 +1077,7 @@ impl Core {
     /// Has repolore refresh the built-in's index if one is due, without waiting: for a
     /// session that started with the built-in.
     pub(crate) fn repolore_refresh(&self) {
-        if let Some(repolore) = Repolore::find(&self.tool_dirs) {
+        if let Some(repolore) = self.repolore_found() {
             repolore.session_start(&self.paths.repolore_home());
         }
     }
@@ -1065,7 +1102,7 @@ impl Core {
     async fn builtin_view(&self, name: &str, full: bool) -> Result<BuiltinMcpView> {
         let (turned_on, stored) = self.store().builtin_mcp_row(name)?;
         let mut view = self.view_without_answers(name);
-        let found = Repolore::find(&self.tool_dirs).filter(|_| self.repolore_installed());
+        let found = self.repolore_found().filter(|_| self.repolore_installed());
         let Some(repolore) = found else {
             view.state = state_of(Facts::default());
             return Ok(view);
@@ -1145,6 +1182,12 @@ impl Core {
         reading
     }
 
+    /// repolore's command line, if it is there, to run in the data directory: a folder of no
+    /// project, whatever folder Swarmed was started in.
+    fn repolore_found(&self) -> Option<Repolore> {
+        Repolore::find(&self.tool_dirs, &self.paths.data_dir)
+    }
+
     /// Whether both of repolore's programs are there.
     fn repolore_installed(&self) -> bool {
         let found = |program| find_program(program, &self.tool_dirs).is_some();
@@ -1154,7 +1197,7 @@ impl Core {
     /// repolore, if it is there and of a version Swarmed takes; else why not.
     async fn repolore_current(&self) -> Result<Repolore> {
         let missing = || Error::Mcp(format!("{REPOLORE} is not installed: install it first"));
-        let repolore = Repolore::find(&self.tool_dirs).ok_or_else(missing)?;
+        let repolore = self.repolore_found().ok_or_else(missing)?;
         let version = repolore.version().await.map_err(Error::Mcp)?;
         if !repolore::current(&version) {
             return Err(Error::Mcp(format!(
@@ -1339,11 +1382,12 @@ fn show(address: &str) -> Result<()> {
     })
 }
 
-/// The error for a registration Swarmed does not take out itself, with the user's step: the
-/// command to run by hand where its program is not found here.
+/// The error for a registration Swarmed does not take out itself, with the user's step and
+/// the command to run by hand, where there is one.
 fn yours(registration: &BuiltinRegistration) -> Error {
     let step = match (&registration.step, &registration.command) {
-        (Some(step), _) => step.clone(),
+        (Some(step), Some(command)) => format!("{step} `{command}`"),
+        (Some(step), None) => step.clone(),
         (None, Some(command)) => format!("run `{command}` yourself"),
         (None, None) => String::new(),
     };
@@ -1435,11 +1479,12 @@ mod tests {
                 key: "claude:user:repolore".into(),
                 client: "Claude Code".into(),
                 scope: "user".into(),
-                command: Some("claude mcp remove repolore -s user".into()),
+                command: Some("claude mcp remove repolore --scope user".into()),
                 runs_here: true,
                 step: None,
             }],
             old_server: Some(OldServer {
+                running: true,
                 pid: Some(42),
                 relays: 1,
             }),
@@ -1471,9 +1516,9 @@ mod tests {
             "install_command": "uv tool install", "home": "/data/repolore", "home_ready": true,
             "existing": {"folders": ["/old/repolore"], "indexed": true},
             "registrations": [{"key": "claude:user:repolore", "client": "Claude Code",
-                "scope": "user", "command": "claude mcp remove repolore -s user",
+                "scope": "user", "command": "claude mcp remove repolore --scope user",
                 "runs_here": true, "step": null}],
-            "old_server": {"pid": 42, "relays": 1},
+            "old_server": {"running": true, "pid": 42, "relays": 1},
             "sessions": [{"id": 7, "title": "Fix it", "idle": true}],
             "hook": true,
             "checks": [{"name": "model", "ok": true, "warning": true, "detail": "slow",
@@ -1519,6 +1564,7 @@ mod tests {
         assert!(refused(waiting).is_err_and(|e| e.contains("is on")));
         let running = BuiltinMcpView {
             old_server: Some(OldServer {
+                running: true,
                 pid: None,
                 relays: 0,
             }),
@@ -1583,28 +1629,28 @@ mod tests {
             pid,
             sessions,
         };
+        let shown = |running, pid, relays| {
+            Some(OldServer {
+                running,
+                pid,
+                relays,
+            })
+        };
         assert_eq!(old_server_of(&status(false, false, None, 0)), None);
         assert_eq!(
             old_server_of(&status(true, false, Some(42), 2)),
-            Some(OldServer {
-                pid: Some(42),
-                relays: 2
-            })
+            shown(true, Some(42), 2)
         );
+        // Starting, as repolore says it until the server has written its address: running,
+        // with no process yet. Never shown as stopped.
         assert_eq!(
             old_server_of(&status(true, true, None, 0)),
-            Some(OldServer {
-                pid: None,
-                relays: 0
-            })
+            shown(true, None, 0)
         );
-        // Stopped with a session connected: in use, with no process.
+        // Stopped with a session connected: in use, stopped, with no process.
         assert_eq!(
             old_server_of(&status(false, false, Some(42), 1)),
-            Some(OldServer {
-                pid: None,
-                relays: 1
-            })
+            shown(false, None, 1)
         );
     }
 
@@ -1645,8 +1691,26 @@ mod tests {
             client_name: String::new(),
             name: REPOLORE.into(),
             scope: scope.into(),
+            for_every_project: Some(scope == "user"),
             remove: remove.into(),
         }
+    }
+
+    /// repolore's plugin registration, for a plugin installed with `scope`.
+    fn plugin(scope: &str) -> Registration {
+        Registration {
+            name: "plugin:repolore:repolore".into(),
+            for_every_project: Some(scope == "user"),
+            ..registration(
+                "claude",
+                "plugin",
+                &format!("`claude plugin uninstall repolore@repolore --scope {scope}`"),
+            )
+        }
+    }
+
+    fn argv(words: &[&str]) -> Vec<String> {
+        words.iter().map(ToString::to_string).collect()
     }
 
     #[test]
@@ -1664,14 +1728,10 @@ mod tests {
             ),
             registration(
                 "claude",
-                "local",
-                "`claude mcp remove repolore --scope=local`",
+                "project",
+                "`claude mcp remove repolore --scope project`",
             ),
-            registration(
-                "claude",
-                "plugin",
-                "`claude plugin uninstall repolore@repolore --scope user`",
-            ),
+            plugin("user"),
             registration(
                 "codex",
                 "user",
@@ -1703,8 +1763,8 @@ mod tests {
             [
                 "claude:user:repolore",
                 "claude:local:repolore",
-                "claude:local:repolore:2",
-                "claude:plugin:repolore",
+                "claude:project:repolore",
+                "claude:plugin:plugin:repolore:repolore",
                 "codex:user:repolore",
                 "opencode:user:repolore",
                 "cursor:user:repolore",
@@ -1722,39 +1782,142 @@ mod tests {
             commands,
             [
                 Some("claude mcp remove repolore --scope user"),
-                None,
-                None,
+                // A folder's own: the user runs it there.
+                Some("claude mcp remove repolore --scope local"),
+                Some("claude mcp remove repolore --scope project"),
                 Some("claude plugin uninstall repolore@repolore --scope user"),
                 // Built by Swarmed: repolore says to edit Codex's file.
                 Some("codex mcp remove repolore"),
                 None,
-                None,
+                // repolore names it: shown for the user, never run.
+                Some("sh -c \"rm -rf ~\""),
                 None,
                 None,
             ]
         );
-        assert_eq!(shown[0].step, None);
+        let steps: Vec<Option<&str>> = shown.iter().map(|s| s.step.as_deref()).collect();
+        let in_folder = Some("Run it yourself, in that project's folder:");
+        assert_eq!(
+            steps,
+            [
+                None,
+                in_folder,
+                in_folder,
+                None,
+                // Codex's command is there, though Codex is not: the user runs it by hand.
+                None,
+                Some("delete repolore from /Users/me/.config/opencode/opencode.json"),
+                Some("Run it yourself:"),
+                Some("Remove `repolore` from gemini yourself."),
+                Some("Remove `lore` from there."),
+            ]
+        );
         assert_eq!(shown[0].client, "Claude Code");
-        // A folder's own is the user's step, as repolore says it.
-        assert_eq!(
-            shown[1].step.as_deref(),
-            Some("`claude mcp remove repolore --scope local`")
-        );
-        assert!(shown[2].step.is_some());
-        // Codex's command is there, though Codex is not: the user runs it by hand.
-        assert_eq!(shown[4].step, None);
-        assert_eq!(
-            shown[5].step.as_deref(),
-            Some("delete repolore from /Users/me/.config/opencode/opencode.json")
-        );
-        // A command of no kind Swarmed runs is never offered as one.
-        assert_eq!(shown[6].step.as_deref(), Some("`sh -c \"rm -rf ~\"`"));
-        assert_eq!(
-            shown[7].step.as_deref(),
-            Some("Remove `repolore` from gemini yourself.")
-        );
         assert_eq!(shown[8].client, "Swarmed");
-        assert_eq!(shown[8].step.as_deref(), Some("Remove `lore` from there."));
+    }
+
+    #[test]
+    fn claude_codes_removal_is_built_from_the_name_never_read_from_the_text() {
+        // repolore writes the name unquoted: one with a space in it is still one word here.
+        let spaced = Registration {
+            name: "my lore".into(),
+            ..registration("claude", "user", "`claude mcp remove my lore --scope user`")
+        };
+        assert_eq!(
+            removal(&spaced),
+            Some(argv(&[
+                "claude", "mcp", "remove", "my lore", "--scope", "user"
+            ]))
+        );
+        let shown = registration_of(&spaced, "k".into(), &|_| true);
+        assert_eq!(
+            shown.command.as_deref(),
+            Some("claude mcp remove \"my lore\" --scope user")
+        );
+        assert!(shown.runs_here);
+        // A project's entry whose name says `--scope user` is never run: the last scope is
+        // the one Claude Code takes, and it is the project's.
+        let sneaky = Registration {
+            name: "x --scope user".into(),
+            for_every_project: Some(false),
+            ..registration(
+                "claude",
+                "project",
+                "`claude mcp remove x --scope user --scope project`",
+            )
+        };
+        assert_eq!(removal(&sneaky), None);
+        let shown = registration_of(&sneaky, "k".into(), &|_| true);
+        assert!(!shown.runs_here);
+        assert_eq!(
+            shown.step.as_deref(),
+            Some("Run it yourself, in that project's folder:")
+        );
+        // A name that reads as an option is the user's to deal with.
+        let option = Registration {
+            name: "--help".into(),
+            ..registration("claude", "user", "`claude mcp remove --help --scope user`")
+        };
+        assert_eq!(removal(&option), None);
+        let shown = registration_of(&option, "k".into(), &|_| true);
+        assert!(!shown.runs_here);
+        assert_eq!(shown.step.as_deref(), Some("Run it yourself:"));
+        // Whatever the text says, the name is the registration's.
+        let other = registration("claude", "user", "`claude mcp remove other --scope user`");
+        assert_eq!(
+            removal(&other),
+            Some(argv(&[
+                "claude", "mcp", "remove", "repolore", "--scope", "user"
+            ]))
+        );
+    }
+
+    #[test]
+    fn only_a_plugin_installed_for_the_user_is_uninstalled_and_only_in_one_shape() {
+        assert_eq!(
+            removal(&plugin("user")),
+            Some(argv(&[
+                "claude",
+                "plugin",
+                "uninstall",
+                "repolore@repolore",
+                "--scope",
+                "user"
+            ]))
+        );
+        assert_eq!(removal(&plugin("project")), None);
+        assert_eq!(removal(&plugin("local")), None);
+        assert_eq!(removal(&plugin("None")), None);
+        let shown = registration_of(&plugin("project"), "k".into(), &|_| true);
+        assert_eq!(
+            shown.command.as_deref(),
+            Some("claude plugin uninstall repolore@repolore --scope project")
+        );
+        assert!(!shown.runs_here);
+        let text = |remove: &str| Registration {
+            remove: remove.into(),
+            ..plugin("user")
+        };
+        for refused in [
+            // The last scope is the one Claude Code takes.
+            "`claude plugin uninstall repolore@repolore --scope user --scope project`",
+            "`claude plugin uninstall repolore@repolore`",
+            "`claude plugin uninstall --all --scope user`",
+            // Another plugin than the one the registration is named after.
+            "`claude plugin uninstall other@repolore --scope user`",
+            "claude plugin uninstall repolore@repolore --scope user",
+        ] {
+            assert_eq!(removal(&text(refused)), None, "{refused}");
+        }
+        // Only repolore's plugin registrations: a user entry is removed by name instead.
+        let scope = Registration {
+            scope: "user".into(),
+            ..plugin("user")
+        };
+        assert_eq!(
+            removal(&scope).map(|argv| argv[1].clone()),
+            Some("mcp".into())
+        );
     }
 
     #[test]
@@ -1776,12 +1939,7 @@ mod tests {
         assert_eq!(user.step, None);
         assert_eq!(
             removal(&registration("codex", "user", "")),
-            Some(vec![
-                "codex".into(),
-                "mcp".into(),
-                "remove".into(),
-                "repolore".into()
-            ])
+            Some(argv(&["codex", "mcp", "remove", "repolore"]))
         );
         // A project's own belongs to its folder: the user's step, as repolore says it.
         let project = codex("project", "repolore");
@@ -1800,30 +1958,26 @@ mod tests {
     }
 
     #[test]
-    fn only_removals_that_belong_to_no_folder_are_run() {
-        let runs = |argv: &[&str]| {
-            let argv: Vec<String> = argv.iter().map(ToString::to_string).collect();
-            remover(&argv).map(String::from)
-        };
+    fn only_removals_of_exactly_the_shapes_run_here_are_run() {
+        let runs = |words: &[&str]| remover(&argv(words)).map(String::from);
         let claude = Some("claude".to_string());
-        assert_eq!(
-            runs(&["claude", "mcp", "remove", "repolore", "-s", "user"]),
-            claude
-        );
-        assert_eq!(
-            runs(&["claude", "mcp", "remove", "-s", "user", "repolore"]),
-            claude
-        );
         assert_eq!(
             runs(&["claude", "mcp", "remove", "repolore", "--scope", "user"]),
             claude
         );
         assert_eq!(
-            runs(&["claude", "mcp", "remove", "repolore", "--scope=user"]),
+            runs(&["claude", "mcp", "remove", "my lore", "--scope", "user"]),
             claude
         );
         assert_eq!(
-            runs(&["claude", "plugin", "uninstall", "repolore@repolore"]),
+            runs(&[
+                "claude",
+                "plugin",
+                "uninstall",
+                "repolore@repolore",
+                "--scope",
+                "user"
+            ]),
             claude
         );
         assert_eq!(
@@ -1832,8 +1986,16 @@ mod tests {
         );
         for refused in [
             &["claude", "mcp", "remove", "repolore"][..],
-            &["claude", "mcp", "remove", "repolore", "-s", "local"],
-            &["claude", "mcp", "remove", "repolore", "--scope", "project"],
+            &["claude", "mcp", "remove", "repolore", "-s", "user"],
+            &["claude", "mcp", "remove", "repolore", "--scope=user"],
+            &["claude", "mcp", "remove", "-s", "user", "repolore"],
+            &["claude", "mcp", "remove", "repolore", "--scope", "local"],
+            &[
+                "claude", "mcp", "remove", "x", "--scope", "user", "--scope", "project",
+            ],
+            &["claude", "mcp", "remove", "--help", "--scope", "user"],
+            &["claude", "mcp", "remove", " ", "--scope", "user"],
+            &["claude", "plugin", "uninstall", "repolore@repolore"],
             &[
                 "claude",
                 "plugin",
@@ -1842,15 +2004,16 @@ mod tests {
                 "--scope",
                 "local",
             ],
-            &["claude", "mcp", "remove"],
             &["claude", "-p", "remove everything", "-s", "user"],
+            &["codex", "mcp", "remove", "repolore", "--force"],
+            &["codex", "mcp", "remove", "-c"],
             &["codex", "exec", "rm -rf ~"],
             &[
                 "/usr/local/bin/claude",
                 "mcp",
                 "remove",
                 "repolore",
-                "-s",
+                "--scope",
                 "user",
             ],
             &["opencode", "mcp", "remove", "repolore"],

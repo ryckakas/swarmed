@@ -2073,8 +2073,8 @@ fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
 /// A stand-in for repolore's command line, answering from files in `__STATE__` as repolore
 /// 0.5.1 does: the built-in's home is told from the user's own by `REPOLORE_HOME`. A home with
 /// no file is one never set up, answered with the whole doctor, as an answer has to be: no
-/// configuration file there, and its index check failing. Its page never says where it is, so
-/// no test opens a browser.
+/// configuration file there, and its index check failing. Its doctor exits 1 when a check
+/// failed, as repolore's does. Its page never says where it is, so no test opens a browser.
 const FAKE_REPOLORE: &str = r#"#!/bin/sh
 state="__STATE__"
 which=old
@@ -2083,7 +2083,12 @@ server='{"running": false, "starting": false, "pid": null, "url": null, "version
 case "$1" in
   version) echo "repolore 0.5.1" ;;
   doctor)
-    if [ -f "$state/doctor-$which.json" ]; then cat "$state/doctor-$which.json"; exit 0; fi
+    answer="$state/doctor-$which.json"
+    if [ -f "$answer" ]; then
+      cat "$answer"
+      if grep -q '"ok": *false' "$answer"; then exit 1; fi
+      exit 0
+    fi
     cat <<JSON
 {"version": "0.5.1", "managed_by": null, "db": "default",
  "paths": {"config_file": "$state/never/repolore.toml",
@@ -2094,7 +2099,7 @@ case "$1" in
    "detail": "none at $state/never/db/default.db", "fix": "run repolore refresh"}],
  "server": $server, "registrations": []}
 JSON
-    ;;
+    exit 1 ;;
   server) echo "$server" ;;
   copy) mkdir -p "$2" && echo "repos = []" > "$2/repolore.toml" ;;
   session-start) ;;

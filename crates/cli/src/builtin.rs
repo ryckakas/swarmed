@@ -155,11 +155,13 @@ fn show_elsewhere(view: &BuiltinMcpView) {
         ));
     }
     if let Some(server) = view.old_server {
-        let pid = server
-            .pid
-            .map_or_else(|| "-".to_string(), |pid| pid.to_string());
+        let how = match (server.running, server.pid) {
+            (true, Some(pid)) => format!("pid {pid}"),
+            (true, None) => "starting".to_string(),
+            (false, _) => "stopped".to_string(),
+        };
         say(&format!(
-            "old server\tpid {pid}\t{} session(s) connected",
+            "old server\t{how}\t{} session(s) connected",
             server.relays
         ));
     }

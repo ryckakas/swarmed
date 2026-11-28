@@ -1004,7 +1004,7 @@ export interface BuiltinMcpView {
     existing: ExistingSetup | null;
     /** Where it is registered outside Swarmed: each holds it back while turned on. */
     registrations: BuiltinRegistration[];
-    /** The old shared server, while it still runs. */
+    /** The old shared server, while it is in use. */
     old_server: OldServer | null;
     /** Swarmed's sessions whose agents still use the old server. */
     sessions: HeldSession[];
@@ -1035,20 +1035,22 @@ export interface BuiltinRegistration {
     /** The agent or app it is registered in, such as Claude Code. */
     client: string;
     scope: string;
-    /** The command that removes it, shown before it runs. */
+    /** The command that removes it: shown before Swarmed runs it, or for the user to run. */
     command: string | null;
-    /** Whether Swarmed can run that command; if not, it is a step for the user. */
+    /** Whether Swarmed runs that command; if not, it is a step for the user. */
     runs_here: boolean;
-    /** What the user does to take it out, where Swarmed cannot. */
+    /** What the user does to take it out, where Swarmed does not: with a command, what comes before it. */
     step: string | null;
 }
 
 /**
- * The old shared server, while it is in use: it runs, or sessions are still connected to it,
- * each of which would start it again.
+ * The old shared server, while it is in use: it runs or starts, or sessions are still connected
+ * to it, each of which would start it again.
  */
 export interface OldServer {
-    /** Its process; `null` while it is stopped and sessions are still connected to it. */
+    /** Whether it runs or is starting: repolore says it runs before it says where. */
+    running: boolean;
+    /** Its process; `null` while it is stopped, or starting and not saying yet. */
     pid: number | null;
     /** How many sessions are connected to it. */
     relays: number;
