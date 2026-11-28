@@ -1377,6 +1377,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "status_command": "", "rules": "", "updates": "automatic", "branch_prefix": "",
             "put_away_merged": false, "put_away_merged_days": 1, "put_away_idle": false,
             "put_away_idle_days": 14, "put_away_closes_sessions": false,
+            "put_away_remove_days": 0,
             "browser_program": "", "browser_idle_minutes": 30, "browser_display": "pane",
         })
     );

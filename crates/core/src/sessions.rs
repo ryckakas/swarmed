@@ -136,6 +136,7 @@ impl SessionStatus {
             | AgentEvent::Deleted
             | AgentEvent::Reordered { .. }
             | AgentEvent::TreeChanged
+            | AgentEvent::TaskRemoved { .. }
             | AgentEvent::AccountUsage { .. }
             | AgentEvent::Setup { .. }
             | AgentEvent::Background { .. }
@@ -2132,6 +2133,7 @@ fn shown_only(event: &AgentEvent) -> bool {
             | AgentEvent::Deleted
             | AgentEvent::Reordered { .. }
             | AgentEvent::TreeChanged
+            | AgentEvent::TaskRemoved { .. }
             | AgentEvent::AccountUsage { .. }
             | AgentEvent::Setup { .. }
     )

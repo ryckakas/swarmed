@@ -68,9 +68,10 @@ or removed, or the app stops it unused; see
 `task done` puts a finished task away: its agents and its stack are stopped and `task list`
 says `done`; its sessions are closed too if `put_away_closes_sessions` is set. Starting one of
 its agents, reopening one of its sessions or starting its stack brings it back, as `task undone`
-does. The rules that put tasks away by themselves run in the app only. Sessions of other tasks
-that work for its sessions stay open, which it says on stderr, unless `--close-workers` closes
-them too; their tasks stay as they are.
+does. Only the app puts tasks away by themselves and removes them once they have been put
+away long enough (`put_away_remove_days`). Sessions of other tasks that work for its sessions
+stay open, which it says on stderr, unless `--close-workers` closes them too; their tasks stay
+as they are.
 
 `session close` closes one session and leaves those that work for it open, which it says on
 stderr; `--with-workers` closes them too, however far down and in whichever task, the deepest

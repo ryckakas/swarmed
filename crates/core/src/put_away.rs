@@ -29,8 +29,18 @@
 //! - **One Swarmed looks**, the one that keeps house ([`follow_put_away`]), once a minute.
 //! - **Every front end follows:** a change is published as [`AgentEvent::TreeChanged`], and
 //!   another Swarmed sees the row change (`elsewhere.rs`).
-//! - **Removal stays Remove's.** To the clean-up a done task is a task like any other: its
-//!   worktree and its branch are never offered there.
+//! - **Removed only where the user says so** (`Settings::put_away_remove_days`, off at 0, up
+//!   to 365 days). The days count from `tasks.done_at`, whether the task was put away by hand
+//!   or by a rule; a task brought back has none, so its count starts again the next time it is
+//!   put away. The removal is the user's forced Remove… with the branch
+//!   ([`Core::task_remove`]): uncommitted changes and untracked files are lost, on purpose,
+//!   since that is what the user turned on; a branch with commits found nowhere else is kept,
+//!   and that is said; a remote branch is never touched. Only the house looks, never while
+//!   work goes on, and each removal is said to the user ([`AgentEvent::TaskRemoved`], with
+//!   what the removal passed over). Agents cannot turn it on through `configure`: it deletes
+//!   work by itself.
+//! - **To the clean-up a done task is still a task like any other**: its worktree and its
+//!   branch are never offered there.
 
 use std::sync::Weak;
 use std::time::Duration;
@@ -48,9 +58,9 @@ use crate::sessions::{Session, is_busy_status};
 use crate::settings::Settings;
 use crate::setups::SettingUp;
 use crate::store::{Project, Store, Task};
-use crate::{Core, continuation, lock};
+use crate::{Core, RemoveOptions, continuation, lock};
 
-/// How often [`follow_put_away`] looks for tasks the user's rules put away.
+/// How often [`follow_put_away`] looks for tasks the user's settings put away or remove.
 const LOOK_EVERY: Duration = Duration::from_mins(1);
 
 /// A day, in seconds.
@@ -168,6 +178,23 @@ pub(crate) fn due(rules: Rules, standing: &Standing, now: i64) -> Option<DoneWhy
     }
     let idle = rules.idle?;
     (now >= standing.active + after(idle)).then_some(DoneWhy::Idle)
+}
+
+/// Whether a task put away at `done_at` has been put away for `days` by `now`, all in seconds
+/// since 1970 but the days. Never at 0 days, which is how the settings say never.
+pub(crate) fn removal_due(days: u32, done_at: i64, now: i64) -> bool {
+    days > 0 && now >= done_at + i64::from(days) * DAY
+}
+
+/// Whether `task`, read again just before its removal, is still the one a look listed as
+/// `listed` and still put away for `days` by `now`: one brought back in the meantime, or a
+/// setting turned off, is left.
+pub(crate) fn still_due(listed: i64, task: &Task, days: u32, now: i64) -> bool {
+    task.id == listed
+        && !task.archived
+        && task
+            .done_at
+            .is_some_and(|done_at| removal_due(days, done_at, now))
 }
 
 /// Seconds since 1970 of a time as GitHub writes it, `2026-11-20T10:00:00Z`, with or without
@@ -392,7 +419,7 @@ impl Core {
         }
         let elsewhere = self.sessions_run_elsewhere();
         let mut put = Vec::new();
-        for (project, task) in self.not_done()? {
+        for (project, task) in self.repository_tasks(false)? {
             let why = self
                 .put_away_if_due(rules, &project, &task, &elsewhere)
                 .await?;
@@ -427,14 +454,106 @@ impl Core {
         Ok(done.ok().map(|_| why))
     }
 
-    /// Every task in a repository that is not done, with its repository.
-    fn not_done(&self) -> Result<Vec<(Project, Task)>> {
+    /// One look of the user's retention: removes each task put away for as many days as the
+    /// settings say, where no work goes on, as a forced Remove… does with its branch, tells
+    /// every front end, and returns those removed with what the removal passed over. Only the
+    /// Swarmed that keeps house looks, and nothing is looked at while the days are 0. A task
+    /// that could not be removed is tried again at the next look.
+    pub async fn tasks_removed_due(&self) -> Result<Vec<(String, String, Vec<String>)>> {
+        if lock(&self.house).is_none() {
+            return Ok(Vec::new());
+        }
+        let days = self.settings()?.put_away_remove_days;
+        if days == 0 {
+            return Ok(Vec::new());
+        }
+        let elsewhere = self.sessions_run_elsewhere();
+        let mut removed = Vec::new();
+        for (project, task) in self.repository_tasks(true)? {
+            let notes = self
+                .remove_if_due(days, &project, &task, &elsewhere)
+                .await?;
+            removed.extend(notes.map(|notes| (project.name, task.name, notes)));
+        }
+        Ok(removed)
+    }
+
+    /// Removes `listed`, put away, if it has been for `days` and no work goes on in it, and
+    /// says what the removal passed over if it went. One that could not go is not an error:
+    /// the next look tries again.
+    async fn remove_if_due(
+        &self,
+        days: u32,
+        project: &Project,
+        listed: &Task,
+        elsewhere: &[i64],
+    ) -> Result<Option<Vec<String>>> {
+        let due = listed
+            .done_at
+            .is_some_and(|done_at| removal_due(days, done_at, seconds_now()));
+        if !due || self.works_on(listed, elsewhere)? {
+            return Ok(None);
+        }
+        let Some((task, days)) = self.removal_still_due(project, listed)? else {
+            return Ok(None);
+        };
+        // What the window's forced Remove… sends.
+        let options = RemoveOptions {
+            force: true,
+            delete_branch: true,
+        };
+        let removal = self.task_remove(&project.name, &task.name, options, &unsaid);
+        let notes = match removal.await {
+            Ok(notes) => notes,
+            // Archived, it is gone all the same: only what comes after failed, its branch's
+            // deletion with it, and that is said.
+            Err(error) if self.removed_anyway(task.id, &error)? => vec![format!(
+                "not everything of it could be forgotten, and its branch was not deleted: {error}"
+            )],
+            // Tried again at the next look, `teardown` included, for as long as it fails:
+            // accepted, as for a task a rule could not put away.
+            Err(_) => return Ok(None),
+        };
+        self.live.publish_apart(AgentEvent::TaskRemoved {
+            project: project.name.clone(),
+            task: task.name.clone(),
+            days,
+            notes: notes.clone(),
+        });
+        self.live.publish_apart(AgentEvent::TreeChanged);
+        Ok(Some(notes))
+    }
+
+    /// `listed` as it is now, with the days the settings say now, if it is still to be
+    /// removed. Read again just before it goes: a removal before it in the same look may have
+    /// taken minutes, in which it was brought back or the setting was turned off.
+    fn removal_still_due(&self, project: &Project, listed: &Task) -> Result<Option<(Task, u32)>> {
+        let days = self.settings()?.put_away_remove_days;
+        let again = self.store().task_by_name(project.id, &listed.name)?;
+        let now = seconds_now();
+        let task = again.filter(|task| still_due(listed.id, task, days, now));
+        Ok(task.map(|task| (task, days)))
+    }
+
+    /// Whether task `id`, whose removal failed with `error`, is gone all the same: archived
+    /// before what failed. One that was not there to remove was not removed here.
+    fn removed_anyway(&self, id: i64, error: &Error) -> Result<bool> {
+        if matches!(error, Error::TaskNotFound { .. }) {
+            return Ok(false);
+        }
+        let row = self.store().task_by_id(id)?;
+        Ok(row.is_none_or(|task| task.archived))
+    }
+
+    /// Every task in a repository that is done, or every one that is not, as `done` says, with
+    /// its repository. Chats are never put away.
+    fn repository_tasks(&self, done: bool) -> Result<Vec<(Project, Task)>> {
         let store = self.store();
         let projects = store.projects()?;
         let mut found = Vec::new();
         for project in projects.into_iter().filter(|project| !project.chats) {
             let tasks = store.tasks(project.id, false)?;
-            found.extend(not_done_of(&project, tasks));
+            found.extend(done_or_not_of(&project, tasks, done));
         }
         Ok(found)
     }
@@ -448,20 +567,24 @@ fn works(session: &Session, elsewhere: &[i64]) -> bool {
         || elsewhere.contains(&session.id)
 }
 
-/// Where what a rule's putting away prints goes: nobody asked, so nowhere.
+/// Where what a rule's putting away, or a removal by the settings, prints goes: nobody asked,
+/// so nowhere.
 fn unsaid(_: &str) {}
 
-/// Those of `tasks` that are not done, each with `project`.
-fn not_done_of(project: &Project, tasks: Vec<Task>) -> Vec<(Project, Task)> {
-    let open = tasks.into_iter().filter(|task| task.done_at.is_none());
-    open.map(|task| (project.clone(), task)).collect()
+/// Those of `tasks` that are done, or those that are not, as `done` says, each with `project`.
+fn done_or_not_of(project: &Project, tasks: Vec<Task>, done: bool) -> Vec<(Project, Task)> {
+    let wanted = tasks
+        .into_iter()
+        .filter(|task| task.done_at.is_some() == done);
+    wanted.map(|task| (project.clone(), task)).collect()
 }
 
-/// Puts tasks away as the user's rules say, for a front end that stays.
+/// Puts tasks away as the user's rules say, and removes those put away long enough, for a
+/// front end that stays.
 ///
-/// It calls [`Core::tasks_put_away_due`] once a minute, which does nothing unless this is the
-/// Swarmed that keeps house and a rule is on. It holds the core only while it looks, and ends
-/// once nobody else holds it.
+/// It calls [`Core::tasks_put_away_due`] and then [`Core::tasks_removed_due`] once a minute,
+/// each of which does nothing unless this is the Swarmed that keeps house and its setting is
+/// on. It holds the core only while it looks, and ends once nobody else holds it.
 pub async fn follow_put_away(core: Weak<Core>) {
     let mut looks = tokio::time::interval(LOOK_EVERY);
     looks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -472,6 +595,7 @@ pub async fn follow_put_away(core: Weak<Core>) {
         };
         // A look that failed is made again at the next.
         core.tasks_put_away_due().await.ok();
+        core.tasks_removed_due().await.ok();
     }
 }
 
@@ -535,6 +659,57 @@ mod tests {
             due(BOTH, &standing(None, NOW - 14 * DAY, None), NOW),
             Some(DoneWhy::Idle)
         );
+    }
+
+    #[test]
+    fn nothing_is_removed_at_0_days() {
+        assert!(!removal_due(0, NOW - 1000 * DAY, NOW));
+    }
+
+    #[test]
+    fn a_task_put_away_is_removed_its_days_after() {
+        assert!(!removal_due(30, NOW - 30 * DAY + 60, NOW));
+        assert!(removal_due(30, NOW - 30 * DAY, NOW));
+        assert!(removal_due(30, NOW - 31 * DAY, NOW));
+    }
+
+    fn put_away_at(done_at: Option<i64>) -> Task {
+        Task {
+            id: 1,
+            project_id: 1,
+            name: "one".to_string(),
+            branch: "one".to_string(),
+            base_ref: "main".to_string(),
+            worktree_path: std::path::PathBuf::from("/nowhere"),
+            slot: 1,
+            setup: crate::store::SetupStatus::Ok,
+            setup_reason: None,
+            archived: false,
+            environment: None,
+            pinned: false,
+            done_at,
+            done_why: done_at.map(|_| DoneWhy::Hand),
+            issue: None,
+            highlight: None,
+        }
+    }
+
+    #[test]
+    fn a_task_read_again_is_removed_only_if_it_is_still_due() {
+        let long_put_away = put_away_at(Some(NOW - 40 * DAY));
+        assert!(still_due(1, &long_put_away, 30, NOW));
+        // Brought back while an earlier removal of the look went on.
+        assert!(!still_due(1, &put_away_at(None), 30, NOW));
+        // The setting turned off, or raised past it, in the meantime.
+        assert!(!still_due(1, &long_put_away, 0, NOW));
+        assert!(!still_due(1, &long_put_away, 60, NOW));
+        // Another task of that name since.
+        assert!(!still_due(2, &long_put_away, 30, NOW));
+        let archived = Task {
+            archived: true,
+            ..long_put_away
+        };
+        assert!(!still_due(1, &archived, 30, NOW));
     }
 
     #[test]

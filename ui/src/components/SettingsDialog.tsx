@@ -12,7 +12,7 @@ import type {
 } from "../api/types";
 import { LAYOUTS, PALETTES, STYLES } from "../appearance";
 import { type PrefixCheck, prefixToSave, problemOf } from "../branchPrefix";
-import { daysWithin } from "../putAway";
+import { daysWithin, removeWarning } from "../putAway";
 import { movedItem, STATUS_ITEMS, statusItemName, withItem } from "../statusline";
 import { SETTINGS_TABS, type SettingsTab, useStore } from "../store";
 import { useWords } from "../useWords";
@@ -640,7 +640,8 @@ function UsageWarnings({ settings }: { settings: Settings }) {
 
 /**
  * Putting finished tasks away by themselves: nothing is, unless a rule is turned on. Each rule
- * has its own number of days, and what putting away does to the sessions is a choice apart.
+ * has its own number of days, and what putting away does to the sessions is a choice apart, as
+ * is removing a task once it has been put away for some days.
  */
 function FinishedTasks({ settings }: { settings: Settings }) {
     const words = useWords();
@@ -676,6 +677,12 @@ function FinishedTasks({ settings }: { settings: Settings }) {
                 />
             </Row>
             <Row
+                label="Remove when put away"
+                hint={`A ${words.terms.task} put away this many days ago is removed as Remove… does: its ${words.terms.worktree}, its sessions and your notes on it go, and its local ${words.terms.branch} too unless ${words.terms.commits} on it exist nowhere else. 0 never removes. Never while one of its sessions is at work.`}
+            >
+                <RemoveDays settings={settings} />
+            </Row>
+            <Row
                 label="Close sessions too"
                 hint={`Putting a ${words.terms.task} away, by hand or by a rule, also closes its sessions. They keep their conversations and can be reopened. Without this they stay open, with their ${words.terms.agent}s stopped.`}
             >
@@ -702,8 +709,64 @@ interface RuleDaysProps {
     onDays(days: number): void;
 }
 
-/** A rule turned on or off, and after how many days; the days are kept once typed. */
+/** A rule turned on or off, and after how many days. */
 function RuleDays({ label, on, days, least, onOn, onDays }: RuleDaysProps) {
+    return (
+        <span className="rule-days">
+            <input
+                type="checkbox"
+                aria-label={label}
+                checked={on}
+                onChange={(event) => onOn(event.target.checked)}
+            />
+            <DaysInput
+                label={`${label}: after how many days`}
+                days={days}
+                least={least}
+                onDays={onDays}
+            />
+            <span className="rule-days-unit">{days === 1 ? "day" : "days"}</span>
+        </span>
+    );
+}
+
+/**
+ * After how many days a task put away is removed by itself. Once it is removed at all, the
+ * warning that its uncommitted changes go with it shows under the days: it appears when the
+ * days are kept, never under the pointer.
+ */
+function RemoveDays({ settings }: { settings: Settings }) {
+    const words = useWords();
+    const change = useStore((state) => state.changeSettings);
+    const days = settings.put_away_remove_days;
+    return (
+        <div className="remove-days">
+            <span className="rule-days">
+                <DaysInput
+                    label={`Remove ${words.terms.tasks} put away: after how many days, 0 for never`}
+                    days={days}
+                    least={0}
+                    onDays={(kept) => void change(api, { put_away_remove_days: kept })}
+                />
+                <span className="rule-days-unit">{days === 1 ? "day" : "days"}</span>
+            </span>
+            <p className="remove-days-warning" role="status">
+                {removeWarning(days, words.terms.tasks)}
+            </p>
+        </div>
+    );
+}
+
+interface DaysInputProps {
+    label: string;
+    days: number;
+    /** The fewest days it takes. */
+    least: number;
+    onDays(days: number): void;
+}
+
+/** A number of days, up to 365, kept once typed: on leaving the field, or with Enter. */
+function DaysInput({ label, days, least, onDays }: DaysInputProps) {
     const [typed, setTyped] = useState(String(days));
     const keep = () => {
         const kept = daysWithin(typed, least);
@@ -713,28 +776,19 @@ function RuleDays({ label, on, days, least, onOn, onDays }: RuleDaysProps) {
         }
     };
     return (
-        <span className="rule-days">
-            <input
-                type="checkbox"
-                aria-label={label}
-                checked={on}
-                onChange={(event) => onOn(event.target.checked)}
-            />
-            <input
-                className="key-input mono rule-days-count"
-                aria-label={`${label}: after how many days`}
-                type="number"
-                inputMode="numeric"
-                min={least}
-                max={365}
-                step={1}
-                value={typed}
-                onChange={(event) => setTyped(event.target.value)}
-                onBlur={keep}
-                onKeyDown={(event) => event.key === "Enter" && keep()}
-            />
-            <span className="rule-days-unit">{days === 1 ? "day" : "days"}</span>
-        </span>
+        <input
+            className="key-input mono rule-days-count"
+            aria-label={label}
+            type="number"
+            inputMode="numeric"
+            min={least}
+            max={365}
+            step={1}
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+            onBlur={keep}
+            onKeyDown={(event) => event.key === "Enter" && keep()}
+        />
     );
 }
 

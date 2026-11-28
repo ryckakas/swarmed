@@ -29,7 +29,7 @@ import { type IssueLink, type IssuesTarget, issueLink, withIssuePrompt } from ".
 import { forgetImages } from "./keptImages";
 import { type AppContext, contextsBack, contextsTaken, contextsWith, withAllowed } from "./mcpApps";
 import { pullsOf, withMessage } from "./pulls";
-import { doneShownFor } from "./putAway";
+import { doneShownFor, type Removed, removedIds, removedSaid } from "./putAway";
 import { changesHeard, oneMoreHeard, queuesAnswered } from "./queue";
 import { type Dismissed, readDismissed } from "./rateLimit";
 import type { Browsing } from "./recall";
@@ -593,6 +593,7 @@ const NEVER_STORED = new Set<AgentEvent["type"]>([
     "account_usage",
     "setup",
     "pull_read",
+    "task_removed",
 ]);
 
 /**
@@ -1570,12 +1571,30 @@ function heardOfClosing(event: SessionEvent) {
     }
 }
 
+/** The problem line with `line` said too, under what it says already. */
+function saidToo(problem: string | null, line: string): string {
+    return problem ? `${problem}\n${line}` : line;
+}
+
+/**
+ * A task put away long enough was removed by itself: what the window keeps of it is forgotten,
+ * as when the user removes one, before the `tree_changed` after it reads the tree again (and
+ * the centre leaves it, if one of its sessions is there). The problem line says so, under
+ * whatever it says, so that several removed in one look all show.
+ */
+function heardOfRemoval(removed: Removed) {
+    const { projects, forgetTasks } = useStore.getState();
+    forgetTasks(removedIds(projects, removed));
+    useStore.setState((state) => ({ problem: saidToo(state.problem, removedSaid(removed)) }));
+}
+
 /**
  * Something that belongs to no session, which comes with session id 0: repositories, tasks,
  * sessions or cloud tasks put in another order, here or in another window, or changed by
  * another Swarmed process such as the command line, and the tree is read again; the account's
- * usage, which every session shows; or a configuration file changed on disk, and the
- * configuration is read again. Nothing else is done with it. Whether the event was that.
+ * usage, which every session shows; a configuration file changed on disk, and the
+ * configuration is read again; or a task put away long enough removed by itself, forgotten
+ * and said (`heardOfRemoval`). Nothing else is done with it. Whether the event was that.
  */
 function heardApart(api: Api, event: SessionEvent): boolean {
     if (event.session_id !== 0) {
@@ -1594,6 +1613,8 @@ function heardApart(api: Api, event: SessionEvent): boolean {
     } else if (heard.type === "config_changed") {
         readConfiguration(api);
         useStore.getState().noteActionsChanged();
+    } else if (heard.type === "task_removed") {
+        heardOfRemoval(heard);
     }
     return true;
 }
@@ -1683,6 +1704,16 @@ export function hookKey(project: string, task: string): string {
     return `${project}/${task}`;
 }
 
+/**
+ * Opens the session a clicked notice is about. One of no session's (id 0), such as a task
+ * removed by itself, opens nothing: the app has brought the window forward already.
+ */
+function openNoticed(api: Api, sessionId: number) {
+    if (sessionId !== 0) {
+        void useStore.getState().open(api, sessionId);
+    }
+}
+
 /** Loads the tree and keeps it in step with the sessions. Returns what stops that again. */
 export function connect(api: Api): () => void {
     const { refresh, apply } = useStore.getState();
@@ -1734,7 +1765,7 @@ export function connect(api: Api): () => void {
             }
             readIfSeen();
         }),
-        api.onNoticeOpened((sessionId) => void useStore.getState().open(api, sessionId)),
+        api.onNoticeOpened((sessionId) => openNoticed(api, sessionId)),
         api.onEventsLagged(() => reload()),
         api.onHookOutput((output) =>
             useStore.setState((state) => ({

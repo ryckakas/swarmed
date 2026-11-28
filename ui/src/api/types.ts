@@ -812,6 +812,11 @@ export interface Settings {
     put_away_idle_days: number;
     /** Whether putting a task away also closes its sessions. */
     put_away_closes_sessions: boolean;
+    /**
+     * How many days after it was put away a task is removed by itself, as a forced Remove…
+     * does, from 0 to 365; 0 never removes.
+     */
+    put_away_remove_days: number;
     /** The program a task's browser runs; empty for the first of Chrome, Chromium, Edge, Brave found. */
     browser_program: string;
     /** Minutes a task's browser may sit unused before it is stopped, up to 1440; 0 for never. */
@@ -1429,6 +1434,12 @@ export type AgentEvent =
      * session: it comes with session id 0, and is never stored.
      */
     | { type: "setup"; progress: SetupProgress }
+    /**
+     * A task put away for `days` days was removed by itself, as a forced Remove… does; `notes`
+     * are what the removal passed over. It belongs to no session: it comes with session id 0,
+     * and is never stored. The tree is read again on the `tree_changed` that follows it.
+     */
+    | { type: "task_removed"; project: string; task: string; days: number; notes: string[] }
     /** What stands before this is a copy of what was said in the session forked from. */
     | { type: "forked"; from: number }
     /**

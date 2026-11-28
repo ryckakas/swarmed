@@ -24,6 +24,13 @@ notice adds its line under Unreleased.
   reinstalling more each week. Its setup says so. A task started from another branch or a pull
   request's never replaces one. The snapshot list in the app and `swarmed snapshot list` say
   when a snapshot is behind the base. Without the key, nothing changes.
+- **Done tasks can remove themselves.** In Settings → Finished tasks, **Remove when put away**
+  takes a number of days: a task put away that long ago is removed by itself, as a forced
+  **Remove…** does, so done tasks stop piling up on disk. Its worktree, its sessions and your
+  notes on it go, and uncommitted changes in it are lost, which the field warns of; its local
+  branch is kept if its commits exist nowhere else, and a remote branch is never touched. It
+  never happens while work goes on in the task, only the app does it, and a notification and a
+  line in the window say which task went. 0, the default, never removes.
 
 ### Changed
 

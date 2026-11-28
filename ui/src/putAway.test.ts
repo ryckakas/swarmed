@@ -8,6 +8,10 @@ import {
     offersPutAway,
     openTasks,
     putAwayDoes,
+    putAwayInsteadSaid,
+    removedIds,
+    removedSaid,
+    removeWarning,
 } from "./putAway";
 
 const DAY = 86_400;
@@ -79,6 +83,86 @@ describe("putAwayDoes", () => {
         expect(putAwayDoes(null)).toContain("keeps its sessions open");
         const closing = { put_away_closes_sessions: true } as Settings;
         expect(putAwayDoes(closing)).toContain("closes its sessions");
+    });
+
+    it("says how long the worktree and the branch stay when done tasks are removed", () => {
+        const keeping = { put_away_remove_days: 0 } as Settings;
+        expect(putAwayDoes(keeping)).toContain("The worktree and the branch stay.");
+        const removing = { put_away_remove_days: 30 } as Settings;
+        expect(putAwayDoes(removing)).toContain(
+            "The worktree and the branch stay for 30 days, then the task is removed.",
+        );
+        const soon = { put_away_remove_days: 1 } as Settings;
+        expect(putAwayDoes(soon)).toContain("stay for 1 day, then");
+    });
+});
+
+describe("putAwayInsteadSaid", () => {
+    it("says it deletes nothing while done tasks stay", () => {
+        const keeping = { put_away_remove_days: 0 } as Settings;
+        expect(putAwayInsteadSaid(keeping)).toMatch(
+            /^Putting it away instead deletes nothing\. Stops its agents/,
+        );
+        expect(putAwayInsteadSaid(null)).toMatch(/^Putting it away instead deletes nothing\. /);
+    });
+
+    it("says it deletes nothing now when done tasks are removed later", () => {
+        const removing = { put_away_remove_days: 30 } as Settings;
+        const said = putAwayInsteadSaid(removing);
+        expect(said).toMatch(/^Putting it away instead deletes nothing now\. /);
+        expect(said).toContain("stay for 30 days, then the task is removed.");
+    });
+});
+
+describe("removedIds", () => {
+    const projects = [
+        {
+            name: "demo",
+            tasks: [
+                { id: 1, name: "one" },
+                { id: 2, name: "two" },
+            ],
+        },
+        { name: "shop", tasks: [{ id: 3, name: "one" }] },
+    ] as unknown as Project[];
+
+    it("finds the removed task by its repository and its name", () => {
+        expect(removedIds(projects, { project: "demo", task: "one" })).toEqual([1]);
+        expect(removedIds(projects, { project: "shop", task: "one" })).toEqual([3]);
+    });
+
+    it("finds nothing the tree does not hold", () => {
+        expect(removedIds(projects, { project: "demo", task: "three" })).toEqual([]);
+        expect(removedIds(projects, { project: "gone", task: "one" })).toEqual([]);
+    });
+});
+
+describe("removedSaid", () => {
+    it("says which task went and how long it had been put away", () => {
+        expect(removedSaid({ project: "demo", task: "one", days: 30, notes: [] })).toBe(
+            "Removed demo / one, put away for 30 days",
+        );
+        expect(removedSaid({ project: "demo", task: "one", days: 1, notes: [] })).toBe(
+            "Removed demo / one, put away for 1 day",
+        );
+    });
+
+    it("says what the removal passed over, as Remove… does", () => {
+        const notes = ["teardown failed", "kept the branch one: its commits are nowhere else"];
+        expect(removedSaid({ project: "demo", task: "one", days: 30, notes })).toBe(
+            "Removed demo / one, put away for 30 days, though not everything went as set up: " +
+                "teardown failed; kept the branch one: its commits are nowhere else",
+        );
+    });
+});
+
+describe("removeWarning", () => {
+    it("warns of lost changes only once done tasks are removed", () => {
+        expect(removeWarning(0)).toBeNull();
+        expect(removeWarning(30)).toBe(
+            "Uncommitted changes in done tasks will be lost when they are removed; those put away longer already go within a minute.",
+        );
+        expect(removeWarning(1, "broods")).toContain("in done broods");
     });
 });
 

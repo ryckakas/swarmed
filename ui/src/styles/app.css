@@ -3478,6 +3478,11 @@ code {
     user-select: text;
 }
 
+/* Several things said at once, such as two tasks removed in one look, each on its own line. */
+.problem > span {
+    white-space: pre-line;
+}
+
 /* The account's usage notice: a warning, below the window's own problems. */
 .usage-notice {
     flex: none;
@@ -7362,6 +7367,28 @@ code {
 .rule-days-unit {
     min-width: 4ch;
     color: var(--muted);
+}
+
+/* After how many days a done task is removed, and under it, once it is, what that costs. */
+.remove-days {
+    display: grid;
+    flex: none;
+    justify-items: end;
+}
+
+/* Empty while nothing is removed, and then it takes no room: the hint beside it is as wide as
+   the other rows'. It is there all along, so that what it comes to say is read out. */
+.settings .remove-days-warning {
+    width: 0;
+    margin: 0;
+    color: var(--pollen);
+    font-size: var(--text-xs);
+    text-align: end;
+}
+
+.settings .remove-days-warning:not(:empty) {
+    width: 34ch;
+    margin-top: var(--space-1);
 }
 
 .note-text {

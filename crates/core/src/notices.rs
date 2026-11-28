@@ -1,7 +1,9 @@
 //! What is worth telling the user about while they look elsewhere: a session that needs a
-//! decision, has finished, has failed, or moved its task's worktree to another branch; and a
+//! decision, has finished, has failed, or moved its task's worktree to another branch; a
 //! task's pull request whose checks failed or passed, that someone reviewed or commented on,
-//! that conflicts with its base, or that was merged or closed.
+//! that conflicts with its base, or that was merged or closed; and a task put away that was
+//! removed by itself, as the settings say (`put_away.rs`), with what the removal passed over.
+//! That one belongs to no session: its notice has session id 0.
 
 use serde::Serialize;
 
@@ -85,6 +87,22 @@ fn pull_wording(change: &PullChange) -> (&'static str, String) {
     }
 }
 
+/// What to say of task `task` of `project`, removed by itself after `days` put away: what the
+/// removal passed over if anything, else how long it had been put away.
+fn removed_notice(project: &str, task: &str, days: u32, notes: &[String]) -> Notice {
+    let detail = if notes.is_empty() {
+        let unit = if days == 1 { "day" } else { "days" };
+        format!("Put away for {days} {unit}")
+    } else {
+        glance(&notes.join("; "))
+    };
+    Notice {
+        session_id: 0,
+        title: format!("Removed: {task}"),
+        body: format!("{project} / {task}\n{detail}"),
+    }
+}
+
 /// The first line of `text`, cut to what fits a notification.
 fn glance(text: &str) -> String {
     let line = text.lines().find(|line| !line.trim().is_empty());
@@ -111,6 +129,17 @@ impl Core {
     /// What to tell the user about `event`, if it is worth interrupting them and they have not
     /// turned notifications off. The front end decides whether they are looking already.
     pub fn notice_for(&self, event: &SessionEvent) -> Result<Option<Notice>> {
+        // Of no session, so nothing is looked up for it.
+        if let AgentEvent::TaskRemoved {
+            project,
+            task,
+            days,
+            notes,
+        } = &event.event
+        {
+            let told = self.settings()?.notifications;
+            return Ok(told.then(|| removed_notice(project, task, *days, notes)));
+        }
         // Asked for every event, pieces of a reply included: look nothing up for most of them.
         let candidate = matches!(
             event.event,
@@ -281,6 +310,27 @@ mod tests {
 
     fn event_of(event: AgentEvent) -> SessionEvent {
         self::event(None, event)
+    }
+
+    #[test]
+    fn a_task_removed_by_itself_says_where_and_what_was_passed_over() {
+        let plain = removed_notice("demo", "one", 30, &[]);
+        assert_eq!(plain.session_id, 0);
+        assert_eq!(plain.title, "Removed: one");
+        assert_eq!(plain.body, "demo / one\nPut away for 30 days");
+        assert_eq!(
+            removed_notice("demo", "one", 1, &[]).body,
+            "demo / one\nPut away for 1 day"
+        );
+        let notes = [
+            "the branch richi/one was kept: its commits are nowhere else".to_string(),
+            "teardown failed".to_string(),
+        ];
+        assert_eq!(
+            removed_notice("demo", "one", 30, &notes).body,
+            "demo / one\nthe branch richi/one was kept: its commits are nowhere else; \
+             teardown failed"
+        );
     }
 
     #[test]

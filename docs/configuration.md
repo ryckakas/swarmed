@@ -396,9 +396,11 @@ the merge dialog offer to put it away; none of them does it unasked. **Bring bac
 on its row, or `swarmed task undone`) lists it with the others again, and so does anything
 that works on it: reopening one of its sessions, starting one of its agents (sending a message
 does), or starting its stack. Removing a done task is **Remove…** as for any other, with its
-rules; the clean-up never offers one.
+rules, and the clean-up never offers one; with `put_away_remove_days` set, a task put away that
+many days is removed by itself (below).
 
-Nothing is put away by itself unless you turn a rule on, each with its own number of days:
+Nothing is put away or removed by itself unless you turn a rule on, each with its own number of
+days:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -407,11 +409,25 @@ Nothing is put away by itself unless you turn a rule on, each with its own numbe
 | `put_away_idle` | `false` | put a task away once none of its sessions recorded anything for `put_away_idle_days`, counted from when it was made or last brought back if that is later. A terminal or a running stack is not activity |
 | `put_away_idle_days` | `14` | 1 to 365 |
 | `put_away_closes_sessions` | `false` | putting a task away, by hand or by a rule, also closes its sessions, which keep their conversations and can be reopened |
+| `put_away_remove_days` | `0` | remove a task put away for this many days, from 0 to 365, as a forced **Remove…** does; 0 never removes. Shown as Remove when put away. Agents cannot change it |
 
 A rule never puts away a task while work goes on in it: a session at work or waiting for you,
 something an agent left running in the background, a session another Swarmed runs, a session
 set to go on when a usage limit resets, or its setup. It tries again a minute later. Only the
 first Swarmed to arrive on the data directory applies the rules, while the app runs.
+
+With `put_away_remove_days` above 0, a task put away that many days ago is removed by itself.
+The days are counted from when it was put away, by hand or by a rule; a task brought back
+starts again from 0 the next time it is put away. The removal is the forced **Remove…**, as
+described in [Hooks and the stack](#hooks-and-the-stack): uncommitted changes and untracked
+files in its worktree are lost, and its sessions and your notes on it go. Its local branch is
+deleted, unless commits on it exist nowhere else: then it is kept, and that is said. A branch
+on a remote is never touched. The app looks once a minute, so once you set it, every task put
+away longer than that already goes within a minute. As with the rules, it never happens while
+work goes on in the task, it tries again a minute later, and only the app does it. A
+notification and a line in the window say which task went, and what the removal passed over.
+Once above 0, the field in Settings warns that uncommitted changes in done tasks will be lost,
+and that those put away longer already go within a minute.
 
 ## The task's browser
 
@@ -487,13 +503,13 @@ Set in the app's Settings, kept in `settings.toml`.
 | `role_defaults` | none | the model and effort each role's new sessions start on unless one is chosen for them, as a table per role (below); see [A role's model and effort](coding-agents.md#a-roles-model-and-effort). Shown as Role defaults. Agents cannot change it |
 | `auto_title` | `true` | a model names each new session after its first message |
 | `branch_prefix` | empty | what a new task's branch starts with, before `/` and the task's name; empty is your login. See [A task's branch](#a-tasks-branch) |
-| `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch, and when a task's pull request changed (see [Pull requests](#pull-requests)) |
+| `notifications` | `true` | notify when a session needs you, finishes, fails or moves its worktree to another branch, when a task's pull request changed (see [Pull requests](#pull-requests)), and when a task put away was removed by itself (see [Finished tasks](#finished-tasks)) |
 | `updates` | `automatic` | how Swarmed updates itself: `automatic` looks at launch and every few hours, downloads a new version and installs it when you quit; `when_asked` fetches nothing until About opens and installs only when you ask |
 | `html_views` | `true` | agents may answer with HTML views |
 | `tool_calls` | `folded` | how agents' tool calls show in a conversation: `all`, each on its own line; `folded`, the calls that follow each other in one line that counts them and names the last; `hidden`, none, with a larger animation while the agent works. Permission requests, questions, plans and views always show |
 | `turn_end_lines` | `true` | whether a conversation draws a line where each turn ends, with how long it took, the tokens it used and what was spent so far. A turn with nothing in it that spent nothing more has none either way, and a turn that failed or was stopped keeps its line even when this is `false`. What the agent loaded is said once, at the top, whatever this is |
 | `math` | `standard` | which formulas in agents' replies are drawn as math, by KaTeX, bundled with the app: `off`, none, shown as written; `standard`, `$$…$$`, `\(…\)`, `\[…\]` and fenced `math` blocks, while a single `$` stays a dollar sign, so prices and shell variables (`$5 and $10`, `$HOME`) stay text; `with_single_dollars`, those and `$…$` where it reads as math: no space after the first `$` or before the second, and no digit after it. A formula that stands alone in its paragraph in `$$` or `\[…\]` is drawn on its own line. Code is never drawn as math, and your own messages show as you typed them. A formula KaTeX cannot read shows as written, in the code style, and copying a formula gives its TeX |
-| `put_away_merged`, `put_away_idle` and their days, `put_away_closes_sessions` | off, 1, 14, `false` | putting finished tasks away by themselves; see [Finished tasks](#finished-tasks) |
+| `put_away_merged`, `put_away_idle` and their days, `put_away_closes_sessions`, `put_away_remove_days` | off, 1, 14, `false`, 0 | putting finished tasks away by themselves, and removing them some days later; see [Finished tasks](#finished-tasks) |
 | `browser_program` | empty | the program a task's browser runs; empty for the first of Google Chrome, Chromium, Microsoft Edge and Brave installed. See [The task's browser](#the-tasks-browser) |
 | `browser_idle_minutes` | `30` | how long a task's browser may sit unused before it is stopped, up to 1440; 0 to leave it running. One in a window of its own is never stopped for this |
 | `browser_display` | `pane` | where a task's browser is shown: `pane`, drawn beside the conversation, or `window`, a Chrome window of its own. See [The task's browser](#the-tasks-browser) |

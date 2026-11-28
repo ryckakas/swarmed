@@ -104,6 +104,9 @@ pub struct Settings {
     /// Whether putting a task away also closes its sessions. Without it they stay open, with
     /// their agents stopped.
     pub put_away_closes_sessions: bool,
+    /// How many days after it was put away a task is removed, as a forced Remove… does; 0
+    /// never, up to 365 (`put_away.rs`).
+    pub put_away_remove_days: u32,
     /// The program a task's browser runs, such as Chrome Canary's. Empty to use the first of
     /// Google Chrome, Chromium, Microsoft Edge and Brave that is installed.
     pub browser_program: String,
@@ -308,6 +311,7 @@ impl Default for Settings {
             put_away_idle: false,
             put_away_idle_days: 14,
             put_away_closes_sessions: false,
+            put_away_remove_days: 0,
             browser_program: String::new(),
             browser_idle_minutes: 30,
             browser_display: BrowserDisplay::Pane,
@@ -384,6 +388,7 @@ impl Settings {
         self.text_scale = self.text_scale.clamp(smallest, largest);
         self.put_away_merged_days = self.put_away_merged_days.min(MAX_DAYS);
         self.put_away_idle_days = self.put_away_idle_days.clamp(1, MAX_DAYS);
+        self.put_away_remove_days = self.put_away_remove_days.min(MAX_DAYS);
         self.browser_idle_minutes = self.browser_idle_minutes.min(MAX_IDLE_MINUTES);
         self.branch_prefix = crate::prefix::trimmed(&self.branch_prefix).to_string();
         chosen_only(&mut self.role_defaults);
@@ -638,6 +643,7 @@ mod tests {
             put_away_idle: true,
             put_away_idle_days: 30,
             put_away_closes_sessions: true,
+            put_away_remove_days: 30,
             browser_program: "/Applications/Chromium.app/Contents/MacOS/Chromium".to_string(),
             browser_idle_minutes: 90,
             browser_display: BrowserDisplay::Window,
@@ -811,6 +817,7 @@ mod tests {
         let loaded = Settings::load(&path).expect("loads");
         assert!(!loaded.put_away_merged && !loaded.put_away_idle);
         assert!(!loaded.put_away_closes_sessions);
+        assert_eq!(loaded.put_away_remove_days, 0);
         assert_eq!(
             (loaded.put_away_merged_days, loaded.put_away_idle_days),
             (1, 14)
@@ -825,6 +832,11 @@ mod tests {
         std::fs::write(&path, "put_away_idle_days = 9000\n").expect("writes");
         assert_eq!(
             Settings::load(&path).expect("loads").put_away_idle_days,
+            365
+        );
+        std::fs::write(&path, "put_away_remove_days = 9000\n").expect("writes");
+        assert_eq!(
+            Settings::load(&path).expect("loads").put_away_remove_days,
             365
         );
         std::fs::write(&path, "browser_idle_minutes = 100000\n").expect("writes");
