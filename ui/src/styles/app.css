@@ -3115,11 +3115,12 @@ code {
  * Work left in the background circles an idle or unread mark, in either style, so that such a
  * session never looks merely idle: what runs moves, what is still has nothing running. For
  * sub-agents at work, in the working colour, a grub for each runs round a faint track (an arc
- * round the plain style's dot); for commands left running, often on purpose, a thread in idle's
- * own colour creeps round, quieter. Without motion, each is the ring it runs on.
+ * round the plain style's dot); for commands left running, often on purpose, a fly for each in
+ * idle's own colour drifts round, quieter, on no track. Without motion, each is a still ring.
  */
 .orbit {
     --orbit: var(--faint);
+    --weave: 0.6px;
 }
 
 .orbit[data-level="agents"] {
@@ -3131,6 +3132,11 @@ code {
     stroke: var(--orbit);
     stroke-width: 0.7;
     opacity: 0.35;
+}
+
+/* Flies keep to no track: theirs is drawn only as the still ring, without motion. */
+.orbit[data-level="commands"] .orbit-track {
+    display: none;
 }
 
 /* Above `.larva circle`, which would draw the beads in the grub's own colour. */
@@ -3149,12 +3155,14 @@ code {
     animation-name: orbit-up-down;
 }
 
-.orbit-silk {
-    fill: none;
-    stroke: var(--orbit);
-    stroke-width: 0.8;
-    stroke-dasharray: 2.5 2.5;
-    animation: orbit-silk 1.6s linear infinite;
+/* A fly weaves a little across and up and down on top of its turn, the two out of step. */
+.orbit-weave-across,
+.orbit-weave-up-down {
+    animation: orbit-weave-across 0.6s ease-in-out infinite alternate;
+}
+
+.orbit-weave-up-down {
+    animation-name: orbit-weave-up-down;
 }
 
 .orbit-arc {
@@ -3201,9 +3209,23 @@ code {
     }
 }
 
-@keyframes orbit-silk {
+@keyframes orbit-weave-across {
+    from {
+        translate: calc(var(--weave) * -1) 0;
+    }
+
     to {
-        stroke-dashoffset: -5;
+        translate: var(--weave) 0;
+    }
+}
+
+@keyframes orbit-weave-up-down {
+    from {
+        translate: 0 calc(var(--weave) * -1);
+    }
+
+    to {
+        translate: 0 var(--weave);
     }
 }
 
@@ -3219,14 +3241,11 @@ code {
         display: none;
     }
 
-    .orbit-track {
+    .orbit-track,
+    .orbit[data-level="commands"] .orbit-track {
+        display: inline;
         stroke-width: 1.1;
         opacity: 1;
-    }
-
-    .orbit-silk {
-        stroke-dasharray: none;
-        animation: none;
     }
 }
 

@@ -27,6 +27,10 @@ notice adds its line under Unreleased.
 
 ### Changed
 
+- **Commands left running are flies.** While only commands run in a session's background, a
+  small faint fly for each (up to three) now drifts round its mark, each at its own pace, in
+  place of the dashed thread that seemed to stand still. With reduced motion turned on in the
+  system, it is a still ring as before.
 - **Swarmed built-in folds away.** In Settings → MCP servers, the Swarmed built-in block is
   folded, as each agent's own servers are, and its heading still shows each built-in's state.
   A dot pulses on it while something inside runs.
