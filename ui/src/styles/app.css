@@ -4001,6 +4001,18 @@ code {
 }
 
 /*
+ * Except a request waiting for the user. In WebKit, a click anywhere, on one of its own
+ * options too, could leave such a row unpainted though it was in view, until the session was
+ * opened again: several questions could not be answered (#547). Chromium does not do it. A
+ * request is one row, at the end, so painting it always costs nothing.
+ */
+.item-permission,
+.item-asked,
+.item-proposal {
+    content-visibility: visible;
+}
+
+/*
  * What the agent did sits in a box of its own, so it cannot be mistaken for what it said.
  * Calls that follow each other share one box.
  */
