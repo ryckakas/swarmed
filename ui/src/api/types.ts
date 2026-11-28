@@ -1014,9 +1014,6 @@ export interface BuiltinMcpView {
     checks: DoctorCheck[];
     /** Which doctor that was: the quick one without the network, or the full one; `null` if none ran. */
     checked: "offline" | "full" | null;
-    /** When its index was built, and last refreshed, as the server says it. */
-    built_at: string | null;
-    refreshed_at: string | null;
     /** What Claude Code last said of the server, such as `connected`; `null` if it has not. */
     status: string | null;
     /** Whether the server's own page runs. */
@@ -1046,9 +1043,14 @@ export interface BuiltinRegistration {
     step: string | null;
 }
 
-/** The old shared server: its process, and how many agents are connected to it through relays. */
+/**
+ * The old shared server, while it is in use: it runs, or sessions are still connected to it,
+ * each of which would start it again.
+ */
 export interface OldServer {
+    /** Its process; `null` while it is stopped and sessions are still connected to it. */
     pid: number | null;
+    /** How many sessions are connected to it. */
     relays: number;
 }
 

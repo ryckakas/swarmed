@@ -19,14 +19,14 @@ notice adds its line under Unreleased.
 
 - **repolore, built in.** Swarmed can run [repolore](https://github.com/ryckakas/repolore),
   which searches your own pull requests, reviews, issues and docs on GitHub, as its own MCP
-  server: Settings → MCP servers, under **Swarmed built-in**, or `swarmed mcp builtin`. It is off
-  until you turn it on. Swarmed installs it, shows the command first, keeps its settings and
+  server: Settings → MCP servers, under **Swarmed built-in**, or `swarmed mcp builtin`. It is
+  off until you turn it on. Swarmed installs it, shows the command first, keeps its settings and
   index in its own data folder, and gives it to every session, whichever agent runs it. Turning
   it on copies the setup you already have, with its repositories and index, or starts fresh;
   your own setup is never changed. So that only one repolore holds its model at a time, it waits
-  until repolore is registered nowhere else and your old server has stopped, and lists what is
-  left: each registration with its own remove command, shown before it runs, and the idle
-  sessions still on the old server, to restart. **Open repolore** opens its own page for
+  until repolore is registered nowhere else and your old server is no longer in use, and lists
+  what is left: each registration with its own remove command, shown before it runs, and the
+  idle sessions still on the old server, to restart. **Open repolore** opens its own page for
   everything else, a session's start refreshes its index when one is due, and once it has taken
   over, your old setup can go to the Trash. It needs repolore 0.5.1 or newer.
 

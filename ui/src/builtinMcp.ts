@@ -82,7 +82,7 @@ export function leftLine(view: BuiltinMcpView): string {
         parts.push(`${registrations} outside Swarmed ${count === 1 ? "remains" : "remain"}`);
     }
     if (view.old_server !== null) {
-        parts.push("the old shared server still runs");
+        parts.push("the old shared server is still in use");
     }
     if (parts.length === 0) {
         return "On, but not given to sessions yet. Check again to see whether anything is left.";
@@ -224,14 +224,21 @@ export function registrationPlace(registration: BuiltinRegistration): string {
     return scope === "" ? registration.client : `${registration.client}, ${scope} scope`;
 }
 
-/** The old shared server: that it still runs, and for how many agents. */
+/**
+ * The old shared server: whether it runs, and how many sessions are connected to it. Stopped,
+ * it is still in use while any is, since each would start it again.
+ */
 export function oldServerLine(server: OldServer): string {
-    const named = server.pid === null ? "" : ` (process ${server.pid})`;
-    if (server.relays === 0) {
-        return `The old shared server${named} still runs, with no agent connected. It stops by itself within 10 minutes.`;
+    const sessions = server.relays === 1 ? "1 session" : `${server.relays} sessions`;
+    if (server.pid === null) {
+        return server.relays === 0
+            ? "The old shared server is stopped."
+            : `The old shared server is stopped, but ${sessions} ${server.relays === 1 ? "is" : "are"} still connected to it and would start it again.`;
     }
-    const agents = server.relays === 1 ? "1 connected agent" : `${server.relays} connected agents`;
-    return `The old shared server${named} still runs, for ${agents}. It stops by itself 10 minutes after the last one lets go.`;
+    if (server.relays === 0) {
+        return `The old shared server (process ${server.pid}) runs, with no session connected. It stops by itself within 10 minutes.`;
+    }
+    return `The old shared server (process ${server.pid}) runs, with ${sessions} connected. It stops by itself 10 minutes after the last one ends.`;
 }
 
 /**
@@ -355,18 +362,6 @@ export function statusMark(status: string | null): {
 export function existingLine(existing: ExistingSetup): string {
     const where = existing.folders.length === 1 ? "Your setup's folder" : "Your setup's folders";
     return existing.indexed ? `${where}, with its index:` : `${where}, not indexed yet:`;
-}
-
-/** A time the server gave, as a date and a time of day; as it was given if it is not one. */
-export function when(text: string | null): string | null {
-    if (text === null || text.trim() === "") {
-        return null;
-    }
-    const date = new Date(text);
-    if (Number.isNaN(date.getTime())) {
-        return text;
-    }
-    return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 /** "a", "a and b", "a, b and c". */

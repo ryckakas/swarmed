@@ -24,7 +24,6 @@ import {
     summaryLine,
     trashOffered,
     unpickedLine,
-    when,
 } from "./builtinMcp";
 
 function view(change: Partial<BuiltinMcpView> = {}): BuiltinMcpView {
@@ -43,8 +42,6 @@ function view(change: Partial<BuiltinMcpView> = {}): BuiltinMcpView {
         hook: false,
         checks: [],
         checked: null,
-        built_at: null,
-        refreshed_at: null,
         status: null,
         page_open: false,
         problem: null,
@@ -175,7 +172,9 @@ describe("what a built-in waits for", () => {
                 registrations: [registration(), registration({ key: "codex" })],
                 old_server: { pid: 41, relays: 1 },
             }),
-        ).toContain("2 registrations outside Swarmed remain and the old shared server still runs");
+        ).toContain(
+            "2 registrations outside Swarmed remain and the old shared server is still in use",
+        );
         expect(leftLine(waiting)).toContain("Check again");
     });
 
@@ -209,12 +208,19 @@ describe("what a built-in waits for", () => {
         expect(registrationPlace(registration({ scope: "" }))).toBe("Claude Code");
     });
 
-    it("says how many agents the old server still serves", () => {
-        expect(oldServerLine({ pid: 4242, relays: 1 })).toBe(
-            "The old shared server (process 4242) still runs, for 1 connected agent. It stops by itself 10 minutes after the last one lets go.",
+    it("says whether the old server runs, and how many sessions are connected to it", () => {
+        expect(oldServerLine({ pid: 4242, relays: 2 })).toBe(
+            "The old shared server (process 4242) runs, with 2 sessions connected. It stops by itself 10 minutes after the last one ends.",
         );
-        expect(oldServerLine({ pid: null, relays: 0 })).toContain("with no agent connected");
-        expect(oldServerLine({ pid: null, relays: 3 })).toContain("3 connected agents");
+        expect(oldServerLine({ pid: 4242, relays: 1 })).toContain("with 1 session connected");
+        expect(oldServerLine({ pid: 4242, relays: 0 })).toContain("with no session connected");
+        // Stopped, it is still in use: each session connected would start it again.
+        expect(oldServerLine({ pid: null, relays: 2 })).toBe(
+            "The old shared server is stopped, but 2 sessions are still connected to it and would start it again.",
+        );
+        expect(oldServerLine({ pid: null, relays: 1 })).toContain(
+            "but 1 session is still connected",
+        );
     });
 
     it("names the sessions on the old server, and whether restarting them helps now", () => {
@@ -295,15 +301,5 @@ describe("a built-in that is on", () => {
         expect(unpickedLine(view({ state: "on", home_ready: false }))).not.toBeNull();
         expect(unpickedLine(view({ state: "on", home_ready: true }))).toBeNull();
         expect(unpickedLine(view({ state: "off", home_ready: false }))).toBeNull();
-    });
-
-    it("shows the server's times as dates, and what is no date as it came", () => {
-        expect(when(null)).toBeNull();
-        expect(when("")).toBeNull();
-        expect(when("yesterday")).toBe("yesterday");
-        const at = "2026-11-26T14:03:00Z";
-        expect(when(at)).toBe(
-            new Date(at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
-        );
     });
 });

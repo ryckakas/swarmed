@@ -18,11 +18,12 @@ import type {
 //    too, and the next check after the page was open takes the repositories as picked there.
 // 3. Then it waits: on Claude Code's and Codex's registrations, which Remove takes out, on
 //    OpenCode's, a step for the user, taken as done by the next Check again, and on the old
-//    server, which one idle session still holds through its 1 relay. Claude Code's settings
-//    hold a refresh hook.
-// 4. Restart idle ones lets go of the old server, which has stopped by the next Check again.
-//    With nothing left that gives on, with one check warning; the old setup can then go to the
-//    Trash.
+//    server, running with 2 sessions connected: an idle one of Swarmed's and one outside it.
+//    Claude Code's settings hold a refresh hook.
+// 4. Restart idle ones lets go of the old server. The next Check again finds it stopped, but
+//    still in use by the session outside Swarmed, which would start it again; the one after
+//    finds that session ended. With nothing left that gives on, with one check warning; the
+//    old setup can then go to the Trash.
 // 5. Turn off gives off, with the copy kept for turning on again.
 
 type BuiltinApi = Pick<
@@ -108,13 +109,6 @@ const FULL_CHECKS: DoctorCheck[] = [
     { name: "Connection", ok: true, warning: false, detail: "answered in 0.4 s", fix: null },
 ];
 
-/** When the index was built and last refreshed: a copy keeps the old setup's. */
-function indexTimes(indexed: boolean) {
-    return indexed
-        ? { built_at: "2026-11-20T09:14:00Z", refreshed_at: "2026-11-27T08:02:00Z" }
-        : { built_at: null, refreshed_at: null };
-}
-
 function wait(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -133,11 +127,10 @@ class MockBuiltin {
     private installed = false;
     private turnedOn = false;
     private homeReady = false;
-    /** Whether the home holds an index: a copy's, or none yet after a fresh start. */
-    private indexed = false;
     private existing: ExistingSetup | null = { folders: OLD_FOLDERS, indexed: true };
     private registrations = [...REGISTRATIONS];
-    private oldServer: OldServer | null = { pid: 48213, relays: 1 };
+    /** Held by the idle session below and by one outside Swarmed. */
+    private oldServer: OldServer | null = { pid: 48213, relays: 2 };
     private sessions: HeldSession[] = [
         { id: 2, title: "Write a regression test for the loop", idle: true },
     ];
@@ -183,7 +176,6 @@ class MockBuiltin {
             sessions: this.sessions.map((each) => ({ ...each })),
             hook: true,
             ...health(state === "on", this.checked),
-            ...indexTimes(this.indexed),
             page_open: this.pageOpen,
             problem: null,
         };
@@ -198,13 +190,23 @@ class MockBuiltin {
     async check(full: boolean): Promise<BuiltinMcpView> {
         await wait(full ? PACE * 3 : PACE * 2);
         this.registrations = this.registrations.filter((each) => each.runs_here);
-        if (this.oldServer?.relays === 0) {
-            this.oldServer = null;
-        }
+        this.oldServer = this.oldServerChecked();
         // Once its page was open, the sample takes the repositories as picked there.
         this.homeReady ||= this.pageOpen;
         this.checked = full ? "full" : "offline";
         return this.view();
+    }
+
+    /**
+     * The old server once Swarmed's own sessions let go of it: the first check finds it
+     * stopped, as `repolore server stop` leaves it, with the session outside Swarmed still
+     * connected; that one has ended by the next.
+     */
+    private oldServerChecked(): OldServer | null {
+        if (this.oldServer === null || this.sessions.length > 0) {
+            return this.oldServer;
+        }
+        return this.oldServer.pid === null ? null : { pid: null, relays: this.oldServer.relays };
     }
 
     async install(): Promise<BuiltinMcpView> {
@@ -221,7 +223,6 @@ class MockBuiltin {
             if (this.copies === 1) {
                 throw new Error("a refresh is running; try again when it is done");
             }
-            this.indexed = true;
             this.homeReady = true;
         }
         // A fresh start's folder holds no setup until the repositories are picked in its page.

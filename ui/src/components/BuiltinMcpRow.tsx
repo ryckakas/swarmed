@@ -35,7 +35,6 @@ import {
     summaryLine,
     trashOffered,
     unpickedLine,
-    when,
 } from "../builtinMcp";
 import { hookKey, useStore } from "../store";
 import { useWords } from "../useWords";
@@ -446,7 +445,7 @@ function HeldItem(props: { sessions: HeldSession[]; busy: boolean; onRestart(): 
     );
 }
 
-/** A built-in that is on: what Claude Code said of it, its index's times, and the checks. */
+/** A built-in that is on: what Claude Code said of it, its folder, and the checks. */
 function OnPart(props: { view: BuiltinMcpView; busy: boolean; onTrash(): void }) {
     const { view, busy, onTrash } = props;
     const line = checksLine(view);
@@ -456,8 +455,6 @@ function OnPart(props: { view: BuiltinMcpView; busy: boolean; onTrash(): void })
                 <Fact name="Claude Code says">
                     <ClaudeSays status={view.status} />
                 </Fact>
-                <Fact name="Index built">{when(view.built_at) ?? "not yet"}</Fact>
-                <Fact name="Last refresh">{when(view.refreshed_at) ?? "not yet"}</Fact>
                 <Fact name="Folder">
                     <span className="mono">{view.home}</span>
                 </Fact>

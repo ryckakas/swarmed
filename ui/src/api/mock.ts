@@ -144,8 +144,9 @@ import type {
 // - repolore, Swarmed's built-in MCP server (`mockBuiltinMcp.ts`), walks every state from
 //   Settings → MCP servers: not installed; Install, then off with a setup of the user's; a Copy
 //   refused once while a refresh runs, or a fresh start whose repositories are picked in its
-//   page; waiting on three registrations, the old server and an idle session; on with a
-//   warning, its old setup offered for the Trash; and off again.
+//   page; waiting on three registrations, the old server and an idle session, then on the old
+//   server stopped but still held by a session outside Swarmed; on with a warning, its old
+//   setup offered for the Trash; and off again.
 
 // `show` answers with this view: a chart in the app's colours, with buttons that redraw it.
 const SAMPLE_VIEW = `<style>

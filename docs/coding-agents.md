@@ -499,7 +499,7 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
 | out of date | older than 0.5.1 | **Update**, with the same command |
 | off | installed, not turned on | **Turn on**; with a setup of yours found, **Copy your existing setup** or **Start fresh** |
 | waiting | turned on, but not given to sessions yet | what is left in its way, each with its step; **Check again** and **Turn off**, and **Open repolore** while its home is not set up yet, after **Start fresh**, to pick the repositories |
-| on | given to every session started from now on | its checks, when the index was built and last refreshed, what Claude Code last said of it once a session given it has started; **Open repolore**, **Check** and **Turn off** |
+| on | given to every session started from now on | its checks, what Claude Code last said of it once a session given it has started; **Open repolore**, **Check** and **Turn off** |
 
 - **Copy or start fresh.** A copy runs `repolore copy` into the built-in's home: it keeps your
   repositories and your index, and the model is not downloaded again. It works while your setup
@@ -507,24 +507,30 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
   later or start fresh. Starting fresh makes an empty home and opens repolore's page to pick
   the repositories. Your own setup is never changed either way.
 - **One repolore at a time.** Two would hold two models, so the built-in goes to sessions only
-  while repolore is registered nowhere else and your old shared server has stopped. Until then
-  the row waits, and lists what is left. Registrations are found by repolore's own doctor, which
-  knows every client it registers with, and in what Swarmed reads itself: Claude Code and its
-  plugins, Codex, OpenCode and `mcp.toml`. A repository's `.mcp.json` server named repolore,
-  once you approved it in Claude Code, keeps the built-in from that repository's sessions.
-- **Taking registrations out.** Swarmed runs the command repolore's doctor gives for a
-  registration, shown before it runs, only when it is `claude mcp remove`, `claude plugin
-  uninstall` or `codex mcp remove`. Swarmed never writes into an agent's files, so any other is a
-  step for you, shown in the row: a Claude Code registration for one repository (local scope),
-  OpenCode's, Claude Desktop's and those of clients without a remove command. A
-  `repolore session-start` hook in Claude Code's `settings.json` is pointed out for you to
-  remove, never edited: the built-in refreshes by itself. A registration that comes back, from
-  running `repolore setup` again say, puts the row back to waiting, and new sessions go without
-  the built-in: at once if Swarmed reads that client itself, else from the next check.
-- **The old server.** Sessions started before their registration went keep the old shared server
-  running until they end, and it stops by itself 10 minutes after the last one. The row names
-  Swarmed's sessions that still use it; **Restart idle ones** stops the agents of the idle ones,
-  which start again with their next message. Sessions outside Swarmed are yours to close.
+  while repolore is registered nowhere else and your old shared server is no longer in use. It
+  counts as in use while it runs, and also while sessions are still connected to it, since each
+  would start it again. Until then the row waits, and lists what is left. Registrations are
+  found by repolore's own doctor, which knows every client it registers with, and in what
+  Swarmed reads itself: Claude Code and its plugins, Codex, OpenCode and `mcp.toml`. A
+  repository's `.mcp.json` server named repolore, once you approved it in Claude Code, keeps the
+  built-in from that repository's sessions.
+- **Taking registrations out.** Swarmed runs a remove command, shown before it runs, only for a
+  registration for your whole user: Claude Code's user scope (`claude mcp remove … -s user`),
+  its plugin (`claude plugin uninstall`), and Codex's user-level one (`codex mcp remove`, where
+  repolore itself only says to delete it from `~/.codex/config.toml`). Swarmed never writes into
+  an agent's files, so any other is a step for you, shown in the row: Codex's for one project,
+  Claude Code's for one repository (local or project scope), OpenCode's, Claude Desktop's and
+  those of clients without a remove command. A `repolore session-start` hook in Claude Code's
+  `settings.json` is pointed out for you to remove, never edited: the built-in refreshes by
+  itself. A registration that comes back, from running `repolore setup` again say, puts the row
+  back to waiting, and new sessions go without the built-in: at once if Swarmed reads that
+  client itself, else from the next check.
+- **The old server.** Sessions started before their registration went stay connected to the old
+  shared server until they end, and start it again if it was stopped. It stops by itself 10
+  minutes after the last one ends. The row says whether it runs and how many sessions are
+  connected, and names Swarmed's sessions among them; **Restart idle ones** stops the agents of
+  the idle ones, which start again with their next message. Sessions outside Swarmed are yours
+  to close.
 - **Checks.** Opening the settings runs repolore's doctor without the network
   (`repolore doctor --json --offline`). **Check** runs the full one, which asks GitHub and
   whether Claude Code connects too. Nothing runs on a timer, and a session's start asks
@@ -536,8 +542,8 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
   data directory, only the one that started first opens it. Its address carries the page's
   token, and is never logged.
 - **Your old setup's folders** stay where they are. Once the built-in is on, its last check
-  passed and the old server has stopped, the row offers to move them to the Trash, after you
-  confirm. Never a folder that is, holds or is inside Swarmed's data directory.
+  passed and the old server is no longer in use, the row offers to move them to the Trash, after
+  you confirm. Never a folder that is, holds or is inside Swarmed's data directory.
 - **Turning it off** stops giving it to new sessions and ends its page. Its home stays, for
   turning it on again.
 

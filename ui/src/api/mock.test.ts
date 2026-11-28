@@ -256,7 +256,7 @@ describe("the mock's built-in repolore", () => {
             ["Codex", true],
             ["OpenCode", false],
         ]);
-        expect(waiting).toMatchObject({ old_server: { relays: 1 }, hook: true });
+        expect(waiting).toMatchObject({ old_server: { pid: 48213, relays: 2 }, hook: true });
         expect(waiting.sessions).toEqual([expect.objectContaining({ idle: true })]);
 
         // A step for the user is never run here.
@@ -274,6 +274,10 @@ describe("the mock's built-in repolore", () => {
         expect(held.old_server).not.toBeNull();
         const letGo = await done(api.builtinMcpRestartSessions("repolore"));
         expect(letGo.sessions).toEqual([]);
+        expect(letGo.old_server).toEqual({ pid: 48213, relays: 1 });
+        // Stopped, it is still in use while the session outside Swarmed is connected to it.
+        const stopped = await done(api.builtinMcpCheck("repolore", false));
+        expect(stopped).toMatchObject({ state: "waiting", old_server: { pid: null, relays: 1 } });
         const on = await done(api.builtinMcpCheck("repolore", false));
         expect(on).toMatchObject({ state: "on", old_server: null, checked: "offline" });
         expect(on.checks.filter((check) => check.warning)).toHaveLength(1);
