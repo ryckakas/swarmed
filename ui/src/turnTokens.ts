@@ -10,7 +10,9 @@ import { formatTokens } from "./statusline";
 // turn's end, and a sub-agent's with the agent's, as one in the background works on after the
 // turn. The activity line draws it from there (`TokensSoFar`), so the transcript is not built
 // again for each count, and only the word is `aria-live`. The core's side, with what counts
-// and why, is in `crates/core/src/agent/claude/tokens.rs`.
+// and why, is in `crates/core/src/agent/claude/tokens.rs`. ACP agents count nothing while a
+// turn runs: their totals, said only at its end, are read in
+// `crates/core/src/agent/acp/usage.rs`.
 
 /** What a turn under way has used so far, and which way its tokens go now. */
 export interface RunningTokens {

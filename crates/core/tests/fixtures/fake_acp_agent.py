@@ -20,7 +20,9 @@
   agent's own stream, marked as the sub-agent's;
 - "shell": leaves a shell running, as OpenCode does, and wakes when it ends;
 - "printed": runs a command and sends what it printed only in `_meta`, as Codex does;
-- "screenshot": calls a browser's screenshot tool, which returns a line of text and a PNG.
+- "screenshot": calls a browser's screenshot tool, which returns a line of text and a PNG;
+- "usage": says "hi" and ends with the usage codex-acp reports of a turn on a warm cache;
+- "slow usage": works until the turn is cancelled, and ends with the same usage.
 
 Set FAKE_ACP_LOAD_ONLY=1 to offer only session/load, which replays a history first.
 Set FAKE_ACP_EFFORT=1 to have an effort setting, standing at medium.
@@ -50,6 +52,10 @@ EFFORT = [{"id": "reasoning_effort", "currentValue": "medium",
 state = {"pending_prompt": None, "tool": None, "permission_id": None, "requests": 100,
          "subagents": False, "child_updates": False, "child": None}
 CHILD = "acp-1:subagent:T1"
+# As codex-acp says it of a turn on a warm cache: the input leaves out what was read from the
+# cache, the output holds the reasoning, and the total adds up all but the thoughts.
+WARM_USAGE = {"totalTokens": 24275, "inputTokens": 199, "cachedReadTokens": 24064,
+              "cachedWriteTokens": 0, "outputTokens": 12, "thoughtTokens": 7}
 
 
 def send(message):
@@ -233,8 +239,11 @@ def screenshot(session):
     finish()
 
 
-def finish(stop_reason="end_turn"):
-    send({"id": state["pending_prompt"], "result": {"stopReason": stop_reason}})
+def finish(stop_reason="end_turn", usage=None):
+    result = {"stopReason": stop_reason}
+    if usage is not None:
+        result["usage"] = usage
+    send({"id": state["pending_prompt"], "result": result})
     state["pending_prompt"] = None
 
 
@@ -294,6 +303,12 @@ def on_prompt(request_id, params):
         printed(session)
     elif text == "screenshot":
         screenshot(session)
+    elif text == "usage":
+        chunk(session, "hi")
+        finish(usage=WARM_USAGE)
+    elif text == "slow usage":
+        state["usage_on_cancel"] = True
+        chunk(session, "working")
     elif text == "fail":
         send({"id": request_id, "error": {"code": -32000, "message": "auth_required"}})
         state["pending_prompt"] = None
@@ -390,7 +405,8 @@ for line in sys.stdin:
             chunk("acp-1", "The helper was stopped.")
             finish()
     elif method == "session/cancel":
-        finish("cancelled")
+        usage = WARM_USAGE if state.pop("usage_on_cancel", False) else None
+        finish("cancelled", usage=usage)
     elif method is None and request_id == state["permission_id"] and state["child"] == "asking":
         child_answered(message["result"])
     elif method is None and request_id == state["permission_id"]:

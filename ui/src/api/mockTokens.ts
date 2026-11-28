@@ -1,11 +1,14 @@
 import type { AgentEvent, TokenPhase, Tokens } from "./types";
 
-// The tokens the sample agent's turns use, published as the core does for Claude Code: a
-// request goes out and is read, its answer comes in and its output rises, and between requests
-// a tool runs. Only the sample Claude Code says any, as only Claude Code does.
+// The tokens the sample agent's turns use, published as the core does: a request goes out and
+// is read, its answer comes in and its output rises, and between requests a tool runs. Only the
+// sample Claude Code counts while a turn runs, as only Claude Code does. The sample ACP agents
+// (Codex, OpenCode) say their totals only at the turn's end, on `turn_done`, as the core reads
+// them from the agent's answer (`ACP_TURN_TOKENS`).
 //
-// Its plain answers count one request, `delegate` the turn's own requests and each
-// sub-agent's apart, and `slow` request after request until it is stopped (`keepCounting`).
+// The sample Claude Code's plain answers count one request, `delegate` the turn's own requests
+// and each sub-agent's apart, and `slow` request after request until it is stopped
+// (`keepCounting`).
 
 /** One running count, as the core publishes it. */
 export interface Count {
@@ -14,6 +17,9 @@ export interface Count {
 }
 
 export const NO_TOKENS: Tokens = { input: 0, output: 0 };
+
+/** What a short reply of a sample ACP agent used, said at its turn's end and not before. */
+export const ACP_TURN_TOKENS: Tokens = { input: 6_480, output: 312 };
 
 /**
  * What the core publishes of one request of a turn that had used `before`: going out, its

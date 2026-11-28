@@ -22,7 +22,7 @@ use self::printed::Printed;
 use self::shells::Shells;
 use super::{
     AgentBackend, AgentCommand, AgentEvent, AgentHandle, Effort, McpServerInfo, SessionSpec,
-    Supervision,
+    Supervision, Tokens,
 };
 use crate::error::{Error, Result};
 use crate::mcp::{McpServer, McpTransport};
@@ -31,6 +31,7 @@ use crate::returned::Taking;
 mod children;
 mod printed;
 mod shells;
+mod usage;
 
 /// How much of the process's stderr is kept for [`AgentEvent::Exited`].
 const STDERR_TAIL_CHARS: usize = 2000;
@@ -657,12 +658,13 @@ impl Conversation {
 
     fn on_turn_end(&mut self, result: &Value, error: Option<String>) {
         let finished = error.is_none() && str_of(result, "stopReason") == Some("end_turn");
-        self.finish_turn(!finished, error);
+        let tokens = result.get("usage").and_then(usage::turn_tokens);
+        self.finish_turn(!finished, error, tokens);
     }
 
-    /// Reports a turn as over: what was said in it whole, how full the window is, and how it
-    /// ended.
-    fn finish_turn(&mut self, is_error: bool, error: Option<String>) {
+    /// Reports a turn as over: what was said in it whole, how full the window is, how it
+    /// ended, and the tokens it used, where the agent said.
+    fn finish_turn(&mut self, is_error: bool, error: Option<String>, tokens: Option<Tokens>) {
         self.flush_text(None);
         let said = self.children.flush_all();
         self.emit_all(said);
@@ -683,9 +685,8 @@ impl Conversation {
             result: error,
             cost_usd: self.cost,
             duration_ms: None,
-            // The protocol has tokens only at a turn's end, as a proposal that leaves open
-            // whether its input counts what was read from a cache, so none are said.
-            tokens: None,
+            // Only the `session/prompt` response says them, read in `usage.rs`.
+            tokens,
         });
     }
 
@@ -794,7 +795,8 @@ impl Conversation {
     /// is done, so that the session stops counting as working.
     fn end_own_turn(&mut self, stopped: bool) {
         self.woken = false;
-        self.finish_turn(stopped, None);
+        // No response ends a turn of the agent's own, and so nothing says its tokens.
+        self.finish_turn(stopped, None, None);
     }
 
     /// Takes note of something the agent did after its turn was over. It is at work again

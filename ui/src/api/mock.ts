@@ -37,7 +37,14 @@ import {
 import { mockCheck } from "./mockScreenshot";
 import { MockSetups, taskSetupApi } from "./mockSetups";
 import { leaveSampleOut, restyleSample, stylesheetApi } from "./mockStylesheet";
-import { countEvent, keepCounting, NO_TOKENS, requestCounts, withTokens } from "./mockTokens";
+import {
+    ACP_TURN_TOKENS,
+    countEvent,
+    keepCounting,
+    NO_TOKENS,
+    requestCounts,
+    withTokens,
+} from "./mockTokens";
 import { turnsApi } from "./mockTurns";
 import { heardUsage, sampleAccountUsage } from "./mockUsage";
 import type {
@@ -110,7 +117,8 @@ import type {
 // (`mockApps.ts`), and `browse` opens the task's browser with `show_browser` and acts in its
 // own tab there, which the pane goes to. In plan mode it
 // presents a plan. On the sample Claude Code a plain answer, `delegate` and `slow` count the
-// turn's tokens as they go (`mockTokens.ts`).
+// turn's tokens as they go (`mockTokens.ts`); on the sample Codex and OpenCode a plain answer
+// and a stopped `slow` say what the turn used only at its end, and nothing counts before.
 //
 // What the sample data holds, to check the UI against:
 // - "A very long conversation" has 2,000 messages, for checking scroll speed.
@@ -2767,9 +2775,7 @@ class MockAgent {
             this.later(id, { ...done, cost_usd: 0, duration_ms: 0 }, "idle");
         } else if (text === "slow") {
             this.later(id, { type: "text", text: "Working on it…" }, "working");
-            const counting = this.saysTokens(id)
-                ? keepCounting((event) => this.shown(id, event), PACE)
-                : null;
+            const counting = this.slowCount(id);
             this.interrupts.set(id, () => {
                 const stopped: AgentEvent = { ...done, is_error: true, result: "interrupted" };
                 this.publish(id, counting ? withTokens(stopped, counting()) : stopped, "idle");
@@ -2986,8 +2992,7 @@ class MockAgent {
             this.later(id, { type: "renamed", title: suggestedTitle(text) }, null, 0.5);
         }
         this.later(id, { type: "text", text: reply }, "working");
-        const used = this.saysTokens(id) ? this.request(id, null, [0, 1], NO_TOKENS, 18_400) : null;
-        this.later(id, used ? withTokens(done, used) : done, "idle", 2);
+        this.later(id, this.replyEnd(id, done), "idle", 2);
         this.later(id, SAMPLE_CONTEXT, null, 3);
         this.later(id, sampleLimits(), null, 3);
         this.later(id, SAMPLE_EXTRA_USAGE, null, 3);
@@ -3254,9 +3259,40 @@ class MockAgent {
         return withTokens(done, this.request(id, null, [32, 33], first, 2_400));
     }
 
-    /** Whether the session's agent says what its turns use, as only Claude Code does. */
+    /**
+     * `done` with what a plain reply used: counted as it goes on Claude Code, said only at the
+     * end on any other agent.
+     */
+    private replyEnd(id: number, done: AgentEvent): AgentEvent {
+        if (this.saysTokens(id)) {
+            return withTokens(done, this.request(id, null, [0, 1], NO_TOKENS, 18_400));
+        }
+        return this.saysTotals(id) ? withTokens(done, ACP_TURN_TOKENS) : done;
+    }
+
+    /**
+     * What a `slow` turn's stop reads its tokens from: Claude Code's running count, kept going
+     * until then, or any other agent's totals, said only at the end. `null` if it says none.
+     */
+    private slowCount(id: number): (() => Tokens) | null {
+        if (this.saysTokens(id)) {
+            return keepCounting((event) => this.shown(id, event), PACE);
+        }
+        return this.saysTotals(id) ? () => ACP_TURN_TOKENS : null;
+    }
+
+    /** Whether the session's agent counts a turn's tokens while it runs, as only Claude Code does. */
     private saysTokens(id: number): boolean {
         return this.agentOf(id) === "claude";
+    }
+
+    /**
+     * Whether the session's agent says what a turn used only at its end, as an ACP agent (any
+     * but Claude Code) does.
+     */
+    private saysTotals(id: number): boolean {
+        const agent = this.agentOf(id);
+        return agent !== undefined && agent !== "claude";
     }
 
     /** Puts questions to the user the way Claude Code does, and says back what was answered. */

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use common::{fixture, next, turn};
 use serde_json::json;
-use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, Effort, FakeBackend, Supervision};
+use swarmed_core::agent::{AcpBackend, AgentEvent, Auth, Effort, FakeBackend, Supervision, Tokens};
 use swarmed_core::{
     AgentInfo, Core, Error, McpServerInput, NewTaskOptions, RemoveOptions, SessionEvent,
     SessionOptions, SessionSettings, SessionStatus, hooks, serve_session_tools,
@@ -161,6 +161,48 @@ async fn a_turn_joins_the_streamed_pieces_into_one_reply() {
             .agent_session_id
             .as_deref(),
         Some("acp-1")
+    );
+}
+
+/// How each turn of a session ended, as stored: whether stopped or failed, and the tokens it
+/// says it used.
+fn stored_ends(core: &Core, id: i64) -> Vec<(bool, Option<Tokens>)> {
+    let events = core.session_events(id).expect("reads");
+    let end = |event: &AgentEvent| match event {
+        AgentEvent::TurnDone {
+            is_error, tokens, ..
+        } => Some((*is_error, *tokens)),
+        _ => None,
+    };
+    events.iter().filter_map(end).collect()
+}
+
+#[tokio::test]
+async fn a_turn_records_the_tokens_the_agent_says_it_used_at_its_end() {
+    let fx = fixture();
+    let core = core_with(&fx, scripted_agent(&[])).await;
+    let mut bus = core.subscribe();
+    let id = started(&core, Supervision::Ask);
+
+    core.session_send(id, "hello").expect("sends");
+    turn(&mut bus, id).await;
+    core.session_send(id, "usage").expect("sends");
+    turn(&mut bus, id).await;
+    core.session_send(id, "slow usage").expect("sends");
+    while !matches!(next(&mut bus).await.event, AgentEvent::TextDelta { .. }) {}
+    core.session_interrupt(id).expect("sends");
+    turn(&mut bus, id).await;
+
+    // An agent that says no usage has none. One that does has what the model read anew, the
+    // cache reads left out, and what it wrote, its reasoning in it once; a stopped turn keeps
+    // what its answer says it used.
+    let used = Tokens {
+        input: 199,
+        output: 12,
+    };
+    assert_eq!(
+        stored_ends(&core, id),
+        [(false, None), (false, Some(used)), (true, Some(used))]
     );
 }
 
