@@ -15,6 +15,8 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+## [0.4.13] - 2026-11-28
+
 ### Added
 
 - **Snapshots keep up with the base branch.** Name the files your dependencies are pinned in,
@@ -31,6 +33,10 @@ notice adds its line under Unreleased.
   branch is kept if its commits exist nowhere else, and a remote branch is never touched. It
   never happens while work goes on in the task, only the app does it, and a notification and a
   line in the window say which task went. 0, the default, never removes.
+- **Codex, OpenCode and Antigravity say the tokens a turn used.** Once one of their turns
+  ends, the line where it ends says what it used, counted as a Claude Code turn is, and so do
+  `swarmed session send` and the status line's **Tokens** piece. They still count nothing while
+  they work.
 
 ### Changed
 
@@ -88,8 +94,8 @@ notice adds its line under Unreleased.
   writes counts, not the conversation it reads again from the cache with every request. A
   sub-agent counts on its own, in its own pane. The line where a turn ends says what it used
   ("Turn finished in 12s, 3.4k tokens"), so does `swarmed session send`, and the status line
-  has a new **Tokens** piece that adds up the session's turns. Codex, OpenCode and Antigravity
-  say what a turn used at its end, in the same places, and count nothing while they work.
+  has a new **Tokens** piece that adds up the session's turns. Other agents report nothing of
+  the kind while they work, so they show none.
 
 ### Changed
 
@@ -1214,7 +1220,8 @@ through Homebrew or a browser.
 - **Installing:** an install script, a Homebrew cask that also puts `swarmed` on the PATH, and
   `cargo install swarmed` for the command alone.
 
-[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.12...HEAD
+[Unreleased]: https://github.com/ryckakas/swarmed/compare/v0.4.13...HEAD
+[0.4.13]: https://github.com/ryckakas/swarmed/compare/v0.4.12...v0.4.13
 [0.4.12]: https://github.com/ryckakas/swarmed/compare/v0.4.11...v0.4.12
 [0.4.11]: https://github.com/ryckakas/swarmed/compare/v0.4.10...v0.4.11
 [0.4.10]: https://github.com/ryckakas/swarmed/compare/v0.4.9...v0.4.10
