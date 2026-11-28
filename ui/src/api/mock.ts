@@ -3,7 +3,7 @@ import { CHATS } from "../chats";
 import { deepestFirst, descendantsOf, type KeptSession } from "../closing";
 import { movedAmong, pinnedAmong } from "../ordering";
 import { calledCommand } from "../slash";
-import { awakeSessions, snoozed } from "../snooze";
+import { awakeSessions, snoozed, wakesSnoozed } from "../snooze";
 import { PLAN_TOOL } from "../transcript";
 import { parentHere, titleFrom } from "../tree";
 import type { Api } from "./client";
@@ -941,8 +941,9 @@ function orderApi(
             const now = Date.now();
             const listed = awakeSessions(task.sessions, now);
             const parent = parentHere(listed, session);
+            // Moved itself, it goes among the siblings drawn (`open_session_siblings`).
             const siblings = (one: Session) =>
-                !snoozed(one, now) &&
+                (one.id === id || !snoozed(one, now)) &&
                 parentHere(listed, one) === parent &&
                 one.pinned === session.pinned;
             const moved = movedAmong(task.sessions, siblings, (one) => one.id === id, by);
@@ -2342,16 +2343,6 @@ export function suggestedTitle(message: string): string {
 const SAMPLE_SNOOZED = 5;
 const SAMPLE_SNOOZE_SECONDS = 60;
 
-/**
- * Whether an event wakes its session, as the core has it: the user writing to it, a permission
- * request or a question, or an error. A turn that ends well does not.
- */
-function wakesSnoozed(event: AgentEvent, status: SessionStatus | null): boolean {
-    return (
-        event.type === "user_message" || event.type === "permission_request" || status === "errored"
-    );
-}
-
 class MockAgent {
     readonly projects = sampleProjects();
     readonly events = new Map<number, AgentEvent[]>();
@@ -2691,7 +2682,8 @@ class MockAgent {
             id,
             queue.filter((queued) => queued !== told),
         );
-        this.later(id, { type: "user_message", text: told.text }, "working");
+        const reset = told.at_reset ? { at_reset: true } : {};
+        this.later(id, { type: "user_message", text: told.text, ...reset }, "working");
         this.later(id, { type: "text", text: `Taken in: ${told.text}` }, "working");
     }
 

@@ -267,7 +267,9 @@ function SnoozedUntil({ session }: { session: Session }) {
     if (!snoozed(session, now) || session.snoozed_until === null) {
         return null;
     }
-    const said = `Snoozed until ${wakeTime(session.snoozed_until, new Date(now))}`;
+    // Against the clock, not the time the snoozes were looked at: past midnight, tomorrow's
+    // time reads as today's.
+    const said = `Snoozed until ${wakeTime(session.snoozed_until, new Date())}`;
     return (
         <button
             type="button"

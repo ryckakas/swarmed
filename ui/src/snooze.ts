@@ -9,8 +9,9 @@
 //
 // It wakes early when it needs the user: the core takes the snooze off when the user writes to
 // it, on a permission request or a question, when it stops with an error, and when it is closed;
-// the window mirrors that from the events (`applySessionEvent` in `tree.ts`). A turn that ends
-// well keeps it snoozed. It wakes on time with nothing stored changing: the window keeps the time
+// the window mirrors that from the events (`wakesSnoozed`, applied in `applySessionEvent` in
+// `tree.ts`). Only what the user wrote wakes it: a message another session left it, or the one
+// Swarmed sends by itself as a usage limit resets, does not. Nor does a turn that ends well. It wakes on time with nothing stored changing: the window keeps the time
 // it goes by (`snoozeNow` in the store), and a timer (`useSnoozeWakes`) moves that on when the
 // next one is due, which only draws again.
 //
@@ -18,7 +19,14 @@
 // sessions wakes, only as that happens (`foldedWhenSnoozed`), so that a task the user unfolds
 // again stays unfolded.
 
-import type { BackgroundCount, Project, Session, SessionStatus, Task } from "./api/types";
+import type {
+    AgentEvent,
+    BackgroundCount,
+    Project,
+    Session,
+    SessionStatus,
+    Task,
+} from "./api/types";
 import { addedUp, anyInBackground } from "./inBackground";
 import { clockTime, LONGEST_WAIT_MS } from "./rateLimit";
 import { isSettingUp } from "./setup";
@@ -28,6 +36,19 @@ const DAY_MS = 24 * HOUR_MS;
 
 /** How long after a wake time what is shown changes, so that the time has surely passed. */
 const AFTER_WAKE_MS = 500;
+
+/**
+ * Whether `event`, published with `status`, wakes its session from a snooze, as the core has it:
+ * the user writing to it, a permission request or a question, or an error. A message another
+ * session left (`from_session`) or the one sent as a usage limit resets (`at_reset`) is not the
+ * user's, and wakes nothing; nor does a turn that ends well.
+ */
+export function wakesSnoozed(event: AgentEvent, status: SessionStatus | null): boolean {
+    if (event.type === "user_message") {
+        return event.at_reset !== true && event.from_session === undefined;
+    }
+    return event.type === "permission_request" || status === "errored";
+}
 
 /** Whether `session` is snoozed at `now`, in milliseconds since 1970: its time is still to come. */
 export function snoozed(session: Pick<Session, "snoozed_until">, now: number): boolean {
@@ -64,17 +85,23 @@ export function snoozedSessions(sessions: Session[], now: number): Session[] {
         .sort((one, other) => (one.snoozed_until ?? 0) - (other.snoozed_until ?? 0));
 }
 
+/** The statuses a Snoozed fold's line shows, the most urgent first. */
+const SHOWN_ON_FOLD: SessionStatus[] = ["waiting", "errored", "working"];
+
 /**
- * What a task's Snoozed fold shows of its sessions while one of them works or has something
- * running in the background: the busiest status and what runs, so that work under the fold is
- * never hidden. `null` while none does.
+ * What a task's Snoozed fold shows on its line of the sessions under it: the most urgent status
+ * among them, waiting, failed or at work, with what runs in the background, or idle while
+ * something runs there, so that neither work nor a question under the fold is hidden. `null`
+ * while all of them are idle with nothing running. The counts, the inbox and the task's status
+ * stay quiet all the same (`statusSeen`).
  */
-export function snoozedAtWork(
+export function snoozedMark(
     sessions: Session[],
 ): { status: SessionStatus; background: BackgroundCount } | null {
     const background = addedUp(sessions.map((session) => session.background));
-    if (sessions.some((session) => session.status === "working")) {
-        return { status: "working", background };
+    const status = SHOWN_ON_FOLD.find((one) => sessions.some((s) => s.status === one));
+    if (status !== undefined) {
+        return { status, background };
     }
     return anyInBackground(background) ? { status: "idle", background } : null;
 }
@@ -103,6 +130,17 @@ export function nextWake(projects: Project[], now: number): number | null {
  */
 export function untilWake(wake: number, now: number): number {
     return Math.min(Math.max(wake * 1000 - now, 0) + AFTER_WAKE_MS, LONGEST_WAIT_MS);
+}
+
+/**
+ * The wake timer to set (`useSnoozeWakes`), in milliseconds from `clock`, for the snoozes as
+ * they were last looked at, at `lookedAt`; `null` for none. A timer cut short at the longest a
+ * browser allows looks at them again when it runs out, which moves `lookedAt` on, and this then
+ * gives the next one: set again and again until the wake is reached.
+ */
+export function wakeTimer(projects: Project[], lookedAt: number, clock: number): number | null {
+    const wake = nextWake(projects, lookedAt);
+    return wake === null ? null : untilWake(wake, clock);
 }
 
 /** The tree at a moment: what the window had, and the time its snoozes were looked at, in ms. */
@@ -217,9 +255,10 @@ function daysToMonday(now: Date): number {
 const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
 
 /**
- * The fixed choices, in their one order: in an hour; this evening, left out once its hour has
- * passed; tomorrow morning, or this morning before its hour; next Monday morning. Choices that
- * fall at the same time show once, the first of them.
+ * The fixed choices, soonest first: in an hour; this evening, left out once its hour has passed;
+ * tomorrow morning, or this morning before its hour; next Monday morning. Choices that fall at
+ * the same time show once, by the name that comes first in `TIE_ORDER`: the morning's, then
+ * next Monday's, then the evening's.
  */
 export function snoozeChoices(now: Date, hours: SnoozeHours): SnoozeChoice[] {
     const evening = atHour(now, 0, hours.evening);
@@ -232,8 +271,13 @@ export function snoozeChoices(now: Date, hours: SnoozeHours): SnoozeChoice[] {
             : { label: "Tomorrow morning", at: seconds(atHour(now, 1, hours.morning)) },
         { label: "Next Monday", at: seconds(atHour(now, daysToMonday(now), hours.morning)) },
     ];
-    return all.filter((choice, at) => all.findIndex((one) => one.at === choice.at) === at);
+    const tie = (choice: SnoozeChoice) => TIE_ORDER.indexOf(choice.label);
+    const sorted = all.sort((one, other) => one.at - other.at || tie(one) - tie(other));
+    return sorted.filter((choice, at) => sorted[at - 1]?.at !== choice.at);
 }
+
+/** Which name a time two choices share shows by: the first of these. */
+const TIE_ORDER = ["This morning", "Tomorrow morning", "Next Monday", "This evening", "In 1 hour"];
 
 /**
  * When a snoozed session wakes, as the window says it: the time alone today, the day's short

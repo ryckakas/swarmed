@@ -1361,9 +1361,17 @@ export interface AppShown {
 export type AgentEvent =
     /**
      * What the user wrote; `remote` when typed on claude.ai or in the Claude app, `at_reset`
-     * when Swarmed sent it by itself as the usage limit that stopped the session reset.
+     * when Swarmed sent it by itself as the usage limit that stopped the session reset, and
+     * `from_session` the session whose agent left it (`send_message`), absent for the user's
+     * own. Only the user's own wakes a snoozed session.
      */
-    | { type: "user_message"; text: string; remote?: boolean; at_reset?: boolean }
+    | {
+          type: "user_message";
+          text: string;
+          remote?: boolean;
+          at_reset?: boolean;
+          from_session?: number;
+      }
     | {
           type: "init";
           agent_session_id: string;

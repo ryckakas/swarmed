@@ -672,6 +672,21 @@ describe("the mock's snoozes", () => {
         await expect(api.sessionSnooze(8, until)).rejects.toThrow("closed");
     });
 
+    it("move as the core moves them: one moved goes among the rows drawn, which pass it over", async () => {
+        const api = createMockApi();
+        const order = async () =>
+            (await api.overview())
+                .flatMap((project) => project.tasks)
+                .find((task) => task.name === "invoice-export")
+                ?.sessions.map((session) => session.id);
+        // invoice-export has sessions 3 and 8; 3 is snoozed, and drawn apart.
+        await api.sessionSnooze(3, inSeconds(3600));
+        await api.sessionMove(8, -1);
+        expect(await order()).toEqual([3, 8]);
+        await api.sessionMove(3, 1);
+        expect(await order()).toEqual([8, 3]);
+    });
+
     it("wake when the user writes or the session is closed, as the core has it", async () => {
         const api = createMockApi();
         await api.sessionSnooze(3, inSeconds(3600));

@@ -10,7 +10,7 @@ import type {
 import { addedUp } from "./inBackground";
 import { mentionsAsWords } from "./mentions";
 import { isSettingUp } from "./setup";
-import { snoozed as isSnoozed, statusSeen, unreadSeen } from "./snooze";
+import { snoozed as isSnoozed, statusSeen, unreadSeen, wakesSnoozed } from "./snooze";
 
 // Pure functions over the project tree, kept apart from the store so they can be tested.
 
@@ -97,16 +97,6 @@ function withBackground(projects: Project[], published: SessionEvent): Project[]
 }
 
 /**
- * Whether an event wakes a snoozed session, as the core has it: the user writing to it, a
- * permission request or a question, or an error. A turn that ends well does not.
- */
-function wakes({ event, status }: SessionEvent): boolean {
-    return (
-        event.type === "user_message" || event.type === "permission_request" || status === "errored"
-    );
-}
-
-/**
  * Applies what a published event means for the sidebar: the session's new status, what it has
  * running in the background, a snooze the core took off, and, for the first message of an
  * untitled session, the title the core has just given it.
@@ -119,8 +109,10 @@ export function applySessionEvent(tree: Project[], published: SessionEvent): Pro
         return mapSession(projects, id, change);
     }
     const firstMessage = event.type === "user_message" ? event.text : null;
-    const woken = wakes(published);
-    if (status === null && !woken) {
+    // Only what the user wrote wakes it: not a message another session left, nor one sent as a
+    // usage limit reset.
+    const woken = wakesSnoozed(event, status);
+    if (status === null && firstMessage === null && !woken) {
         return projects;
     }
     // Writing to a session starts something new: its mark was about what came before, and it

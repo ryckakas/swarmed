@@ -19,7 +19,7 @@ import { agentName, iconForAgent } from "../providerIcons";
 import { doneSaid, doneTasks, openTasks } from "../putAway";
 import { clockTime } from "../rateLimit";
 import { isSettingUp, setupShown, sidebarSays } from "../setup";
-import { awakeSessions, snoozedAtWork, snoozedSessions, statusSeen, wakeTime } from "../snooze";
+import { awakeSessions, snoozedMark, snoozedSessions, wakeTime } from "../snooze";
 import { useStore } from "../store";
 import type { SubAgent } from "../subagents";
 import { listedUnder } from "../subagents";
@@ -1082,14 +1082,14 @@ function ClosedSessions({ project, task, count }: ClosedProps) {
 /**
  * A task's snoozed sessions, folded away under its open ones as its closed ones are, the one to
  * wake first first. Each opens from its title, says when it wakes, and wakes now from its
- * button. While one of them works, or has something running in the background, the line says
- * so with the busiest one's mark: work under the fold is never hidden.
+ * button. While one of them waits, failed, works or has something running in the background,
+ * the line says so with the most urgent one's mark: nothing under the fold is hidden.
  */
 function SnoozedSessions({ task, sessions }: { task: number; sessions: Session[] }) {
     const words = useWords();
     const shown = useStore((state) => state.snoozedShown.includes(task));
     const toggleSnoozedShown = useStore((state) => state.toggleSnoozedShown);
-    const atWork = snoozedAtWork(sessions);
+    const atWork = snoozedMark(sessions);
     return (
         <div className="closed-sessions snoozed-sessions">
             <button
@@ -1107,17 +1107,26 @@ function SnoozedSessions({ task, sessions }: { task: number; sessions: Session[]
     );
 }
 
-/** A snoozed session under its task's Snoozed line: its mark and title, when it wakes, and Wake. */
+/**
+ * A snoozed session under its task's Snoozed line: its mark and title, when it wakes, and Wake.
+ * It names its session (`data-snoozed-session`), so that a shortcut acts on it while it has the
+ * keyboard (`rowInHand`).
+ */
 function SnoozedRow({ session }: { session: Session }) {
     const words = useWords();
-    const now = useStore((state) => state.snoozeNow);
     const selected = useStore((state) => state.selectedSessionId === session.id);
     const open = useStore((state) => state.open);
     const title = session.title || words.untitled;
     const until = session.snoozed_until ?? 0;
-    const when = wakeTime(until, new Date(now));
+    // Against the clock, not the time the snoozes were looked at: past midnight, tomorrow's
+    // time reads as today's.
+    const when = wakeTime(until, new Date());
     return (
-        <div className="closed-row snoozed-row" data-current={selected}>
+        <div
+            className="closed-row snoozed-row"
+            data-current={selected}
+            data-snoozed-session={session.id}
+        >
             <button
                 type="button"
                 className="snoozed-open"
@@ -1125,8 +1134,8 @@ function SnoozedRow({ session }: { session: Session }) {
                 aria-current={selected ? "true" : undefined}
                 onClick={() => void open(api, session.id)}
             >
-                {/* Counted as idle and read while snoozed, but its work still shows. */}
-                <StatusMark status={statusSeen(session, now)} background={session.background} />
+                {/* Its own status: the counts and the inbox leave it out, but the fold tells it. */}
+                <StatusMark status={session.status} background={session.background} />
                 <span className="session-title">{title}</span>
             </button>
             <span className="snoozed-until">{when}</span>

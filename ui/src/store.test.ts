@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { newSession } from "./actions";
+import { newSession, snoozeSession } from "./actions";
 import { api as moduleApi } from "./api";
 import type { Api } from "./api/client";
 import { createMockApi, sampleProjects } from "./api/mock";
@@ -1363,6 +1363,17 @@ describe("a snoozed session", () => {
         expect(folded()).toEqual([]);
         await useStore.getState().close(api, 8, false);
         expect(folded()).toEqual([2]);
+    });
+
+    it("wakes from its fold's button: the core is asked with no time, and the tree read again", async () => {
+        await useStore.getState().refresh(moduleApi);
+        await moduleApi.sessionSnooze(13, inSeconds(3600));
+        await useStore.getState().refresh(moduleApi);
+        expect(session(13)?.snoozed_until).not.toBeNull();
+        const asked = vi.spyOn(moduleApi, "sessionSnooze");
+        await snoozeSession(13, null);
+        expect(asked).toHaveBeenCalledWith(13, null);
+        expect(session(13)?.snoozed_until).toBeNull();
     });
 
     it("is forgotten with its task and its session: the fold and the dialog", async () => {

@@ -9,14 +9,16 @@ import {
     nextWake,
     snoozeChoices,
     snoozed,
-    snoozedAtWork,
+    snoozedMark,
     snoozedSessions,
     snoozedShownFor,
     statusSeen,
     timeOfField,
     unreadSeen,
     untilWake,
+    wakesSnoozed,
     wakeTime,
+    wakeTimer,
 } from "./snooze";
 
 // Noon on a Saturday, in the time zone the tests run in.
@@ -80,16 +82,40 @@ describe("a snoozed session", () => {
         expect(snoozedSessions(sessions, NOW).map((s) => s.id)).toEqual([10, 9]);
     });
 
-    it("shows on its fold's line while it works or runs something in the background", () => {
+    it("shows on its fold's line, the most urgent first, while it is anything but quiet", () => {
         const idle = sampleSession(3);
         const busy = { ...idle, status: "working" as const };
+        const failed = { ...idle, status: "errored" as const };
+        const asking = { ...idle, status: "waiting" as const };
         const background = sampleSession(8);
-        expect(snoozedAtWork([idle])).toBeNull();
-        expect(snoozedAtWork([idle, busy])?.status).toBe("working");
-        expect(snoozedAtWork([idle, background])).toEqual({
+        expect(snoozedMark([idle])).toBeNull();
+        expect(snoozedMark([idle, busy])?.status).toBe("working");
+        expect(snoozedMark([busy, failed])?.status).toBe("errored");
+        expect(snoozedMark([failed, asking, busy])?.status).toBe("waiting");
+        expect(snoozedMark([idle, background])).toEqual({
             status: "idle",
             background: { agents: 1, commands: 1 },
         });
+    });
+
+    it("wakes on what the user writes, a request or a question, and an error alone", () => {
+        const typed = { type: "user_message" as const, text: "and now?" };
+        expect(wakesSnoozed(typed, "working")).toBe(true);
+        expect(wakesSnoozed({ ...typed, remote: true }, "working")).toBe(true);
+        // Another session's message and the one sent as a limit resets are not the user's.
+        expect(wakesSnoozed({ ...typed, from_session: 9 }, "working")).toBe(false);
+        expect(wakesSnoozed({ ...typed, at_reset: true }, "working")).toBe(false);
+        const asked = {
+            type: "permission_request" as const,
+            request_id: "r",
+            tool_name: "Bash",
+            input: {},
+            description: null,
+        };
+        expect(wakesSnoozed(asked, "waiting")).toBe(true);
+        expect(wakesSnoozed({ type: "exited", code: 1, stderr: "" }, "errored")).toBe(true);
+        const done = { type: "turn_done" as const, is_error: false, result: null, cost_usd: null };
+        expect(wakesSnoozed(done, "idle")).toBe(false);
     });
 });
 
@@ -118,6 +144,22 @@ describe("the next wake", () => {
         expect(untilWake(now + 60, NOW)).toBe(60_500);
         expect(untilWake(now - 60, NOW)).toBe(500);
         expect(untilWake(now + 365 * 24 * HOUR, NOW)).toBe(LONGEST_WAIT_MS);
+    });
+
+    it("is waited for again and again past the longest timer, until it is reached", () => {
+        const wake = seconds(NOW) + 40 * 24 * HOUR;
+        const projects = snoozing(sampleProjects(), 3, wake);
+        expect(wakeTimer(sampleProjects(), NOW, NOW)).toBeNull();
+        // The first timer is cut short at the longest a browser allows.
+        const first = wakeTimer(projects, NOW, NOW);
+        expect(first).toBe(LONGEST_WAIT_MS);
+        // When it runs out the snoozes are looked at again, and the next is set for the rest.
+        const looked = NOW + (first ?? 0);
+        const second = wakeTimer(projects, looked, looked);
+        expect(second).toBe(wake * 1000 - looked + 500);
+        // Once the wake is reached and looked at, there is nothing left to wait for.
+        const woken = wake * 1000 + 500;
+        expect(wakeTimer(projects, woken, woken)).toBeNull();
     });
 });
 
@@ -194,7 +236,7 @@ describe("snoozeChoices", () => {
             return `${label} ${when.getDate()} ${when.getHours()}:${when.getMinutes()}`;
         });
 
-    it("offers an hour from now, this evening, tomorrow morning and next Monday", () => {
+    it("offers an hour from now, this evening, tomorrow morning and next Monday, soonest first", () => {
         expect(said(SATURDAY_NOON)).toEqual([
             "In 1 hour 28 13:0",
             "This evening 28 18:0",
@@ -206,8 +248,8 @@ describe("snoozeChoices", () => {
     it("says this morning before its hour, and leaves out this evening once its hour passed", () => {
         expect(said(new Date(2026, 10, 25, 7, 30))).toEqual([
             "In 1 hour 25 8:30",
-            "This evening 25 18:0",
             "This morning 25 9:0",
+            "This evening 25 18:0",
             "Next Monday 30 9:0",
         ]);
         expect(said(new Date(2026, 10, 25, 19, 0))).toEqual([
@@ -224,6 +266,22 @@ describe("snoozeChoices", () => {
         ]);
         // On a Monday, next Monday is a week on.
         expect(said(new Date(2026, 10, 30, 12, 0)).at(-1)).toBe("Next Monday 7 9:0");
+    });
+
+    it("names a time two choices share by the morning", () => {
+        // At 08:00 an hour from now is this morning's hour.
+        expect(said(new Date(2026, 10, 25, 8, 0))).toEqual([
+            "This morning 25 9:0",
+            "This evening 25 18:0",
+            "Next Monday 30 9:0",
+        ]);
+        // With both hours set alike, the evening is the morning.
+        const alike = snoozeChoices(new Date(2026, 10, 25, 7, 30), { morning: 9, evening: 9 });
+        expect(alike.map((choice) => choice.label)).toEqual([
+            "In 1 hour",
+            "This morning",
+            "Next Monday",
+        ]);
     });
 
     it("takes its hours from the settings, and keeps them across a change of summer time", () => {

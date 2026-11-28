@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { nextWake, untilWake } from "./snooze";
+import { wakeTimer } from "./snooze";
 import { useStore } from "./store";
 
 /**
@@ -11,19 +11,19 @@ import { useStore } from "./store";
  * again too when the window gets the focus or comes into view.
  */
 export function useSnoozeWakes(): void {
-    const wake = useStore((state) => nextWake(state.projects, state.snoozeNow));
-    const now = useStore((state) => state.snoozeNow);
+    const projects = useStore((state) => state.projects);
+    const lookedAt = useStore((state) => state.snoozeNow);
     const wakeDue = useStore((state) => state.wakeDue);
-    // Set again whenever the time looked at moves on, so that a timer cut short by the longest
-    // a browser allows is followed by the next.
-    // biome-ignore lint/correctness/useExhaustiveDependencies: restarted when the time looked at moves on
+    // Set again whenever the snoozes are looked at, so that a timer cut short at the longest a
+    // browser allows is followed by the next (`wakeTimer`).
     useEffect(() => {
-        if (wake === null) {
+        const wait = wakeTimer(projects, lookedAt, Date.now());
+        if (wait === null) {
             return;
         }
-        const timer = setTimeout(wakeDue, untilWake(wake, Date.now()));
+        const timer = setTimeout(wakeDue, wait);
         return () => clearTimeout(timer);
-    }, [wake, now, wakeDue]);
+    }, [projects, lookedAt, wakeDue]);
     useEffect(() => {
         const look = () => {
             if (document.visibilityState === "visible") {

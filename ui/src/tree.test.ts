@@ -730,6 +730,21 @@ describe("a snoozed session", () => {
         expect(findSession(failed, 3)?.snoozed_until).toBeNull();
     });
 
+    it("stays snoozed through a message another session left, or one sent as a limit reset", () => {
+        const left = event(3, "working", {
+            type: "user_message",
+            text: "the parser is done",
+            from_session: 10,
+        });
+        expect(findSession(left, 3)?.snoozed_until).toBe(later);
+        const reset = event(3, "working", {
+            type: "user_message",
+            text: "Continue where you stopped.",
+            at_reset: true,
+        });
+        expect(findSession(reset, 3)?.snoozed_until).toBe(later);
+    });
+
     it("stays snoozed through a turn that ends well, unread", () => {
         const done = event(3, "idle", {
             type: "turn_done",
