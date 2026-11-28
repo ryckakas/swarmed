@@ -36,8 +36,10 @@ impl Core {
 
     /// Ends the setups, stacks and browsers Swarmed leaves behind when it quits: the setups it
     /// runs, and every stack and browser if this was the first Swarmed to
-    /// [`arrive`](Core::arrive), and otherwise only the ones it started itself.
+    /// [`arrive`](Core::arrive), and otherwise only the ones it started itself. The built-in
+    /// repolore's page goes too, which only that first one starts.
     pub async fn leave(&self) {
+        self.repolore_page_leave();
         // A setup under way goes first: it would start its stack once done.
         self.setups_stop_all().await;
         let first = lock(&self.house).is_some();

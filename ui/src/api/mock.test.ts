@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMockApi, suggestedTitle } from "./mock";
 import type { BrowserEvent, SessionEvent } from "./types";
 
@@ -213,6 +213,109 @@ describe("the mock's MCP servers", () => {
         expect(listed[0]).toMatchObject({ name: "tracker", origin: "swarmed", kind: "stdio" });
         expect(JSON.stringify(listed)).not.toContain("s3cret");
         expect(await api.mcpRemove("tracker")).toEqual(before);
+    });
+});
+
+describe("the mock's built-in repolore", () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+    /** What a step returns once its waits have passed, without waiting for them. */
+    const done = async <T>(step: Promise<T>): Promise<T> => {
+        await vi.advanceTimersByTimeAsync(10_000);
+        return step;
+    };
+
+    it("walks from not installed through waiting to on, and back off with its copy kept", async () => {
+        vi.useFakeTimers();
+        const api = createMockApi();
+        const printed: string[] = [];
+        await api.onHookOutput((output) => {
+            if (output.task === "builtin:repolore") {
+                printed.push(output.line);
+            }
+        });
+        const [first] = await done(api.builtinMcpServers());
+        expect(first).toMatchObject({ name: "repolore", state: "missing", version: null });
+
+        const off = await done(api.builtinMcpInstall("repolore"));
+        expect(printed.at(-1)).toContain("repolore-mcp");
+        expect(off).toMatchObject({ state: "off", home_ready: false });
+        expect(off.existing?.folders.length).toBeGreaterThan(0);
+
+        // The first copy is refused while a refresh runs; nothing is turned on.
+        const refused = expect(api.builtinMcpTurnOn("repolore", true)).rejects.toThrow(
+            "a refresh is running; try again when it is done",
+        );
+        await vi.advanceTimersByTimeAsync(10_000);
+        await refused;
+        const waiting = await done(api.builtinMcpTurnOn("repolore", true));
+        expect(waiting.state).toBe("waiting");
+        expect(waiting.registrations.map((each) => [each.client, each.runs_here])).toEqual([
+            ["Claude Code", true],
+            ["Codex", true],
+            ["OpenCode", false],
+        ]);
+        expect(waiting).toMatchObject({
+            old_server: { running: true, pid: 48213, relays: 2 },
+            hook: true,
+        });
+        expect(waiting.sessions).toEqual([expect.objectContaining({ idle: true })]);
+
+        // A step for the user is never run here.
+        await expect(
+            api.builtinMcpRemoveRegistration("repolore", "opencode:user"),
+        ).rejects.toThrow();
+        await done(api.builtinMcpRemoveRegistration("repolore", "claude:user"));
+        expect(printed.at(-1)).toContain("~/.claude.json");
+        const left = await done(api.builtinMcpRemoveRegistration("repolore", "codex:user"));
+        expect(left.registrations.map((each) => each.key)).toEqual(["opencode:user"]);
+
+        // The old server runs while the idle session holds it.
+        const held = await done(api.builtinMcpCheck("repolore", false));
+        expect(held).toMatchObject({ state: "waiting", registrations: [] });
+        expect(held.old_server).not.toBeNull();
+        const letGo = await done(api.builtinMcpRestartSessions("repolore"));
+        expect(letGo.sessions).toEqual([]);
+        expect(letGo.old_server).toEqual({ running: true, pid: 48213, relays: 1 });
+        // Stopped, it is still in use while the session outside Swarmed is connected to it.
+        const stopped = await done(api.builtinMcpCheck("repolore", false));
+        expect(stopped).toMatchObject({
+            state: "waiting",
+            old_server: { running: false, pid: null, relays: 1 },
+        });
+        const on = await done(api.builtinMcpCheck("repolore", false));
+        expect(on).toMatchObject({ state: "on", old_server: null, checked: "offline" });
+        expect(on.checks.filter((check) => check.warning)).toHaveLength(1);
+        expect(on.checks.every((check) => check.ok)).toBe(true);
+
+        const full = await done(api.builtinMcpCheck("repolore", true));
+        expect(full.checked).toBe("full");
+        expect(full.checks.length).toBeGreaterThan(on.checks.length);
+        await done(api.builtinMcpOpen("repolore"));
+        expect((await done(api.builtinMcpServers()))[0]?.page_open).toBe(true);
+        expect((await done(api.builtinMcpTrashOld("repolore"))).existing).toBeNull();
+
+        const offAgain = await done(api.builtinMcpTurnOff("repolore"));
+        expect(offAgain).toMatchObject({ state: "off", home_ready: true, page_open: false });
+    });
+
+    it("starts fresh with nothing chosen, which its page picks before the next check", async () => {
+        vi.useFakeTimers();
+        const api = createMockApi();
+        await done(api.builtinMcpInstall("repolore"));
+        const fresh = await done(api.builtinMcpTurnOn("repolore", false));
+        expect(fresh).toMatchObject({ state: "waiting", home_ready: false, page_open: false });
+        await done(api.builtinMcpOpen("repolore"));
+        const picked = await done(api.builtinMcpCheck("repolore", false));
+        expect(picked).toMatchObject({ home_ready: true, page_open: true });
+        // Turned off before anything was picked, it offers the copy again.
+        const api2 = createMockApi();
+        await done(api2.builtinMcpInstall("repolore"));
+        await done(api2.builtinMcpTurnOn("repolore", false));
+        const off = await done(api2.builtinMcpTurnOff("repolore"));
+        expect(off).toMatchObject({ state: "off", home_ready: false });
+        expect(off.existing).not.toBeNull();
     });
 });
 

@@ -43,7 +43,7 @@ fn could_not_open(what: &str, reason: impl std::fmt::Display) -> Error {
 }
 
 /// Starts `command` without waiting for it and without tying its output to ours.
-fn launch(mut command: Command) -> std::io::Result<()> {
+pub(crate) fn launch(mut command: Command) -> std::io::Result<()> {
     let child = command
         .stdin(Stdio::null())
         .stdout(Stdio::null())

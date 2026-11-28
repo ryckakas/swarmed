@@ -22,6 +22,7 @@ use crate::agents::CLAUDE;
 use crate::apps;
 use crate::background::{self, BackgroundCount};
 use crate::browser::{self, AgentBrowser};
+use crate::builtin_mcp::RepoloreUse;
 use crate::chats;
 use crate::checkpoints;
 use crate::commands::SlashCommand;
@@ -1237,7 +1238,7 @@ impl Core {
         // Worked out before the running sessions are locked: reading settings, other agents'
         // configuration and the keychain takes a while, and nobody else's message, answer or
         // stop is to wait for that.
-        let spec = self.spec_for(session, task, &spool, auth)?;
+        let (spec, repolore) = self.spec_for(session, task, &spool, auth)?;
         let shared = Shared {
             store: Arc::clone(&self.store),
             live: Arc::clone(&self.live),
@@ -1246,23 +1247,31 @@ impl Core {
             spool,
             backend,
             spec,
+            repolore,
         };
         launch(shared, id, Launch::UnlessRunning)?;
+        // The refresh a hook in Claude Code would start, for the built-in's index.
+        if repolore == RepoloreUse::Builtin {
+            self.repolore_refresh();
+        }
         // Something works on its task again.
         self.bring_back_session(id)
     }
 
-    /// Everything the agent of `session`, which works in `task`, is started with.
+    /// Everything the agent of `session`, which works in `task`, is started with, and which
+    /// repolore that gives it (`builtin_mcp.rs`).
     fn spec_for(
         &self,
         session: Session,
         task: Task,
         spool: &Path,
         auth: Auth,
-    ) -> Result<SessionSpec> {
+    ) -> Result<(SessionSpec, RepoloreUse)> {
         let settings = self.settings()?;
         let mut mcp_servers = self.mcp_servers_for(&session.agent, &task)?;
-        let own = self.own_mcp_servers()?;
+        let mut own = self.own_mcp_servers()?;
+        // Before any is left out by name, so that every other repolore is seen.
+        let repolore = self.repolore_use(&session.agent, &task, &mcp_servers, &mut own);
         // One set up here goes before another agent's of the same name.
         mcp_servers.retain(|shared| own.iter().all(|server| server.name != shared.name));
         mcp_servers.extend(own);
@@ -1297,7 +1306,7 @@ impl Core {
             team: team.as_deref(),
         };
         let guidance = self.guidance(&settings, &session.agent, &task, told);
-        Ok(SessionSpec {
+        let spec = SessionSpec {
             mcp_servers,
             skills: self.skills_had(&session.agent, &task.worktree_path),
             env,
@@ -1317,7 +1326,8 @@ impl Core {
             allowed_tools: vec![SHOW_HTML_FOR_CLAUDE.to_string()],
             private_dir: Some(self.private_dir(session.id)),
             ..SessionSpec::default()
-        })
+        };
+        Ok((spec, repolore))
     }
 
     /// The folder for what the agent of session `id` is handed as a file.
@@ -2052,6 +2062,9 @@ struct Run {
     /// The settings its agent was started with or told of since, to tell a change apart from
     /// what it knows: one made here, or one another process stored (`Core::settings_told`).
     told: SessionSettings,
+    /// Which repolore its agent was started with: one other than the built-in keeps the old
+    /// server running (`builtin_mcp.rs`).
+    repolore: RepoloreUse,
 }
 
 /// The running sessions' agents, by session.
@@ -2367,6 +2380,15 @@ impl Live {
 
     fn commands(&self) -> MutexGuard<'_, Commands> {
         self.commands.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The sessions whose agent runs here on `repolore`, by id, oldest first.
+    pub(crate) fn running_on(&self, repolore: RepoloreUse) -> Vec<i64> {
+        let commands = self.commands();
+        let held = commands.iter().filter(|(_, run)| run.repolore == repolore);
+        let mut ids: Vec<i64> = held.map(|(id, _)| *id).collect();
+        ids.sort_unstable();
+        ids
     }
 
     pub(crate) fn sender(&self, id: i64) -> Result<mpsc::UnboundedSender<AgentCommand>> {
@@ -2766,6 +2788,8 @@ struct Shared {
     /// from here, when new settings are due and a message is waiting for them.
     backend: Arc<dyn AgentBackend>,
     spec: SessionSpec,
+    /// Which repolore `spec` gives the agent.
+    repolore: RepoloreUse,
 }
 
 impl Shared {
@@ -2844,6 +2868,7 @@ fn launch(shared: Shared, id: i64, how: Launch) -> Result<()> {
         commands: handle.commands,
         _stop: stop,
         told,
+        repolore: shared.repolore,
     };
     running.insert(id, run);
     drop(running);
@@ -3218,6 +3243,7 @@ mod tests {
             commands,
             _stop: stop,
             told: SessionSettings::default(),
+            repolore: RepoloreUse::None,
         };
         live.commands().insert(7, run);
         let told = |sent: &str, typed: &str| Told {

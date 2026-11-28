@@ -2,6 +2,7 @@
 
 mod action;
 mod browser;
+mod builtin;
 mod cleanup;
 mod events;
 mod issue;
@@ -60,7 +61,8 @@ enum Command {
     #[command(subcommand)]
     Pr(PrCommand),
     /// List the MCP servers agents are given: those set up in Swarmed and Claude Code's own.
-    Mcp,
+    /// `swarmed mcp builtin` sets up Swarmed's built-in ones.
+    Mcp(McpArgs),
     /// Show what Swarmed takes up on disk, and in memory and processor time right now.
     Usage,
     /// Show the plan's usage limits and the extra usage as Claude Code last reported them in
@@ -558,7 +560,10 @@ async fn run(core: &Arc<Core>, command: Command) -> Result<()> {
         // Answered above, before anything was opened.
         Command::ToolServer => Ok(()),
         Command::Agent(command) => agent(core, command).await,
-        Command::Mcp => mcp(core),
+        Command::Mcp(McpArgs { command: None }) => mcp(core),
+        Command::Mcp(McpArgs {
+            command: Some(McpCommand::Builtin { command }),
+        }) => builtin::run(core, command).await,
         Command::Usage => usage(core).await,
         Command::Limits => limits::run(core),
         Command::Cleanup(args) => cleanup::run(core, args).await,
@@ -1020,6 +1025,22 @@ async fn agent(core: &Core, command: AgentCommand) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Args)]
+struct McpArgs {
+    #[command(subcommand)]
+    command: Option<McpCommand>,
+}
+
+#[derive(Debug, Subcommand)]
+enum McpCommand {
+    /// Swarmed's built-in MCP servers: repolore, off until you turn it on. Without a
+    /// command, how it stands.
+    Builtin {
+        #[command(subcommand)]
+        command: Option<builtin::BuiltinCommand>,
+    },
+}
+
 fn mcp(core: &Core) -> Result<()> {
     let row = |server: &McpServerView| {
         let state = if server.enabled { "on" } else { "off" };
@@ -1064,6 +1085,10 @@ async fn usage(core: &Core) -> Result<()> {
     say(&format!("images\t{}", bytes(usage.images_bytes)));
     say(&format!("checkpoints\t{}", bytes(usage.checkpoints_bytes)));
     say(&format!("browsers\t{}", bytes(usage.browsers_bytes)));
+    // The built-in repolore's home, once there is one.
+    if usage.repolore_bytes > 0 {
+        say(&format!("repolore\t{}", bytes(usage.repolore_bytes)));
+    }
     for worktree in &usage.worktrees {
         let size = worktree
             .bytes

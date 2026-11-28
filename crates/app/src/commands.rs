@@ -21,15 +21,15 @@ use swarmed_core::agent::{AgentEvent, Auth, Effort, Supervision};
 use swarmed_core::{
     AccountUsage, Action, AgentInfo, AgentSetup, ApiKeyInfo, AppCsp, AppShown, Attached,
     BackgroundOutput, BackgroundTask, BranchChoices, BrowserGo, BrowserSetup, BrowserState,
-    Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask, ConsoleLine, Core, Costs,
-    CustomLayout, Descendant, Environment, EnvironmentChoice, FileChange, FileDiff, FileListing,
-    FirstSession, GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter, IssueList, KeyInput,
-    McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules, MergeWhen, MouseInput,
-    NewTaskOptions, PickedElement, Project, ProjectOverview, Pull, PullDraft, QueuedMessage, ROLES,
-    Reachable, RemoveOptions, RewindCheck, RewindDone, Role, SearchHit, Session, SessionOptions,
-    SessionSettings, Settings, SetupLog, Skill, SlashCommand, Snapshot, Stylesheet, Task,
-    TaskNaming, TaskStarted, Template, TerminalConfig, TerminalOpened, Turn, TurnChanges,
-    TurnStats, Unpublished, Usage, UsageAsk, Viewport, hooks,
+    BuiltinMcpView, Cleaned, Cleanup, CleanupKind, CloudOrigin, CloudProvider, CloudTask,
+    ConsoleLine, Core, Costs, CustomLayout, Descendant, Environment, EnvironmentChoice, FileChange,
+    FileDiff, FileListing, FirstSession, GitHubItem, GitHubItems, Issue, IssueDetail, IssueFilter,
+    IssueList, KeyInput, McpServerInput, McpServerView, MergeMethod, MergeReport, MergeRules,
+    MergeWhen, MouseInput, NewTaskOptions, PickedElement, Project, ProjectOverview, Pull,
+    PullDraft, QueuedMessage, ROLES, Reachable, RemoveOptions, RewindCheck, RewindDone, Role,
+    SearchHit, Session, SessionOptions, SessionSettings, Settings, SetupLog, Skill, SlashCommand,
+    Snapshot, Stylesheet, Task, TaskNaming, TaskStarted, Template, TerminalConfig, TerminalOpened,
+    Turn, TurnChanges, TurnStats, Unpublished, Usage, UsageAsk, Viewport, hooks,
 };
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
@@ -105,6 +105,98 @@ pub(crate) fn mcp_save(core: CoreState<'_>, server: McpServerInput) -> Command<V
 #[tauri::command]
 pub(crate) fn mcp_remove(core: CoreState<'_>, name: String) -> Command<Vec<McpServerView>> {
     Ok(core.mcp_remove(&name)?)
+}
+
+/// Swarmed's built-in servers, each with how it stands, read without the network. Async: it
+/// asks repolore's command line.
+#[tauri::command]
+pub(crate) async fn builtin_mcp_servers(core: CoreState<'_>) -> Command<Vec<BuiltinMcpView>> {
+    Ok(core.builtin_mcp_servers().await?)
+}
+
+/// Checks a built-in again; with `full`, the network too, which only the Check button asks.
+#[tauri::command]
+pub(crate) async fn builtin_mcp_check(
+    core: CoreState<'_>,
+    name: String,
+    full: bool,
+) -> Command<BuiltinMcpView> {
+    Ok(core.builtin_mcp_check(&name, full).await?)
+}
+
+/// Installs or upgrades a built-in. What the installer prints reaches the UI the way hook
+/// output does, under no repository and `builtin:<name>`.
+#[tauri::command]
+pub(crate) async fn builtin_mcp_install<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    name: String,
+) -> Command<BuiltinMcpView> {
+    let key = format!("builtin:{name}");
+    let sink = hook_sink(&app, "", &key);
+    Ok(core.builtin_mcp_install(&name, &sink).await?)
+}
+
+/// Turns a built-in on, from a copy of the user's own setup with `copy`, else fresh.
+#[tauri::command]
+pub(crate) async fn builtin_mcp_turn_on(
+    core: CoreState<'_>,
+    name: String,
+    copy: bool,
+) -> Command<BuiltinMcpView> {
+    Ok(core.builtin_mcp_turn_on(&name, copy).await?)
+}
+
+/// Turns a built-in off and ends its page. Its home stays.
+#[tauri::command]
+pub(crate) async fn builtin_mcp_turn_off(
+    core: CoreState<'_>,
+    name: String,
+) -> Command<BuiltinMcpView> {
+    Ok(core.builtin_mcp_turn_off(&name).await?)
+}
+
+/// Takes out one registration of repolore elsewhere, by its key: the command run is the one
+/// the core finds for it, never one sent from here. Its output comes as an install's does.
+#[tauri::command]
+pub(crate) async fn builtin_mcp_remove_registration<R: Runtime>(
+    app: AppHandle<R>,
+    core: CoreState<'_>,
+    name: String,
+    key: String,
+) -> Command<BuiltinMcpView> {
+    let printed_as = format!("builtin:{name}");
+    let sink = hook_sink(&app, "", &printed_as);
+    Ok(core
+        .builtin_mcp_remove_registration(&name, &key, &sink)
+        .await?)
+}
+
+/// Stops the idle sessions that keep the old repolore server running, to start again on the
+/// built-in with their next message.
+#[tauri::command]
+pub(crate) async fn builtin_mcp_restart_sessions(
+    core: CoreState<'_>,
+    name: String,
+) -> Command<BuiltinMcpView> {
+    Ok(core.builtin_mcp_restart_sessions(&name).await?)
+}
+
+/// Opens a built-in's own page in the browser, starting it if it does not run. Off the main
+/// thread, as it waits for the page to say where it is; the core starts it with the standard
+/// library's processes alone, as no Tokio runtime is here.
+#[tauri::command(async)]
+pub(crate) fn builtin_mcp_open(core: CoreState<'_>, name: String) -> Command<()> {
+    Ok(core.builtin_mcp_open(&name)?)
+}
+
+/// Moves the user's repolore setup from before to the Trash, once the built-in has taken over.
+#[tauri::command]
+pub(crate) async fn builtin_mcp_trash_old(
+    core: CoreState<'_>,
+    name: String,
+) -> Command<BuiltinMcpView> {
+    Ok(core.builtin_mcp_trash_old(&name).await?)
 }
 
 /// What Swarmed takes up on disk and is using right now. Async: it measures folders.

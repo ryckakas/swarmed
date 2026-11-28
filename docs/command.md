@@ -137,7 +137,7 @@ if it has any ([A role's model and effort](coding-agents.md#a-roles-model-and-ef
 | `snapshot` | keep the files git ignores in a set-up task, for new tasks to start from |
 | `agents`, `agent` | list the agents sessions can run on; install and configure the others |
 | `key` | store, remove or list API keys for agents other than Claude Code |
-| `mcp`, `skills` | list the MCP servers and skills agents are given |
+| `mcp`, `skills` | list the MCP servers and skills agents are given; set up the built-in repolore (`mcp builtin`: [repolore, built in](coding-agents.md#repolore-built-in)) |
 | `rules` | print or replace the rules every agent is given |
 | `note` | print or replace the note on a project or a task |
 | `action` | manage the buttons of your own that send a prompt or run a command |

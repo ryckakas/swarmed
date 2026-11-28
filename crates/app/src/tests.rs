@@ -2070,6 +2070,234 @@ fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
     );
 }
 
+/// A stand-in for repolore's command line, answering from files in `__STATE__` as repolore
+/// 0.5.1 does: the built-in's home is told from the user's own by `REPOLORE_HOME`. A home with
+/// no file is one never set up, answered with the whole doctor, as an answer has to be: no
+/// configuration file there, and its index check failing. Its doctor exits 1 when a check
+/// failed, as repolore's does. Its page never says where it is, so no test opens a browser.
+const FAKE_REPOLORE: &str = r#"#!/bin/sh
+state="__STATE__"
+which=old
+if [ -n "$REPOLORE_HOME" ]; then which=builtin; fi
+server='{"running": false, "starting": false, "pid": null, "url": null, "version": null, "started_at": null, "model_ready": null, "sessions": 0}'
+case "$1" in
+  version) echo "repolore 0.5.1" ;;
+  doctor)
+    answer="$state/doctor-$which.json"
+    if [ -f "$answer" ]; then
+      cat "$answer"
+      if grep -q '"ok": *false' "$answer"; then exit 1; fi
+      exit 0
+    fi
+    cat <<JSON
+{"version": "0.5.1", "managed_by": null, "db": "default",
+ "paths": {"config_file": "$state/never/repolore.toml",
+   "questions_file": "$state/never/evals/questions.yaml", "data_dir": "$state/never",
+   "config_from": "default", "data_from": "default"},
+ "ok": false,
+ "checks": [{"name": "index default", "ok": false, "warning": false,
+   "detail": "none at $state/never/db/default.db", "fix": "run repolore refresh"}],
+ "server": $server, "registrations": []}
+JSON
+    exit 1 ;;
+  server) echo "$server" ;;
+  copy) mkdir -p "$2" && echo "repos = []" > "$2/repolore.toml" ;;
+  session-start) ;;
+  ui) echo "no page in this stand-in" ;;
+  *) exit 2 ;;
+esac
+"#;
+
+/// The registration OpenCode has, which has no remove command: a step for the user.
+const OPENCODE_KEY: &str = "opencode:user:repolore";
+
+/// Puts `text` in place as the program `path`, by a child process (see [`stand_in_chrome`]).
+fn executable(path: &Path, text: &str) {
+    let source = path.with_extension("source");
+    std::fs::write(&source, text).expect("writes");
+    let status = Command::new("install")
+        .args(["-m", "755"])
+        .arg(&source)
+        .arg(path)
+        .status()
+        .expect("install runs");
+    assert!(status.success());
+}
+
+/// What the stand-in's doctor says of the built-in's `home`, registered in OpenCode too or
+/// not, indexed or not. Whether the home is set up is read from it too: its configuration
+/// file, which the stand-in's copy writes.
+fn builtin_doctor(home: &Path, opencode: bool, indexed: bool) -> String {
+    let registration = json!({
+        "client": "opencode", "client_name": "OpenCode", "name": "repolore",
+        "command": ["repolore-mcp"], "scope": "user", "for_every_project": true,
+        "remove": "delete repolore from /Users/me/.config/opencode/opencode.json",
+    });
+    let registrations = if opencode { vec![registration] } else { vec![] };
+    json!({
+        "version": "0.5.1", "managed_by": "Swarmed", "db": "default",
+        "paths": {
+            "config_file": home.join("repolore.toml"),
+            "questions_file": home.join("evals").join("questions.yaml"),
+            "data_dir": home, "config_from": "REPOLORE_HOME", "data_from": "REPOLORE_HOME",
+        },
+        "ok": !opencode && indexed,
+        "checks": [
+            { "name": "repolore.toml", "ok": true, "warning": false, "detail": "", "fix": null },
+            { "name": "index default", "ok": indexed, "warning": false, "detail": "", "fix": null },
+        ],
+        "server": { "running": false, "starting": false, "pid": null, "url": null,
+            "version": null, "started_at": null, "model_ready": null, "sessions": 0 },
+        "registrations": registrations,
+    })
+    .to_string()
+}
+
+/// Whether the error `said` has `words` in it.
+fn says(said: &Value, words: &str) -> bool {
+    said.as_str().is_some_and(|said| said.contains(words))
+}
+
+// No test installs repolore for real: with no tool directories it is missing, and its
+// installer cannot run, as `browser_install` cannot.
+#[test]
+fn the_ui_can_see_that_the_built_in_repolore_is_not_installed() {
+    let app = app_built("https://127.0.0.1:9/latest.json", |core| {
+        core.set_tool_dirs(vec![]);
+    });
+    let which = json!({ "name": "repolore" });
+    let rows = app.ok("builtin_mcp_servers", json!({}));
+    let row = &rows[0];
+    assert_eq!(
+        (&row["name"], &row["state"]),
+        (&json!("repolore"), &json!("missing"))
+    );
+    assert!(
+        says(
+            &row["install_command"],
+            "brew install uv && uv tool install"
+        ),
+        "{row}"
+    );
+    let refused = app.invoke("builtin_mcp_install", which.clone());
+    let said = refused.expect_err("nothing installs it");
+    assert!(says(&said, "Homebrew"), "{said}");
+    let checked = app.ok(
+        "builtin_mcp_check",
+        json!({ "name": "repolore", "full": false }),
+    );
+    assert_eq!(checked["state"], "missing");
+    let unknown = app.invoke(
+        "builtin_mcp_check",
+        json!({ "name": "lore", "full": false }),
+    );
+    assert!(says(&unknown.expect_err("no such built-in"), "`lore`"));
+
+    let on = app.invoke(
+        "builtin_mcp_turn_on",
+        json!({ "name": "repolore", "copy": false }),
+    );
+    assert!(says(&on.expect_err("not installed"), "not installed"));
+    let removed = json!({ "name": "repolore", "key": OPENCODE_KEY });
+    let removed = app.invoke("builtin_mcp_remove_registration", removed);
+    assert!(says(&removed.expect_err("not installed"), "not installed"));
+    let restarted = app.ok("builtin_mcp_restart_sessions", which.clone());
+    assert_eq!(restarted["sessions"], json!([]));
+    let opened = app.invoke("builtin_mcp_open", which.clone());
+    assert!(says(&opened.expect_err("off"), "on first"));
+    let trashed = app.invoke("builtin_mcp_trash_old", which.clone());
+    assert!(says(
+        &trashed.expect_err("not on"),
+        "only once the built-in"
+    ));
+    assert_eq!(app.ok("builtin_mcp_turn_off", which)["state"], "missing");
+}
+
+#[test]
+fn the_ui_can_turn_the_built_in_repolore_on_and_off() {
+    let stand = TempDir::new().expect("temp dir");
+    let (tools, state) = (stand.path().join("tools"), stand.path().join("state"));
+    std::fs::create_dir_all(&tools).expect("tools dir");
+    std::fs::create_dir_all(&state).expect("state dir");
+    let script = FAKE_REPOLORE.replace("__STATE__", &state.to_string_lossy());
+    executable(&tools.join("repolore"), &script);
+    executable(&tools.join("repolore-mcp"), "#!/bin/sh\nexit 0\n");
+    let app = app_built("https://127.0.0.1:9/latest.json", |core| {
+        core.set_tool_dirs(vec![tools.clone()]);
+    });
+    let home = app.repo.with_file_name("data").join("repolore");
+    let doctor = state.join("doctor-builtin.json");
+    std::fs::write(&doctor, builtin_doctor(&home, true, false)).expect("writes");
+
+    let row = &app.ok("builtin_mcp_servers", json!({}))[0];
+    assert_eq!(row["state"], "off", "{row}");
+    assert_eq!(row["home"], json!(home));
+    assert_eq!(row["home_ready"], false, "{row}");
+    // The index's times are among the checks: the row has no fields of its own for them.
+    assert!(row.get("built_at").is_none() && row.get("refreshed_at").is_none());
+    built_in_waits_for_opencode(&app, &home);
+
+    // The user took OpenCode's out: nothing is left in the way.
+    std::fs::write(&doctor, builtin_doctor(&home, false, true)).expect("writes");
+    built_in_on_then_off(&app, &home);
+}
+
+/// Turned on from a copy of the user's setup, it waits on OpenCode's registration, which only
+/// the user can take out.
+fn built_in_waits_for_opencode(app: &App, home: &Path) {
+    let waiting = app.ok(
+        "builtin_mcp_turn_on",
+        json!({ "name": "repolore", "copy": true }),
+    );
+    assert_eq!(waiting["state"], "waiting", "{waiting}");
+    assert!(home.join("repolore.toml").is_file());
+    // Set up by the configuration file the copy wrote, though it has no index yet.
+    assert_eq!(waiting["home_ready"], true, "{waiting}");
+    let left = &waiting["registrations"][0];
+    assert_eq!(
+        (&left["key"], &left["runs_here"]),
+        (&json!(OPENCODE_KEY), &json!(false))
+    );
+    let removed = json!({ "name": "repolore", "key": OPENCODE_KEY });
+    let refused = app.invoke("builtin_mcp_remove_registration", removed);
+    let said = refused.expect_err("the user's step");
+    assert!(says(&said, "delete repolore from /Users/me/"), "{said}");
+    let restarted = app.ok(
+        "builtin_mcp_restart_sessions",
+        json!({ "name": "repolore" }),
+    );
+    assert_eq!(restarted["sessions"], json!([]));
+}
+
+/// On after a full check, its folder counted; then off again, its home kept.
+fn built_in_on_then_off(app: &App, home: &Path) {
+    let which = json!({ "name": "repolore" });
+    let on = app.ok(
+        "builtin_mcp_check",
+        json!({ "name": "repolore", "full": true }),
+    );
+    assert_eq!(
+        (&on["state"], &on["checked"]),
+        (&json!("on"), &json!("full")),
+        "{on}"
+    );
+    // The stand-in's page never says where it is: it is ended, and no browser opens.
+    let opened = app.invoke("builtin_mcp_open", which.clone());
+    let said = opened.expect_err("no address");
+    assert!(says(&said, "did not say where it is"), "{said}");
+    let usage = app.ok("usage", json!({}));
+    let counted = usage["repolore_bytes"].as_u64();
+    assert!(counted.is_some_and(|bytes| bytes > 0), "{usage}");
+    // No setup from before was found, so nothing goes to the Trash.
+    let trashed = app.invoke("builtin_mcp_trash_old", which.clone());
+    let said = trashed.expect_err("nothing to move");
+    assert!(says(&said, "no old setup was found"), "{said}");
+
+    let off = app.ok("builtin_mcp_turn_off", which);
+    assert_eq!(off["state"], "off", "{off}");
+    assert!(home.join("repolore.toml").is_file());
+}
+
 /// A mark is asked for by its colour's name; `none` takes it off.
 fn marks_are_put_on_and_taken_off(app: &App, id: &Value) {
     let marked = app.ok(

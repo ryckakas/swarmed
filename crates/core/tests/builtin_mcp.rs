@@ -1,0 +1,778 @@
+//! The built-in repolore, with stand-ins for repolore, uv, and Claude Code's and Codex's own
+//! command lines, which answer from files a test writes and keep what they were asked. What
+//! the stand-in for repolore answers is shaped as repolore 0.5.1 answers.
+
+mod common;
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use common::{fixture, turn};
+use serde_json::{Value, json};
+use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
+use swarmed_core::{
+    BuiltinMcpView, BuiltinState, CheckKind, Core, NewTaskOptions, REPOLORE, SessionOptions, hooks,
+};
+
+/// Answers each of repolore's commands from a file in `$state`, and notes every call with the
+/// home it was about and the folder it ran in. Its doctor exits 1 when a check failed, as
+/// repolore's does. `uv` stands in for the installer, putting repolore where it is looked
+/// for; `claude` and `codex` for Claude Code and Codex, whose remove commands take a
+/// registration out.
+const REPOLORE_SCRIPT: &str = r#"#!/bin/sh
+state="__STATE__"
+echo "$* | home=${REPOLORE_HOME-unset} managed=${REPOLORE_MANAGED_BY-unset} cwd=$(pwd -P)" >> "$state/calls"
+which=old
+if [ -n "$REPOLORE_HOME" ]; then which=builtin; fi
+case "$1" in
+  version) cat "$state/version" ;;
+  doctor)
+    answer="$state/doctor-$which.json"
+    if [ ! -f "$answer" ]; then echo '{"checks": [], "registrations": []}'; exit 0; fi
+    cat "$answer"
+    if grep -q '"ok": *false' "$answer"; then exit 1; fi ;;
+  server) cat "$state/server-$which.json" 2>/dev/null || echo '{"running": false}' ;;
+  copy)
+    if [ -f "$state/copy-fails" ]; then
+      echo "Traceback (most recent call last):" >&2
+      echo "Error: a refresh is running; try again once it is done" >&2
+      exit 1
+    fi
+    mkdir -p "$2" && echo "repos = []" > "$2/repolore.toml" ;;
+  session-start) ;;
+  ui)
+    echo $$ > "$state/ui-pid"
+    if [ -f "$state/ui-slow" ]; then sleep 30; fi
+    echo "http://127.0.0.1:9/?token=secret"; exec sleep 60 ;;
+  *) exit 2 ;;
+esac
+"#;
+
+const UV_SCRIPT: &str = r#"#!/bin/sh
+echo "$*" >> "__STATE__/uv-calls"
+echo "Installed 2 executables: repolore, repolore-mcp"
+cp "__STATE__/repolore.source" "__TOOLS__/repolore"
+cp "__STATE__/repolore-mcp.source" "__TOOLS__/repolore-mcp"
+chmod +x "__TOOLS__/repolore" "__TOOLS__/repolore-mcp"
+"#;
+
+const CLAUDE_SCRIPT: &str = r#"#!/bin/sh
+echo "$*" >> "__STATE__/claude-calls"
+echo "Removed MCP server repolore"
+mv "__STATE__/doctor-builtin-after.json" "__STATE__/doctor-builtin.json"
+"#;
+
+const CODEX_SCRIPT: &str = r#"#!/bin/sh
+echo "$*" >> "__STATE__/codex-calls"
+echo "Removed global MCP server 'repolore'."
+mv "__STATE__/doctor-builtin-after.json" "__STATE__/doctor-builtin.json"
+"#;
+
+struct Stand {
+    fx: common::Fixture,
+    tools: PathBuf,
+    state: PathBuf,
+}
+
+impl Stand {
+    fn new() -> Self {
+        let fx = fixture();
+        let root = fx
+            .paths
+            .data_dir
+            .parent()
+            .expect("has a parent")
+            .to_path_buf();
+        let (tools, state) = (root.join("tools"), root.join("state"));
+        std::fs::create_dir_all(&tools).expect("test setup");
+        std::fs::create_dir_all(&state).expect("test setup");
+        Self { fx, tools, state }
+    }
+
+    fn script(&self, text: &str) -> String {
+        let state = self.state.to_string_lossy();
+        let tools = self.tools.to_string_lossy();
+        text.replace("__STATE__", &state)
+            .replace("__TOOLS__", &tools)
+    }
+
+    /// Puts the stand-in `program` where the core looks for programs.
+    fn install(&self, program: &str, text: &str) {
+        common::executable(&self.tools.join(program), &self.script(text));
+    }
+
+    /// Keeps the stand-ins for repolore where the installer stand-in finds them.
+    fn sources(&self) {
+        std::fs::write(
+            self.state.join("repolore.source"),
+            self.script(REPOLORE_SCRIPT),
+        )
+        .expect("test setup");
+        std::fs::write(
+            self.state.join("repolore-mcp.source"),
+            "#!/bin/sh\nexit 0\n",
+        )
+        .expect("test setup");
+    }
+
+    fn write(&self, name: &str, text: &str) {
+        std::fs::write(self.state.join(name), text).expect("test setup");
+    }
+
+    fn read(&self, name: &str) -> String {
+        std::fs::read_to_string(self.state.join(name)).unwrap_or_default()
+    }
+
+    async fn core(&self) -> Core {
+        let backend = Arc::new(FakeBackend::default());
+        let mut core = Core::with_backend(self.fx.paths.clone(), backend).expect("opens");
+        core.set_tool_dirs(vec![self.tools.clone()]);
+        core.project_add(&self.fx.repo, None)
+            .await
+            .expect("test setup");
+        core
+    }
+
+    fn home(&self) -> PathBuf {
+        self.fx.paths.repolore_home()
+    }
+
+    /// The user's own setup from before, in a folder of its own.
+    fn old_folder(&self) -> PathBuf {
+        let root = self.fx.paths.data_dir.parent().expect("has a parent");
+        let folder = root.join("old").join("repolore");
+        std::fs::create_dir_all(&folder).expect("test setup");
+        folder
+    }
+}
+
+/// A registration as repolore's doctor lists it, with how it is taken out, said as text.
+fn registration(client: &str, scope: &str, remove: &str) -> Value {
+    json!({
+        "client": client, "client_name": "", "name": "repolore", "command": ["repolore-mcp"],
+        "scope": scope, "for_every_project": scope == "user", "remove": remove,
+    })
+}
+
+/// What repolore's doctor says of the home in `folder`, its index there or not. Whether it is
+/// set up is for the core to read: its configuration file on disk, or the index's check.
+fn doctor(registrations: &[Value], folder: &Path, indexed: bool) -> String {
+    let index = if indexed {
+        json!({"name": "index default", "ok": true, "warning": false,
+            "detail": "1,234 chunks from 3 repos, built 2026-11-20T10:00:00Z", "fix": null})
+    } else {
+        json!({"name": "index default", "ok": false, "warning": false,
+            "detail": "none at db/default.db", "fix": "run `repolore refresh`"})
+    };
+    json!({
+        "version": "0.5.1", "managed_by": null, "db": "default",
+        "paths": {
+            "config_file": folder.join("repolore.toml"),
+            "questions_file": folder.join("evals").join("questions.yaml"),
+            "data_dir": folder, "config_from": "default", "data_from": "default",
+        },
+        "ok": indexed,
+        "checks": [
+            {"name": "repolore.toml", "ok": true, "warning": false, "detail": "fine", "fix": null},
+            index,
+            {"name": "model", "ok": true, "warning": true, "detail": "not loaded", "fix": "wait"},
+            {"name": "last refresh", "ok": true, "warning": false,
+                "detail": "succeeded at 2026-11-27T08:00:00Z", "fix": null},
+        ],
+        "server": {"running": false, "starting": false, "pid": null, "url": null,
+            "version": null, "started_at": null, "model_ready": null, "sessions": 0},
+        "registrations": registrations,
+    })
+    .to_string()
+}
+
+/// The old server as `repolore server status --json` says it.
+fn server(running: bool, pid: Option<u32>, sessions: u32) -> String {
+    json!({"running": running, "starting": false, "pid": pid, "url": null, "version": null,
+        "started_at": null, "model_ready": null, "sessions": sessions})
+    .to_string()
+}
+
+async fn status(core: &Core) -> BuiltinMcpView {
+    let views = core.builtin_mcp_servers().await.expect("reads");
+    assert_eq!(views.len(), 1);
+    views.into_iter().next().expect("one")
+}
+
+#[tokio::test]
+async fn the_built_in_goes_from_missing_to_on_and_back_off() {
+    let stand = Stand::new();
+    let core = stand.core().await;
+    installed_from_nothing(&stand, &core).await;
+    let opencode = off_with_a_setup_from_before(&stand, &core).await;
+    turned_on_from_a_copy(&stand, &core).await;
+    registrations_taken_out(&stand, &core, &opencode).await;
+    on_then_off(&stand, &core).await;
+}
+
+/// Not installed, then installed with uv in a version too old.
+async fn installed_from_nothing(stand: &Stand, core: &Core) {
+    // Nothing installed, not even uv: Homebrew installs it first.
+    let missing = status(core).await;
+    assert_eq!(missing.state, BuiltinState::Missing);
+    assert_eq!(
+        missing.install_command,
+        "brew install uv && uv tool install --managed-python --python 3.12 --upgrade \
+         'repolore-mcp>=0.5.1'"
+    );
+    assert_eq!(missing.minimum, "0.5.1");
+    assert_eq!(missing.home, stand.home().to_string_lossy());
+    let failed = core.builtin_mcp_install(REPOLORE, &hooks::discard).await;
+    assert!(failed.is_err_and(|e| e.to_string().contains("nor Homebrew")));
+
+    installed_too_old(stand, core).await;
+}
+
+/// uv installs it, in a version too old.
+async fn installed_too_old(stand: &Stand, core: &Core) {
+    // Printing as it goes.
+    stand.sources();
+    stand.install("uv", UV_SCRIPT);
+    stand.write("version", "repolore 0.5.0\n");
+    let printed = Mutex::new(Vec::new());
+    let sink = |line: &str| printed.lock().expect("not poisoned").push(line.to_string());
+    let outdated = core
+        .builtin_mcp_install(REPOLORE, &sink)
+        .await
+        .expect("installs");
+    assert_eq!(
+        stand.read("uv-calls").trim(),
+        "tool install --managed-python --python 3.12 --upgrade repolore-mcp>=0.5.1"
+    );
+    assert!(
+        printed
+            .lock()
+            .expect("not poisoned")
+            .iter()
+            .any(|line| line.contains("Installed"))
+    );
+    // An older one is offered the upgrade, and is asked nothing more than its version.
+    assert_eq!(outdated.state, BuiltinState::Outdated);
+    assert_eq!(outdated.version.as_deref(), Some("0.5.0"));
+    assert!(
+        !stand.read("calls").contains("doctor"),
+        "{}",
+        stand.read("calls")
+    );
+    let refused = core.builtin_mcp_turn_on(REPOLORE, false).await;
+    assert!(refused.is_err_and(|e| e.to_string().contains("older than 0.5.1")));
+}
+
+/// The current one, with a setup from before, registered with Claude Code, Codex and
+/// OpenCode, whose server still runs. Says OpenCode's registration, which stays.
+async fn off_with_a_setup_from_before(stand: &Stand, core: &Core) -> Value {
+    stand.write("version", "repolore 0.5.1\n");
+    stand.install("claude", CLAUDE_SCRIPT);
+    stand.install("codex", CODEX_SCRIPT);
+    let old = stand.old_folder();
+    let claude = registration(
+        "claude",
+        "user",
+        "`claude mcp remove repolore --scope user`",
+    );
+    let codex_file = "/Users/me/.codex/config.toml";
+    let codex = registration(
+        "codex",
+        "user",
+        &format!("delete [mcp_servers.repolore] from {codex_file}"),
+    );
+    let opencode = registration(
+        "opencode",
+        "user",
+        "delete repolore from /Users/me/.config/opencode/opencode.json",
+    );
+    let all = [claude, codex, opencode.clone()];
+    stand.write("doctor-builtin.json", &doctor(&all, &stand.home(), false));
+    // Indexed, with no configuration file: set up all the same.
+    stand.write("doctor-old.json", &doctor(&all, &old, true));
+    stand.write("server-old.json", &server(true, Some(4242), 1));
+    let off = status(core).await;
+    assert_eq!(off.state, BuiltinState::Off, "{off:?}");
+    assert_eq!(off.install_command.split(" && ").count(), 1);
+    let existing = off.existing.clone().expect("found");
+    assert_eq!(existing.folders, [old.to_string_lossy()]);
+    assert!(existing.indexed);
+    let keys: Vec<&str> = off.registrations.iter().map(|r| r.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        [
+            "claude:user:repolore",
+            "codex:user:repolore",
+            "opencode:user:repolore"
+        ]
+    );
+    let commands: Vec<Option<&str>> = off
+        .registrations
+        .iter()
+        .map(|r| r.command.as_deref())
+        .collect();
+    assert_eq!(
+        commands,
+        [
+            Some("claude mcp remove repolore --scope user"),
+            Some("codex mcp remove repolore"),
+            None
+        ]
+    );
+    let runs: Vec<bool> = off.registrations.iter().map(|r| r.runs_here).collect();
+    assert_eq!(runs, [true, true, false]);
+    assert_eq!(
+        off.registrations[2].step.as_deref(),
+        Some("delete repolore from /Users/me/.config/opencode/opencode.json")
+    );
+    let old_server = off.old_server.expect("in use");
+    assert!(old_server.running);
+    assert_eq!((old_server.pid, old_server.relays), (Some(4242), 1));
+    assert_eq!(off.checked, Some(CheckKind::Offline));
+    assert!(!off.home_ready);
+    asked_each_home_apart(stand);
+    opencode
+}
+
+/// Each home is asked with its own environment: the user's own with none of repolore's. Every
+/// command runs in the data directory, a folder of no project, wherever the test runs.
+fn asked_each_home_apart(stand: &Stand) {
+    let calls = stand.read("calls");
+    let data = stand.fx.paths.data_dir.canonicalize().expect("real");
+    let ran_in = format!(" cwd={}", data.display());
+    assert!(calls.lines().all(|call| call.ends_with(&ran_in)), "{calls}");
+    let home = stand.home();
+    let builtin = format!(
+        "doctor --json --offline | home={} managed=Swarmed",
+        home.display()
+    );
+    assert!(calls.contains(&builtin), "{calls}");
+    assert!(
+        calls.contains("doctor --json --offline | home=unset managed=unset"),
+        "{calls}"
+    );
+    assert!(
+        calls.contains("server status --json | home=unset"),
+        "{calls}"
+    );
+}
+
+/// Turned on from a copy of the setup from before, which fails once.
+async fn turned_on_from_a_copy(stand: &Stand, core: &Core) {
+    let home = stand.home();
+    // A copy that fails changes nothing, and says repolore's reason.
+    stand.write("copy-fails", "");
+    let failed = core.builtin_mcp_turn_on(REPOLORE, true).await;
+    assert!(
+        failed.is_err_and(|e| e.to_string().contains("a refresh is running")),
+        "the reason is passed on"
+    );
+    assert_eq!(status(core).await.state, BuiltinState::Off);
+    std::fs::remove_file(stand.state.join("copy-fails")).expect("test setup");
+    let waiting = core
+        .builtin_mcp_turn_on(REPOLORE, true)
+        .await
+        .expect("copies");
+    assert_eq!(waiting.state, BuiltinState::Waiting);
+    assert!(home.join("repolore.toml").is_file());
+    assert!(
+        stand
+            .read("calls")
+            .contains(&format!("copy {} | home=unset", home.display()))
+    );
+}
+
+/// Claude Code's and Codex's registrations are taken out with their own commands; OpenCode's
+/// is the user's.
+async fn registrations_taken_out(stand: &Stand, core: &Core, opencode: &Value) {
+    let home = stand.home();
+    let codex = registration(
+        "codex",
+        "user",
+        "delete [mcp_servers.repolore] from /Users/me/.codex/config.toml",
+    );
+    // Copied without an index: set up by its configuration file alone.
+    let after = doctor(&[codex, opencode.clone()], &home, false);
+    stand.write("doctor-builtin-after.json", &after);
+    let two_left = core
+        .builtin_mcp_remove_registration(REPOLORE, "claude:user:repolore", &hooks::discard)
+        .await
+        .expect("removes");
+    assert_eq!(
+        stand.read("claude-calls").trim(),
+        "mcp remove repolore --scope user"
+    );
+    assert_eq!(two_left.registrations.len(), 2);
+    assert!(two_left.home_ready);
+    let after = doctor(std::slice::from_ref(opencode), &home, false);
+    stand.write("doctor-builtin-after.json", &after);
+    let one_left = core
+        .builtin_mcp_remove_registration(REPOLORE, "codex:user:repolore", &hooks::discard)
+        .await
+        .expect("removes");
+    assert_eq!(stand.read("codex-calls").trim(), "mcp remove repolore");
+    assert_eq!(one_left.registrations.len(), 1);
+    let yours = core
+        .builtin_mcp_remove_registration(REPOLORE, "opencode:user:repolore", &hooks::discard)
+        .await;
+    assert!(yours.is_err_and(|e| e.to_string().contains("delete repolore from /Users/me/")));
+    // A key nobody lists is gone already.
+    let gone = core
+        .builtin_mcp_remove_registration(REPOLORE, "cursor:user:repolore", &hooks::discard)
+        .await
+        .expect("nothing to do");
+    assert_eq!(gone.state, BuiltinState::Waiting);
+}
+
+/// A server answer without whether it runs is no answer: it is said, and the row stays on.
+async fn an_answer_without_what_was_asked_changes_nothing(stand: &Stand, core: &Core) {
+    stand.write("server-old.json", r#"{"pid": 4242, "sessions": 1}"#);
+    let unsure = core
+        .builtin_mcp_check(REPOLORE, false)
+        .await
+        .expect("checks");
+    assert_eq!(unsure.state, BuiltinState::On);
+    let problem = unsure.problem.unwrap_or_default();
+    assert!(
+        problem.contains("answered without whether its server runs"),
+        "{problem}"
+    );
+    stand.write("server-old.json", r#"{"running": false}"#);
+}
+
+/// The old server stopped, but a session still connected to it, which would start it again:
+/// the row waits, with the server shown as in use and no process.
+async fn stopped_but_still_connected(stand: &Stand, core: &Core) {
+    stand.write("server-old.json", &server(false, None, 1));
+    let waiting = core
+        .builtin_mcp_check(REPOLORE, false)
+        .await
+        .expect("checks");
+    assert_eq!(waiting.state, BuiltinState::Waiting, "{waiting:?}");
+    assert_eq!(waiting.registrations, []);
+    let old_server = waiting.old_server.expect("in use");
+    assert!(!old_server.running);
+    assert_eq!((old_server.pid, old_server.relays), (None, 1));
+    assert_eq!(waiting.problem, None);
+}
+
+/// The old server starting, as repolore says it until it has written its address: running,
+/// with no process yet. The row waits, and the server is never shown as stopped.
+async fn starting_counts_as_running(stand: &Stand, core: &Core) {
+    let starting = json!({"running": true, "starting": true, "pid": null, "url": null,
+        "version": null, "started_at": null, "model_ready": null, "sessions": 0});
+    stand.write("server-old.json", &starting.to_string());
+    let waiting = core
+        .builtin_mcp_check(REPOLORE, false)
+        .await
+        .expect("checks");
+    assert_eq!(waiting.state, BuiltinState::Waiting, "{waiting:?}");
+    let old_server = waiting.old_server.expect("in use");
+    assert!(old_server.running);
+    assert_eq!((old_server.pid, old_server.relays), (None, 0));
+}
+
+/// Nothing left elsewhere and the old server no longer in use: on, with its checks. Then off
+/// again.
+async fn on_then_off(stand: &Stand, core: &Core) {
+    let home = stand.home();
+    stand.write("doctor-builtin.json", &doctor(&[], &home, true));
+    starting_counts_as_running(stand, core).await;
+    stopped_but_still_connected(stand, core).await;
+    stand.write("server-old.json", &server(false, None, 0));
+    let on = core
+        .builtin_mcp_check(REPOLORE, true)
+        .await
+        .expect("checks");
+    assert_eq!(on.state, BuiltinState::On, "{on:?}");
+    assert_eq!(on.checked, Some(CheckKind::Full));
+    assert!(stand.read("calls").contains("doctor --json | home="));
+    let checks: Vec<&str> = on.checks.iter().map(|check| check.name.as_str()).collect();
+    assert_eq!(
+        checks,
+        ["repolore.toml", "index default", "model", "last refresh"]
+    );
+    assert!(on.home_ready);
+    assert!(on.old_server.is_none());
+
+    an_answer_without_what_was_asked_changes_nothing(stand, core).await;
+    off_again(stand, core).await;
+}
+
+/// Off again: its home stays, and its page cannot be opened.
+async fn off_again(stand: &Stand, core: &Core) {
+    let home = stand.home();
+    let off = core
+        .builtin_mcp_turn_off(REPOLORE)
+        .await
+        .expect("turns off");
+    assert_eq!(off.state, BuiltinState::Off);
+    assert!(home.join("repolore.toml").is_file());
+    assert!(
+        core.builtin_mcp_open(REPOLORE)
+            .is_err_and(|e| e.to_string().contains("on first"))
+    );
+    assert!(core.builtin_mcp_check("lore", false).await.is_err());
+}
+
+/// What the agent of `session` answers `text` with.
+async fn said(core: &Core, session: i64, text: &str) -> String {
+    let mut bus = core.subscribe();
+    core.session_send(session, text).expect("sends");
+    let events = turn(&mut bus, session).await;
+    let words = events.into_iter().filter_map(|event| match event {
+        AgentEvent::Text { text } => Some(text),
+        _ => None,
+    });
+    words.collect()
+}
+
+fn started(core: &Core) -> i64 {
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("creates");
+    core.session_start(session.id, Auth::Subscription)
+        .expect("starts");
+    session.id
+}
+
+/// Waits until `file` in the stand's state says `text`.
+async fn noted(stand: &Stand, file: &str, text: &str) -> bool {
+    for _ in 0..200 {
+        if stand.read(file).contains(text) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn sessions_are_given_the_built_in_only_while_no_other_repolore_is_about() {
+    let stand = Stand::new();
+    stand.sources();
+    stand.install("repolore", REPOLORE_SCRIPT);
+    stand.install("repolore-mcp", "#!/bin/sh\nexit 0\n");
+    stand.write("version", "repolore 0.5.1\n");
+    let home = stand.home();
+    stand.write("doctor-builtin.json", &doctor(&[], &home, false));
+    let core = stand.core().await;
+    core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
+        .await
+        .expect("test setup");
+
+    // Off: no repolore at all.
+    let first = started(&core);
+    assert_eq!(said(&core, first, "mcp: repolore").await, "none");
+    a_clear_from_before_counts_for_nothing(&stand, &core).await;
+    let second = on_gives_the_built_in(&stand, &core).await;
+    a_repository_of_its_own_goes_first(&stand, &core).await;
+    registered_again(&stand, &core, second).await;
+}
+
+/// What a reading found while it was off counts for nothing once it is turned on: with no
+/// answer from the reading after, no session is given it.
+async fn a_clear_from_before_counts_for_nothing(stand: &Stand, core: &Core) {
+    // Off, with nothing in its way: stored as clear.
+    assert_eq!(status(core).await.state, BuiltinState::Off);
+    stand.write("doctor-builtin.json", "{}");
+    let on = core
+        .builtin_mcp_turn_on(REPOLORE, false)
+        .await
+        .expect("turns on");
+    assert_eq!(on.state, BuiltinState::Waiting, "{on:?}");
+    let problem = on.problem.unwrap_or_default();
+    assert!(
+        problem.contains("answered without its checks and registrations"),
+        "{problem}"
+    );
+    let session = started(core);
+    assert_eq!(said(core, session, "mcp: repolore").await, "none");
+    core.session_stop(session);
+    stand.write("doctor-builtin.json", &doctor(&[], &stand.home(), false));
+}
+
+/// On and clear: the built-in, run from its program with its home, and a refresh is started.
+/// Says the session given it.
+async fn on_gives_the_built_in(stand: &Stand, core: &Core) -> i64 {
+    let home = stand.home();
+    let on = core
+        .builtin_mcp_check(REPOLORE, false)
+        .await
+        .expect("checks");
+    assert_eq!(on.state, BuiltinState::On, "{on:?}");
+    assert!(home.is_dir());
+    let session = started(core);
+    let program = stand.tools.join("repolore-mcp");
+    assert_eq!(
+        said(core, session, "mcp: repolore").await,
+        program.to_string_lossy()
+    );
+    let refresh = format!(
+        "session-start --hours 12 | home={} managed=Swarmed",
+        home.display()
+    );
+    assert!(
+        noted(stand, "calls", &refresh).await,
+        "{}",
+        stand.read("calls")
+    );
+    assert_eq!(status(core).await.sessions, []);
+    session
+}
+
+/// A repository's own repolore, in its `.mcp.json`, goes before the built-in once the user
+/// approved it in Claude Code: the session gets no second one and is held, while the row
+/// stays on, since no registration is the user's. Unapproved, the branch's file alone changes
+/// nothing.
+async fn a_repository_of_its_own_goes_first(stand: &Stand, core: &Core) {
+    let worktree = core.task("demo", "one").expect("there").1.worktree_path;
+    let file = worktree.join(".mcp.json");
+    let own = serde_json::json!({ "mcpServers": { "lore": { "command": "repolore-mcp" } } });
+    std::fs::write(&file, own.to_string()).expect("test setup");
+    let unapproved = started(core);
+    let program = stand.tools.join("repolore-mcp");
+    assert_eq!(
+        said(core, unapproved, "mcp: repolore").await,
+        program.to_string_lossy()
+    );
+    assert_eq!(status(core).await.sessions, []);
+    core.session_stop(unapproved);
+
+    // Approved in Claude Code, which writes it where git does not track it.
+    let settings = worktree.join(".claude");
+    std::fs::create_dir_all(&settings).expect("test setup");
+    let approved = serde_json::json!({ "enabledMcpjsonServers": ["lore"] });
+    let local = settings.join("settings.local.json");
+    std::fs::write(&local, approved.to_string()).expect("test setup");
+    let session = started(core);
+    assert_eq!(said(core, session, "mcp: repolore").await, "none");
+    let view = status(core).await;
+    assert_eq!(view.state, BuiltinState::On);
+    let held: Vec<i64> = view.sessions.iter().map(|held| held.id).collect();
+    assert_eq!(held, [session]);
+    core.session_stop(session);
+    std::fs::remove_file(file).expect("test setup");
+    std::fs::remove_dir_all(settings).expect("test setup");
+}
+
+/// repolore registered with Claude Code again: new sessions go without the built-in at once,
+/// the row waits, and the session that has the old one is held until it is restarted.
+async fn registered_again(stand: &Stand, core: &Core, given: i64) {
+    let claude_config = serde_json::json!({
+        "mcpServers": { "lore": { "command": "/Users/me/.local/bin/repolore-mcp" } }
+    });
+    std::fs::write(&stand.fx.paths.claude_config, claude_config.to_string()).expect("test setup");
+    let third = started(core);
+    assert_eq!(said(core, third, "mcp: repolore").await, "none");
+    let waiting = status(core).await;
+    assert_eq!(waiting.state, BuiltinState::Waiting);
+    let found: Vec<&str> = waiting
+        .registrations
+        .iter()
+        .map(|r| r.key.as_str())
+        .collect();
+    assert_eq!(found, ["claude:user:lore"]);
+    assert!(!waiting.registrations[0].runs_here);
+    let held: Vec<(i64, bool)> = waiting.sessions.iter().map(|s| (s.id, s.idle)).collect();
+    assert_eq!(held, [(third, true)]);
+    // The Trash waits until the built-in is on.
+    let refused = core.builtin_mcp_trash_old(REPOLORE).await;
+    assert!(refused.is_err_and(|e| e.to_string().contains("only once the built-in")));
+
+    // Its idle agent is stopped, to start again with its next message.
+    let restarted = core
+        .builtin_mcp_restart_sessions(REPOLORE)
+        .await
+        .expect("restarts");
+    assert_eq!(restarted.sessions, []);
+    assert!(!core.running_sessions().contains(&third));
+    assert!(core.running_sessions().contains(&given));
+}
+
+/// Opens the built-in's page as the window does, on a thread of its own, and waits until the
+/// stand-in's process started: the open and the process's id.
+async fn opening(
+    stand: &Stand,
+    core: &Arc<Core>,
+) -> (tokio::task::JoinHandle<Result<(), String>>, String) {
+    std::fs::remove_file(stand.state.join("ui-pid")).ok();
+    let core = Arc::clone(core);
+    let open = move || core.builtin_mcp_open(REPOLORE).map_err(|e| e.to_string());
+    let opened = tokio::task::spawn_blocking(open);
+    for _ in 0..200 {
+        let pid = stand.read("ui-pid");
+        if !pid.trim().is_empty() {
+            return (opened, pid.trim().to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("the page's process did not start");
+}
+
+/// Whether process `pid` has gone, waiting a moment for it.
+async fn gone(pid: &str) -> bool {
+    let there = || {
+        let asked = std::process::Command::new("kill")
+            .args(["-0", pid])
+            .stderr(std::process::Stdio::null())
+            .status();
+        asked.is_ok_and(|status| status.success())
+    };
+    for _ in 0..200 {
+        if !there() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    !there()
+}
+
+/// A page still starting is ended by turning the built-in off, and its open says so.
+async fn ended_by_turning_off(stand: &Stand, core: &Arc<Core>) {
+    let (opened, pid) = opening(stand, core).await;
+    assert!(!status(core).await.page_open, "it has not said where it is");
+    core.builtin_mcp_turn_off(REPOLORE)
+        .await
+        .expect("turns off");
+    let refused = opened.await.expect("joins");
+    assert!(refused.is_err_and(|e| e.contains("not opened") && !e.contains("token")));
+    assert!(gone(&pid).await, "the page's process {pid} still runs");
+}
+
+/// A page still starting is ended as Swarmed leaves, and none is started after. Opened again
+/// meanwhile, the second open starts nothing of its own.
+async fn ended_by_leaving(stand: &Stand, core: &Arc<Core>) {
+    let (opened, pid) = opening(stand, core).await;
+    let again = core.builtin_mcp_open(REPOLORE).map_err(|e| e.to_string());
+    assert_eq!(again, Ok(()));
+    assert_eq!(stand.read("ui-pid").trim(), pid, "no second page");
+    core.leave().await;
+    let refused = opened.await.expect("joins");
+    assert!(refused.is_err_and(|e| e.contains("not opened") && !e.contains("token")));
+    assert!(gone(&pid).await, "the page's process {pid} still runs");
+    let after = core.builtin_mcp_open(REPOLORE).map_err(|e| e.to_string());
+    assert!(after.is_err_and(|e| e.contains("quitting")));
+    assert!(!status(core).await.page_open);
+}
+
+#[tokio::test]
+async fn a_page_still_starting_is_ended_by_turning_off_and_by_leaving() {
+    let stand = Stand::new();
+    stand.install("repolore", REPOLORE_SCRIPT);
+    stand.install("repolore-mcp", "#!/bin/sh\nexit 0\n");
+    stand.write("version", "repolore 0.5.1\n");
+    stand.write("ui-slow", "");
+    let core = Arc::new(stand.core().await);
+    let on = core
+        .builtin_mcp_turn_on(REPOLORE, false)
+        .await
+        .expect("turns on");
+    assert_eq!(on.state, BuiltinState::On, "{on:?}");
+    ended_by_turning_off(&stand, &core).await;
+    core.builtin_mcp_turn_on(REPOLORE, false)
+        .await
+        .expect("turns on again");
+    ended_by_leaving(&stand, &core).await;
+}

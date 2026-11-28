@@ -33,10 +33,14 @@ In the data directory:
 | `spool/` | HTML views agents hand over through Swarmed's `show_html` tool |
 | `attachments/<session id>/` | images pasted into a session's messages, those its tools returned, and the elements picked for it in the task's browser with their pictures, readable by you alone; deleted with the session |
 | `browsers/<task id>/` | the task's browser: its Chrome's profile, what its pages downloaded and what Chrome printed, readable by you alone; deleted with the task |
+| `repolore/` | the built-in repolore's home, once you turn it on: its configuration, index and model; kept when you turn it off. See [repolore, built in](coding-agents.md#repolore-built-in) |
 | `run/` | stacks' logs and what Swarmed is running |
 
 The app and the `swarmed` command write these. The TOML and JSON files may be edited by hand
 as well, and so may `style.css`, whose change the window asks about before applying it.
+
+Whether the built-in repolore is turned on is kept in `swarmed.db`, not in `settings.toml`, so
+that a Swarmed older than the built-in has no key it does not know to name.
 
 ### What Swarmed cannot understand
 

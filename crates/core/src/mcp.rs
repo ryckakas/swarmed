@@ -138,6 +138,28 @@ fn servers(
     by_name.into_values().collect()
 }
 
+/// Every server in Claude Code's own file wherever it is there, each with the folder it is the
+/// user's for, `None` for the user's own: what a server the user registered once is looked
+/// for in, whichever repository it was registered in.
+pub(crate) fn claude_code_servers_anywhere(
+    claude_config: &Path,
+) -> Vec<(Option<String>, McpServer)> {
+    let user_file = read_json(claude_config);
+    let parsed = |servers: Option<&Value>| -> Vec<McpServer> {
+        let entries = servers.and_then(Value::as_object).into_iter().flatten();
+        let parse = |(name, definition): (&String, &Value)| parse_server(name, definition);
+        entries.filter_map(parse).collect()
+    };
+    let own = parsed(user_file.get("mcpServers")).into_iter();
+    let mut found: Vec<(Option<String>, McpServer)> = own.map(|server| (None, server)).collect();
+    let projects = user_file.get("projects").and_then(Value::as_object);
+    for (folder, entry) in projects.into_iter().flatten() {
+        let servers = parsed(entry.get("mcpServers")).into_iter();
+        found.extend(servers.map(|server| (Some(folder.clone()), server)));
+    }
+    found
+}
+
 /// Where Claude Code keeps what it knows of the folder `folder`, in its own config file.
 fn project_pointer(folder: &Path) -> String {
     format!("/projects/{}", pointer_escape(&folder.to_string_lossy()))

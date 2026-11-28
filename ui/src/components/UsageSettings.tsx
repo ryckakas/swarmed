@@ -106,6 +106,11 @@ function Figures({ usage }: { usage: Usage }) {
             <Figure name="Browsers" detail={`each ${words.terms.task}'s own Chrome`}>
                 {formatBytes(usage.browsers_bytes)}
             </Figure>
+            {usage.repolore_bytes > 0 && (
+                <Figure name="repolore" detail="the built-in's settings and index">
+                    {formatBytes(usage.repolore_bytes)}
+                </Figure>
+            )}
             {listed.map((worktree) => (
                 <Figure
                     key={worktree.path}
