@@ -17,12 +17,12 @@ notice adds its line under Unreleased.
 
 ### Fixed
 
-- **repolore's Update with a cooldown in uv.** With `exclude-newer` set in uv's configuration,
-  updating the built-in repolore failed with only "exit status: 1", since uv hid the version
-  Swarmed needs until it was older than the cooldown. Swarmed's install command now lets
-  `repolore-mcp` alone past it (its dependencies keep it), a failed install says what the
-  installer said, and an out-of-date repolore's row says your own setup can be copied once it
-  is updated.
+- **A failed install of the built-in repolore says why.** It said only "exit status: 1"; now
+  it says what the installer said. When a cooldown in your uv configuration (`exclude-newer`)
+  hides the repolore Swarmed needs, it says so, and what you can do: update again once that
+  release is old enough, or run the command yourself past the cooldown. An out-of-date
+  repolore's row also says that a setup of yours not copied yet can be copied once it is
+  updated.
 
 ## [0.4.12] - 2026-11-28
 

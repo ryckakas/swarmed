@@ -18,9 +18,8 @@ use swarmed_core::{
 /// Answers each of repolore's commands from a file in `$state`, and notes every call with the
 /// home it was about and the folder it ran in. Its doctor exits 1 when a check failed, as
 /// repolore's does. `uv` stands in for the installer, putting repolore where it is looked
-/// for, or failing as uv does with what `$state/uv-fails` holds, and saying its version from
-/// `$state/uv-version`; `claude` and `codex` for Claude Code and Codex, whose remove commands
-/// take a registration out.
+/// for, or failing as uv does with what `$state/uv-fails` holds; `claude` and `codex` for
+/// Claude Code and Codex, whose remove commands take a registration out.
 const REPOLORE_SCRIPT: &str = r#"#!/bin/sh
 state="__STATE__"
 echo "$* | home=${REPOLORE_HOME-unset} managed=${REPOLORE_MANAGED_BY-unset} cwd=$(pwd -P)" >> "$state/calls"
@@ -51,10 +50,6 @@ esac
 "#;
 
 const UV_SCRIPT: &str = r#"#!/bin/sh
-if [ "$1" = "--version" ]; then
-  cat "__STATE__/uv-version" 2>/dev/null || echo "uv 0.11.8 (Homebrew 2026-04-27)"
-  exit 0
-fi
 echo "$*" >> "__STATE__/uv-calls"
 if [ -f "__STATE__/uv-fails" ]; then cat "__STATE__/uv-fails" >&2; exit 1; fi
 echo "Installed 2 executables: repolore, repolore-mcp"
@@ -228,8 +223,8 @@ async fn installed_from_nothing(stand: &Stand, core: &Core) {
     assert_eq!(missing.state, BuiltinState::Missing);
     assert_eq!(
         missing.install_command,
-        "brew install uv && uv tool install --managed-python --python 3.12 \
-         --exclude-newer-package repolore-mcp=false --upgrade 'repolore-mcp>=0.5.1'"
+        "brew install uv && uv tool install --managed-python --python 3.12 --upgrade \
+         'repolore-mcp>=0.5.1'"
     );
     assert_eq!(missing.minimum, "0.5.1");
     assert_eq!(missing.home, stand.home().to_string_lossy());
@@ -239,31 +234,33 @@ async fn installed_from_nothing(stand: &Stand, core: &Core) {
     installed_too_old(stand, core).await;
 }
 
-/// uv installs it, in a version too old: once it failed, saying why, and with a uv too old
-/// to let repolore past a cooldown not asked to.
+/// uv installs it, in a version too old, once a cooldown in uv hid it and the error said so.
 async fn installed_too_old(stand: &Stand, core: &Core) {
     stand.sources();
     stand.install("uv", UV_SCRIPT);
     stand.write("version", "repolore 0.5.0\n");
-    stand.write("uv-version", "uv 0.9.24\n");
-    let old_uv = status(core).await;
-    assert_eq!(
-        old_uv.install_command,
-        "uv tool install --managed-python --python 3.12 --upgrade 'repolore-mcp>=0.5.1'"
-    );
-    stand.forget("uv-version");
     stand.write(
         "uv-fails",
         "  × No solution found when resolving dependencies:\n  ╰─▶ Because only \
-         repolore-mcp<=0.5.0 is available and you require\n      repolore-mcp>=0.5.1.\n",
+         repolore-mcp<=0.5.0 is available and you require\n      repolore-mcp>=0.5.1.\n\n      \
+         hint: `repolore-mcp` was filtered by `exclude-newer`.\n",
     );
     let failed = core.builtin_mcp_install(REPOLORE, &hooks::discard).await;
     let said = failed.expect_err("uv failed").to_string();
-    assert_eq!(
-        said,
-        "could not set up repolore: the installer ended with exit status: 1, saying: No \
-         solution found when resolving dependencies: Because only repolore-mcp<=0.5.0 is \
-         available and you require repolore-mcp>=0.5.1."
+    assert!(
+        said.starts_with(
+            "could not set up repolore: a cooldown in uv's configuration (`exclude-newer`) \
+             hides repolore-mcp 0.5.1 and newer"
+        ),
+        "{said}"
+    );
+    assert!(
+        said.ends_with(
+            "uv said: No solution found when resolving dependencies: Because only \
+             repolore-mcp<=0.5.0 is available and you require repolore-mcp>=0.5.1. hint: \
+             `repolore-mcp` was filtered by `exclude-newer`."
+        ),
+        "{said}"
     );
     stand.forget("uv-fails");
     stand.forget("uv-calls");
@@ -276,8 +273,7 @@ async fn installed_too_old(stand: &Stand, core: &Core) {
         .expect("installs");
     assert_eq!(
         stand.read("uv-calls").trim(),
-        "tool install --managed-python --python 3.12 --exclude-newer-package \
-         repolore-mcp=false --upgrade repolore-mcp>=0.5.1"
+        "tool install --managed-python --python 3.12 --upgrade repolore-mcp>=0.5.1"
     );
     assert!(
         printed

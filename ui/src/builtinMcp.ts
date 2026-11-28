@@ -62,11 +62,12 @@ export function summaryLine(view: BuiltinMcpView): string {
 }
 
 /**
- * What an update leaves: an older repolore cannot copy, so the offer to copy a setup of the
- * user's comes once it is updated.
+ * What an update leaves. An older repolore cannot copy, so a setup of the user's is offered
+ * for copying only once it is updated, and only if it was not copied already: the row cannot
+ * tell which, since an out-of-date repolore is asked nothing more than its version.
  */
 const KEPT_THROUGH_UPDATE =
-    "Updating leaves a setup you have as it is: once updated, you can copy it or start fresh.";
+    "A setup of your own is left as it is: if it was not copied yet, copying it is offered once updated.";
 
 function outdatedLine(view: BuiltinMcpView): string {
     const { name, minimum } = view;

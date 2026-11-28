@@ -495,17 +495,17 @@ Which repositories it indexes, and the rest of its settings, are set on repolore
 
 | State | What it means | What the row offers |
 | --- | --- | --- |
-| not installed | no `repolore` or `repolore-mcp` | **Install**, showing `uv tool install --managed-python --python 3.12 --exclude-newer-package repolore-mcp=false --upgrade 'repolore-mcp>=0.5.1'` before it runs, with `brew install uv &&` first if uv is missing |
-| out of date | older than 0.5.1 | **Update**, with the same command; copying your own setup is offered once it is updated |
+| not installed | no `repolore` or `repolore-mcp` | **Install**, showing `uv tool install --managed-python --python 3.12 --upgrade 'repolore-mcp>=0.5.1'` before it runs, with `brew install uv &&` first if uv is missing |
+| out of date | older than 0.5.1 | **Update**, with the same command; a setup of yours not copied yet is offered for copying once it is updated |
 | off | installed, not turned on | **Turn on**; with a setup of yours found, **Copy your existing setup** or **Start fresh** |
 | waiting | turned on, but not given to sessions yet | what is left in its way, each with its step; **Check again** and **Turn off**, and **Open repolore** while its home is not set up yet, after **Start fresh**, to pick the repositories |
 | on | given to every session started from now on | its checks, what Claude Code last said of it once a session given it has started; **Open repolore**, **Check** and **Turn off** |
 
-- **A cooldown in uv.** With `exclude-newer` in your uv configuration, uv would not see a
-  repolore published more recently than that, so the command lets `repolore-mcp` alone past it
-  (`--exclude-newer-package repolore-mcp=false`); its dependencies keep your cooldown. A uv
-  older than 0.9.25 cannot do that, and gets the command without it. If an install fails, the
-  row says what the installer said.
+- **If an install fails**, the row says what the installer said, where it printed anything.
+  A cooldown in your uv configuration (`exclude-newer`) hides a repolore published more
+  recently than that, and Swarmed never lifts it: the row says that the cooldown is in the way,
+  so that you update again once that release is old enough, or run the command yourself with
+  `--exclude-newer-package repolore-mcp=false` added.
 - **Copy or start fresh.** A copy runs `repolore copy` into the built-in's home: it keeps your
   repositories and your index, and the model is not downloaded again. It works while your setup
   is in use, and refuses only while a refresh runs; then nothing is changed, and you try again
