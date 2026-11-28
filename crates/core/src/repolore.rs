@@ -14,9 +14,15 @@
 //!   without them would read as nothing in the way. Past that it is read leniently: a field
 //!   that is missing, or not of the kind expected, counts as empty, and one Swarmed does not
 //!   know is passed over. `--offline` asks neither GitHub nor `claude mcp get`; the
-//!   registrations are still read from their files.
+//!   registrations are still read from their files. It says nothing of whether a home is set
+//!   up: that is read from it ([`Doctor::set_up`]), as its configuration file being there
+//!   (`paths.config_file`) or its index check, the one named `index <db>`, passing. Each
+//!   registration says how it is taken out (`remove`) as text: a command in backticks for
+//!   Claude Code, a step for the user elsewhere ([`Registration::remove_command`]).
 //! - `repolore server status --json`: the shared server of a home, the `server` of the doctor.
-//!   It counts as an answer only with `running` true or false.
+//!   It counts as an answer only with `running` true or false. A server stopped is still in
+//!   use while a session is connected to it (`sessions`): each starts it again at its next
+//!   search ([`ServerStatus::in_use`]).
 //! - `repolore copy <folder>`: a copy of the user's setup in an empty folder, or why not on
 //!   the last line of its error output. It cleans up after itself, and has no time limit.
 //! - `repolore session-start --hours 12`: a refresh in the background. It returns at once.
@@ -287,15 +293,12 @@ fn each<'de, D: Deserializer<'de>, T: DeserializeOwned>(
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub(crate) struct Doctor {
+    /// The index it was asked about, which names the index's check.
+    #[serde(deserialize_with = "lenient")]
+    pub(crate) db: String,
     /// Where the home's configuration and data are.
     #[serde(deserialize_with = "lenient")]
     pub(crate) paths: DoctorPaths,
-    /// Whether the home has been set up: repositories chosen.
-    #[serde(deserialize_with = "lenient")]
-    pub(crate) configured: bool,
-    /// When its index was built and last refreshed.
-    #[serde(deserialize_with = "lenient")]
-    pub(crate) index: DoctorIndex,
     /// What it checked, each with how it went.
     #[serde(deserialize_with = "each")]
     pub(crate) checks: Vec<DoctorCheck>,
@@ -304,13 +307,30 @@ pub(crate) struct Doctor {
     pub(crate) registrations: Vec<Registration>,
 }
 
+impl Doctor {
+    /// Whether the home is set up: its configuration file is there, or it has an index.
+    pub(crate) fn set_up(&self) -> bool {
+        self.configured() || self.indexed()
+    }
+
+    /// Whether the home's configuration file is there, as the file system says.
+    pub(crate) fn configured(&self) -> bool {
+        self.paths.config_file.as_deref().is_some_and(Path::exists)
+    }
+
+    /// Whether the home has an index that can be read: its check, `index <db>`, passed.
+    pub(crate) fn indexed(&self) -> bool {
+        let name = format!("index {}", self.db);
+        self.checks
+            .iter()
+            .any(|check| check.name == name && check.ok)
+    }
+}
+
 /// Where a home's configuration and data are.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub(crate) struct DoctorPaths {
-    /// The home, when one folder holds both, as `REPOLORE_HOME` makes it.
-    #[serde(deserialize_with = "lenient")]
-    pub(crate) home: Option<PathBuf>,
     /// The configuration file.
     #[serde(deserialize_with = "lenient")]
     pub(crate) config_file: Option<PathBuf>,
@@ -320,12 +340,9 @@ pub(crate) struct DoctorPaths {
 }
 
 impl DoctorPaths {
-    /// The folders a home is in, each once: the home, or where its configuration file is and
-    /// its data folder, which are one on macOS.
+    /// The folders a home is in, each once: where its configuration file is and its data
+    /// folder, which are one on macOS and with `REPOLORE_HOME`.
     pub(crate) fn folders(&self) -> Vec<PathBuf> {
-        if let Some(home) = &self.home {
-            return vec![home.clone()];
-        }
         let config = self.config_file.as_deref().and_then(Path::parent);
         let mut folders: Vec<PathBuf> = config.map(Path::to_path_buf).into_iter().collect();
         if let Some(data) = self.data_dir.clone().filter(|data| !folders.contains(data)) {
@@ -335,27 +352,28 @@ impl DoctorPaths {
     }
 }
 
-/// When a home's index was built and last refreshed, as repolore writes the times.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(default)]
-pub(crate) struct DoctorIndex {
-    #[serde(deserialize_with = "lenient")]
-    pub(crate) built_at: Option<String>,
-    #[serde(deserialize_with = "lenient")]
-    pub(crate) refreshed_at: Option<String>,
-}
-
 /// How the shared server of a home stands.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub(crate) struct ServerStatus {
     #[serde(deserialize_with = "lenient")]
     pub(crate) running: bool,
+    /// Whether it runs but has not said where yet.
+    #[serde(deserialize_with = "lenient")]
+    pub(crate) starting: bool,
+    /// Its process, once it said.
     #[serde(deserialize_with = "lenient")]
     pub(crate) pid: Option<u32>,
-    /// How many sessions' servers it answers through.
+    /// How many sessions are connected to it, counted while it is stopped too.
     #[serde(deserialize_with = "lenient")]
-    pub(crate) relays: u32,
+    pub(crate) sessions: u32,
+}
+
+impl ServerStatus {
+    /// Whether it runs, starts, or has a session connected that would start it again.
+    pub(crate) fn in_use(&self) -> bool {
+        self.running || self.starting || self.sessions > 0
+    }
 }
 
 /// One place repolore is registered, with how it is taken out of there. Every field is read
@@ -373,15 +391,26 @@ pub(crate) struct Registration {
     /// The name repolore is registered under there.
     #[serde(deserialize_with = "lenient")]
     pub(crate) name: String,
-    /// Where in the client: `user`, `local`, `plugin` and the like.
+    /// Where in the client: `user`, `local`, `project`, `plugin` and the like.
     #[serde(deserialize_with = "lenient")]
     pub(crate) scope: String,
-    /// The command that takes it out, word by word, if there is one.
+    /// How to take it out, said for the user: a command in backticks, or a step.
     #[serde(deserialize_with = "lenient")]
-    pub(crate) remove: Option<Vec<String>>,
-    /// How to take it out, said for the user.
-    #[serde(deserialize_with = "lenient")]
-    pub(crate) remove_text: String,
+    pub(crate) remove: String,
+}
+
+impl Registration {
+    /// The command `remove` names, word by word, when the whole of it is one command in
+    /// backticks; none when it is a step to take by hand.
+    pub(crate) fn remove_command(&self) -> Option<Vec<String>> {
+        let text = self.remove.trim();
+        let inside = text.strip_prefix('`')?.strip_suffix('`')?;
+        if inside.contains('`') {
+            return None;
+        }
+        let words = crate::mcp_own::words(inside);
+        (!words.is_empty()).then_some(words)
+    }
 }
 
 /// repolore's page for the built-in home: its process, and once it said it, its address, which
@@ -572,38 +601,133 @@ mod tests {
     #[test]
     fn the_doctor_is_read_whatever_is_odd_in_it() {
         let said = r#"{
-            "version": "0.5.1", "managed_by": null, "something_new": [1, 2],
-            "paths": {"home": null, "config_file": "/c/repolore/repolore.toml", "data_dir": 7},
-            "configured": "yes",
-            "index": {"built_at": "2026-11-20T10:00:00Z", "refreshed_at": null},
+            "version": "0.5.1", "managed_by": null, "db": "default", "something_new": [1, 2],
+            "paths": {"config_file": "/c/repolore/repolore.toml", "questions_file": "/q",
+                "data_dir": 7, "config_from": "default", "data_from": "default"},
+            "ok": false,
             "checks": [
-                {"name": "config", "ok": true, "warning": false, "detail": "fine", "fix": null},
+                {"name": "repolore.toml", "ok": true, "warning": false, "detail": "fine", "fix": null},
                 "not a check",
                 {"name": "model", "ok": true, "warning": true, "detail": "slow"},
-                {"name": "github", "ok": false, "warning": false, "detail": 404, "fix": ["x"]}
+                {"name": "GitHub", "ok": false, "warning": false, "detail": 404, "fix": ["x"]}
             ],
-            "server": {"running": true, "pid": 42, "version": "0.5.1", "relays": 2},
+            "server": {"running": false, "starting": false, "pid": null, "url": null,
+                "version": null, "started_at": null, "model_ready": null, "sessions": 2},
             "registrations": [{"client": "claude", "client_name": "Claude Code",
                 "name": "repolore", "command": ["repolore-mcp"], "scope": "user",
-                "for_every_project": true, "remove": ["claude", "mcp", "remove", "repolore"],
-                "remove_text": null}]
+                "for_every_project": true,
+                "remove": "`claude mcp remove repolore --scope user`"},
+                {"client": "codex", "name": "repolore", "scope": "user", "remove": ["old"]}]
         }"#;
         let doctor: Doctor = serde_json::from_str(said).expect("reads");
+        assert_eq!(doctor.db, "default");
         assert_eq!(doctor.paths.folders(), [PathBuf::from("/c/repolore")]);
-        assert!(!doctor.configured);
-        assert_eq!(
-            doctor.index.built_at.as_deref(),
-            Some("2026-11-20T10:00:00Z")
-        );
+        // Not there on this machine, and no index check.
+        assert!(!doctor.set_up());
         let checks: Vec<&str> = doctor.checks.iter().map(|c| c.name.as_str()).collect();
         // One with an odd field is kept: dropped, a failing check would read as one passed.
-        assert_eq!(checks, ["config", "model", "github"]);
+        assert_eq!(checks, ["repolore.toml", "model", "GitHub"]);
         assert!(!doctor.checks[2].ok && doctor.checks[2].detail.is_empty());
         assert!(doctor.checks[1].warning && doctor.checks[1].fix.is_none());
         let registration = &doctor.registrations[0];
         assert_eq!(registration.client, "claude");
-        assert_eq!(registration.remove_text, "");
-        assert_eq!(registration.remove.as_deref().map(<[String]>::len), Some(4));
+        assert_eq!(
+            registration.remove,
+            "`claude mcp remove repolore --scope user`"
+        );
+        // A removal of another kind is no removal, but the registration is kept.
+        assert_eq!(doctor.registrations[1].remove, "");
+        assert_eq!(doctor.registrations[1].remove_command(), None);
+    }
+
+    #[test]
+    fn a_home_is_set_up_by_its_file_on_disk_or_its_index_check() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let config = dir.path().join("repolore.toml");
+        let index = |ok: bool| DoctorCheck {
+            name: "index default".into(),
+            ok,
+            ..DoctorCheck::default()
+        };
+        let mut doctor = Doctor {
+            db: "default".into(),
+            paths: DoctorPaths {
+                config_file: Some(config.clone()),
+                data_dir: Some(dir.path().to_path_buf()),
+            },
+            checks: vec![index(false)],
+            ..Doctor::default()
+        };
+        assert!(!doctor.configured() && !doctor.indexed() && !doctor.set_up());
+        std::fs::write(&config, "include = []\n").expect("written");
+        assert!(doctor.configured() && !doctor.indexed() && doctor.set_up());
+        std::fs::remove_file(&config).expect("removed");
+        doctor.checks = vec![index(true)];
+        assert!(!doctor.configured() && doctor.indexed() && doctor.set_up());
+        // Only the check of the index it was asked about.
+        doctor.db = "other".into();
+        assert!(!doctor.indexed());
+        doctor.db = String::new();
+        assert!(!doctor.indexed());
+    }
+
+    #[test]
+    fn a_removal_is_a_command_only_when_it_is_one_in_backticks() {
+        let command = |remove: &str| {
+            let registration = Registration {
+                remove: remove.into(),
+                ..Registration::default()
+            };
+            registration.remove_command()
+        };
+        let words = |line: &str| Some(line.split(' ').map(String::from).collect::<Vec<_>>());
+        assert_eq!(
+            command("`claude mcp remove repolore --scope user`"),
+            words("claude mcp remove repolore --scope user")
+        );
+        assert_eq!(
+            command("  `claude plugin uninstall repolore@repolore --scope user`\n"),
+            words("claude plugin uninstall repolore@repolore --scope user")
+        );
+        assert_eq!(
+            command(r#"`claude mcp remove "my lore" --scope user`"#),
+            Some(vec![
+                "claude".into(),
+                "mcp".into(),
+                "remove".into(),
+                "my lore".into(),
+                "--scope".into(),
+                "user".into()
+            ])
+        );
+        for step in [
+            "delete [mcp_servers.repolore] from /Users/me/.codex/config.toml",
+            "delete repolore from /Users/me/.config/opencode/opencode.json",
+            "run `claude mcp remove repolore --scope user`",
+            "`claude mcp remove repolore` then `claude mcp list`",
+            "`claude mcp remove repolore --scope user",
+            "``",
+            "`",
+            "`  `",
+            "",
+        ] {
+            assert_eq!(command(step), None, "{step}");
+        }
+    }
+
+    #[test]
+    fn a_server_is_in_use_while_it_runs_starts_or_has_sessions() {
+        let status = |running, starting, sessions| ServerStatus {
+            running,
+            starting,
+            pid: None,
+            sessions,
+        };
+        assert!(!status(false, false, 0).in_use());
+        assert!(status(true, false, 0).in_use());
+        assert!(status(true, true, 0).in_use());
+        // Stopped, but a session would start it again.
+        assert!(status(false, false, 1).in_use());
     }
 
     #[test]
@@ -626,27 +750,27 @@ mod tests {
         let server = |out: &str| {
             read_answer::<ServerStatus>(&said(out), "server status --json", "it", running)
         };
-        assert!(server(r#"{"running": false}"#).is_ok());
-        assert!(server(r#"{"pid": 7, "relays": 2}"#).is_err());
+        let stopped = server(r#"{"running": false, "starting": false, "sessions": 3}"#);
+        assert_eq!(stopped.map(|status| status.sessions), Ok(3));
+        assert!(server(r#"{"pid": 7, "sessions": 2}"#).is_err());
         assert!(server(r#"{"running": "yes"}"#).is_err());
     }
 
     #[test]
     fn the_folders_of_a_home_are_each_named_once() {
-        let paths = |home: Option<&str>, config: &str, data: &str| DoctorPaths {
-            home: home.map(PathBuf::from),
+        let paths = |config: &str, data: &str| DoctorPaths {
             config_file: Some(PathBuf::from(config)),
             data_dir: Some(PathBuf::from(data)),
         };
-        let mac = paths(None, "/l/repolore/repolore.toml", "/l/repolore");
+        let mac = paths("/l/repolore/repolore.toml", "/l/repolore");
         assert_eq!(mac.folders(), [PathBuf::from("/l/repolore")]);
-        let linux = paths(None, "/c/repolore/repolore.toml", "/d/repolore");
+        let linux = paths("/c/repolore/repolore.toml", "/d/repolore");
         assert_eq!(
             linux.folders(),
             [PathBuf::from("/c/repolore"), PathBuf::from("/d/repolore")]
         );
-        let home = paths(Some("/h"), "/h/repolore.toml", "/h/data");
-        assert_eq!(home.folders(), [PathBuf::from("/h")]);
+        let none = DoctorPaths::default();
+        assert_eq!(none.folders(), Vec::<PathBuf>::new());
     }
 
     /// A stand-in for repolore in `dir` that runs `script`, written by a child process: one this

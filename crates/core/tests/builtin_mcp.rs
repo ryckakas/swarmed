@@ -1,5 +1,6 @@
-//! The built-in repolore, with stand-ins for repolore, uv and Claude Code's own command line,
-//! which answer from files a test writes and keep what they were asked.
+//! The built-in repolore, with stand-ins for repolore, uv, and Claude Code's and Codex's own
+//! command lines, which answer from files a test writes and keep what they were asked. What
+//! the stand-in for repolore answers is shaped as repolore 0.5.1 answers.
 
 mod common;
 
@@ -8,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{fixture, turn};
+use serde_json::{Value, json};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
     BuiltinMcpView, BuiltinState, CheckKind, Core, NewTaskOptions, REPOLORE, SessionOptions, hooks,
@@ -15,7 +17,8 @@ use swarmed_core::{
 
 /// Answers each of repolore's commands from a file in `$state`, and notes every call with the
 /// home it was about. `uv` stands in for the installer, putting repolore where it is looked
-/// for; `claude` for Claude Code, whose remove command takes a registration out.
+/// for; `claude` and `codex` for Claude Code and Codex, whose remove commands take a
+/// registration out.
 const REPOLORE_SCRIPT: &str = r#"#!/bin/sh
 state="__STATE__"
 echo "$* | home=${REPOLORE_HOME-unset} managed=${REPOLORE_MANAGED_BY-unset}" >> "$state/calls"
@@ -52,6 +55,12 @@ chmod +x "__TOOLS__/repolore" "__TOOLS__/repolore-mcp"
 const CLAUDE_SCRIPT: &str = r#"#!/bin/sh
 echo "$*" >> "__STATE__/claude-calls"
 echo "Removed MCP server repolore"
+mv "__STATE__/doctor-builtin-after.json" "__STATE__/doctor-builtin.json"
+"#;
+
+const CODEX_SCRIPT: &str = r#"#!/bin/sh
+echo "$*" >> "__STATE__/codex-calls"
+echo "Removed global MCP server 'repolore'."
 mv "__STATE__/doctor-builtin-after.json" "__STATE__/doctor-builtin.json"
 "#;
 
@@ -133,26 +142,51 @@ impl Stand {
     }
 }
 
-fn registration(client: &str, scope: &str, remove: &str, text: &str) -> String {
-    format!(
-        r#"{{"client": "{client}", "client_name": "", "name": "repolore", "command": ["repolore-mcp"],
-            "scope": "{scope}", "for_every_project": true, "remove": {remove}, "remove_text": "{text}"}}"#
-    )
+/// A registration as repolore's doctor lists it, with how it is taken out, said as text.
+fn registration(client: &str, scope: &str, remove: &str) -> Value {
+    json!({
+        "client": client, "client_name": "", "name": "repolore", "command": ["repolore-mcp"],
+        "scope": scope, "for_every_project": scope == "user", "remove": remove,
+    })
 }
 
-fn doctor(configured: bool, registrations: &[String], folder: &Path) -> String {
-    let folder = folder.to_string_lossy();
-    format!(
-        r#"{{"version": "0.5.1", "managed_by": null,
-            "paths": {{"home": null, "config_file": "{folder}/repolore.toml", "data_dir": "{folder}"}},
-            "configured": {configured},
-            "index": {{"built_at": "2026-11-20T10:00:00Z", "refreshed_at": "2026-11-27T08:00:00Z"}},
-            "checks": [{{"name": "config", "ok": true, "warning": false, "detail": "fine", "fix": null}},
-                       {{"name": "model", "ok": true, "warning": true, "detail": "not loaded", "fix": "wait"}}],
-            "server": {{"running": false, "pid": null, "version": null, "relays": 0}},
-            "registrations": [{}]}}"#,
-        registrations.join(", ")
-    )
+/// What repolore's doctor says of the home in `folder`, its index there or not. Whether it is
+/// set up is for the core to read: its configuration file on disk, or the index's check.
+fn doctor(registrations: &[Value], folder: &Path, indexed: bool) -> String {
+    let index = if indexed {
+        json!({"name": "index default", "ok": true, "warning": false,
+            "detail": "1,234 chunks from 3 repos, built 2026-11-20T10:00:00Z", "fix": null})
+    } else {
+        json!({"name": "index default", "ok": false, "warning": false,
+            "detail": "none at db/default.db", "fix": "run `repolore refresh`"})
+    };
+    json!({
+        "version": "0.5.1", "managed_by": null, "db": "default",
+        "paths": {
+            "config_file": folder.join("repolore.toml"),
+            "questions_file": folder.join("evals").join("questions.yaml"),
+            "data_dir": folder, "config_from": "default", "data_from": "default",
+        },
+        "ok": indexed,
+        "checks": [
+            {"name": "repolore.toml", "ok": true, "warning": false, "detail": "fine", "fix": null},
+            index,
+            {"name": "model", "ok": true, "warning": true, "detail": "not loaded", "fix": "wait"},
+            {"name": "last refresh", "ok": true, "warning": false,
+                "detail": "succeeded at 2026-11-27T08:00:00Z", "fix": null},
+        ],
+        "server": {"running": false, "starting": false, "pid": null, "url": null,
+            "version": null, "started_at": null, "model_ready": null, "sessions": 0},
+        "registrations": registrations,
+    })
+    .to_string()
+}
+
+/// The old server as `repolore server status --json` says it.
+fn server(running: bool, pid: Option<u32>, sessions: u32) -> String {
+    json!({"running": running, "starting": false, "pid": pid, "url": null, "version": null,
+        "started_at": null, "model_ready": null, "sessions": sessions})
+    .to_string()
 }
 
 async fn status(core: &Core) -> BuiltinMcpView {
@@ -168,7 +202,7 @@ async fn the_built_in_goes_from_missing_to_on_and_back_off() {
     installed_from_nothing(&stand, &core).await;
     let opencode = off_with_a_setup_from_before(&stand, &core).await;
     turned_on_from_a_copy(&stand, &core).await;
-    registrations_taken_out(&stand, &core, opencode).await;
+    registrations_taken_out(&stand, &core, &opencode).await;
     on_then_off(&stand, &core).await;
 }
 
@@ -225,31 +259,34 @@ async fn installed_too_old(stand: &Stand, core: &Core) {
     assert!(refused.is_err_and(|e| e.to_string().contains("older than 0.5.1")));
 }
 
-/// The current one, with a setup from before, registered with Claude Code and OpenCode, whose
-/// server still runs. Says OpenCode's registration, which stays.
-async fn off_with_a_setup_from_before(stand: &Stand, core: &Core) -> String {
+/// The current one, with a setup from before, registered with Claude Code, Codex and
+/// OpenCode, whose server still runs. Says OpenCode's registration, which stays.
+async fn off_with_a_setup_from_before(stand: &Stand, core: &Core) -> Value {
     stand.write("version", "repolore 0.5.1\n");
     stand.install("claude", CLAUDE_SCRIPT);
+    stand.install("codex", CODEX_SCRIPT);
     let old = stand.old_folder();
     let claude = registration(
         "claude",
         "user",
-        r#"["claude", "mcp", "remove", "repolore", "-s", "user"]"#,
-        "",
+        "`claude mcp remove repolore --scope user`",
+    );
+    let codex_file = "/Users/me/.codex/config.toml";
+    let codex = registration(
+        "codex",
+        "user",
+        &format!("delete [mcp_servers.repolore] from {codex_file}"),
     );
     let opencode = registration(
         "opencode",
         "user",
-        "null",
-        "Delete repolore from opencode.json.",
+        "delete repolore from /Users/me/.config/opencode/opencode.json",
     );
-    let both = [claude, opencode.clone()];
-    stand.write("doctor-builtin.json", &doctor(false, &both, &stand.home()));
-    stand.write("doctor-old.json", &doctor(true, &both, &old));
-    stand.write(
-        "server-old.json",
-        r#"{"running": true, "pid": 4242, "relays": 1}"#,
-    );
+    let all = [claude, codex, opencode.clone()];
+    stand.write("doctor-builtin.json", &doctor(&all, &stand.home(), false));
+    // Indexed, with no configuration file: set up all the same.
+    stand.write("doctor-old.json", &doctor(&all, &old, true));
+    stand.write("server-old.json", &server(true, Some(4242), 1));
     let off = status(core).await;
     assert_eq!(off.state, BuiltinState::Off, "{off:?}");
     assert_eq!(off.install_command.split(" && ").count(), 1);
@@ -257,14 +294,35 @@ async fn off_with_a_setup_from_before(stand: &Stand, core: &Core) -> String {
     assert_eq!(existing.folders, [old.to_string_lossy()]);
     assert!(existing.indexed);
     let keys: Vec<&str> = off.registrations.iter().map(|r| r.key.as_str()).collect();
-    assert_eq!(keys, ["claude:user:repolore", "opencode:user:repolore"]);
-    assert!(off.registrations[0].runs_here);
     assert_eq!(
-        off.registrations[0].command.as_deref(),
-        Some("claude mcp remove repolore -s user")
+        keys,
+        [
+            "claude:user:repolore",
+            "codex:user:repolore",
+            "opencode:user:repolore"
+        ]
     );
-    assert!(!off.registrations[1].runs_here);
-    assert_eq!(off.old_server.map(|server| server.relays), Some(1));
+    let commands: Vec<Option<&str>> = off
+        .registrations
+        .iter()
+        .map(|r| r.command.as_deref())
+        .collect();
+    assert_eq!(
+        commands,
+        [
+            Some("claude mcp remove repolore --scope user"),
+            Some("codex mcp remove repolore"),
+            None
+        ]
+    );
+    let runs: Vec<bool> = off.registrations.iter().map(|r| r.runs_here).collect();
+    assert_eq!(runs, [true, true, false]);
+    assert_eq!(
+        off.registrations[2].step.as_deref(),
+        Some("delete repolore from /Users/me/.config/opencode/opencode.json")
+    );
+    let old_server = off.old_server.expect("in use");
+    assert_eq!((old_server.pid, old_server.relays), (Some(4242), 1));
     assert_eq!(off.checked, Some(CheckKind::Offline));
     assert!(!off.home_ready);
     asked_each_home_apart(stand);
@@ -315,25 +373,40 @@ async fn turned_on_from_a_copy(stand: &Stand, core: &Core) {
     );
 }
 
-/// Claude Code's registration is taken out with its own command; OpenCode's is the user's.
-async fn registrations_taken_out(stand: &Stand, core: &Core, opencode: String) {
+/// Claude Code's and Codex's registrations are taken out with their own commands; OpenCode's
+/// is the user's.
+async fn registrations_taken_out(stand: &Stand, core: &Core, opencode: &Value) {
     let home = stand.home();
-    let after = doctor(true, &[opencode], &home);
+    let codex = registration(
+        "codex",
+        "user",
+        "delete [mcp_servers.repolore] from /Users/me/.codex/config.toml",
+    );
+    // Copied without an index: set up by its configuration file alone.
+    let after = doctor(&[codex, opencode.clone()], &home, false);
     stand.write("doctor-builtin-after.json", &after);
-    let one_left = core
+    let two_left = core
         .builtin_mcp_remove_registration(REPOLORE, "claude:user:repolore", &hooks::discard)
         .await
         .expect("removes");
     assert_eq!(
         stand.read("claude-calls").trim(),
-        "mcp remove repolore -s user"
+        "mcp remove repolore --scope user"
     );
+    assert_eq!(two_left.registrations.len(), 2);
+    assert!(two_left.home_ready);
+    let after = doctor(std::slice::from_ref(opencode), &home, false);
+    stand.write("doctor-builtin-after.json", &after);
+    let one_left = core
+        .builtin_mcp_remove_registration(REPOLORE, "codex:user:repolore", &hooks::discard)
+        .await
+        .expect("removes");
+    assert_eq!(stand.read("codex-calls").trim(), "mcp remove repolore");
     assert_eq!(one_left.registrations.len(), 1);
-    assert!(one_left.home_ready);
     let yours = core
         .builtin_mcp_remove_registration(REPOLORE, "opencode:user:repolore", &hooks::discard)
         .await;
-    assert!(yours.is_err_and(|e| e.to_string().contains("Delete repolore from opencode.json")));
+    assert!(yours.is_err_and(|e| e.to_string().contains("delete repolore from /Users/me/")));
     // A key nobody lists is gone already.
     let gone = core
         .builtin_mcp_remove_registration(REPOLORE, "cursor:user:repolore", &hooks::discard)
@@ -344,7 +417,7 @@ async fn registrations_taken_out(stand: &Stand, core: &Core, opencode: String) {
 
 /// A server answer without whether it runs is no answer: it is said, and the row stays on.
 async fn an_answer_without_what_was_asked_changes_nothing(stand: &Stand, core: &Core) {
-    stand.write("server-old.json", r#"{"pid": 4242, "relays": 1}"#);
+    stand.write("server-old.json", r#"{"pid": 4242, "sessions": 1}"#);
     let unsure = core
         .builtin_mcp_check(REPOLORE, false)
         .await
@@ -358,11 +431,28 @@ async fn an_answer_without_what_was_asked_changes_nothing(stand: &Stand, core: &
     stand.write("server-old.json", r#"{"running": false}"#);
 }
 
-/// Nothing left elsewhere and the old server stopped: on, with its checks. Then off again.
+/// The old server stopped, but a session still connected to it, which would start it again:
+/// the row waits, with the server shown as in use and no process.
+async fn stopped_but_still_connected(stand: &Stand, core: &Core) {
+    stand.write("server-old.json", &server(false, None, 1));
+    let waiting = core
+        .builtin_mcp_check(REPOLORE, false)
+        .await
+        .expect("checks");
+    assert_eq!(waiting.state, BuiltinState::Waiting, "{waiting:?}");
+    assert_eq!(waiting.registrations, []);
+    let old_server = waiting.old_server.expect("in use");
+    assert_eq!((old_server.pid, old_server.relays), (None, 1));
+    assert_eq!(waiting.problem, None);
+}
+
+/// Nothing left elsewhere and the old server no longer in use: on, with its checks. Then off
+/// again.
 async fn on_then_off(stand: &Stand, core: &Core) {
     let home = stand.home();
-    stand.write("doctor-builtin.json", &doctor(true, &[], &home));
-    stand.write("server-old.json", r#"{"running": false, "relays": 0}"#);
+    stand.write("doctor-builtin.json", &doctor(&[], &home, true));
+    stopped_but_still_connected(stand, core).await;
+    stand.write("server-old.json", &server(false, None, 0));
     let on = core
         .builtin_mcp_check(REPOLORE, true)
         .await
@@ -370,13 +460,21 @@ async fn on_then_off(stand: &Stand, core: &Core) {
     assert_eq!(on.state, BuiltinState::On, "{on:?}");
     assert_eq!(on.checked, Some(CheckKind::Full));
     assert!(stand.read("calls").contains("doctor --json | home="));
-    assert_eq!(on.built_at.as_deref(), Some("2026-11-20T10:00:00Z"));
-    assert_eq!(on.checks.len(), 2);
+    let checks: Vec<&str> = on.checks.iter().map(|check| check.name.as_str()).collect();
+    assert_eq!(
+        checks,
+        ["repolore.toml", "index default", "model", "last refresh"]
+    );
+    assert!(on.home_ready);
     assert!(on.old_server.is_none());
 
     an_answer_without_what_was_asked_changes_nothing(stand, core).await;
+    off_again(stand, core).await;
+}
 
-    // Off again: its home stays, and its page cannot be opened.
+/// Off again: its home stays, and its page cannot be opened.
+async fn off_again(stand: &Stand, core: &Core) {
+    let home = stand.home();
     let off = core
         .builtin_mcp_turn_off(REPOLORE)
         .await
@@ -430,7 +528,7 @@ async fn sessions_are_given_the_built_in_only_while_no_other_repolore_is_about()
     stand.install("repolore-mcp", "#!/bin/sh\nexit 0\n");
     stand.write("version", "repolore 0.5.1\n");
     let home = stand.home();
-    stand.write("doctor-builtin.json", &doctor(false, &[], &home));
+    stand.write("doctor-builtin.json", &doctor(&[], &home, false));
     let core = stand.core().await;
     core.task_new("demo", "one", NewTaskOptions::default(), &hooks::discard)
         .await
@@ -464,7 +562,7 @@ async fn a_clear_from_before_counts_for_nothing(stand: &Stand, core: &Core) {
     let session = started(core);
     assert_eq!(said(core, session, "mcp: repolore").await, "none");
     core.session_stop(session);
-    stand.write("doctor-builtin.json", &doctor(false, &[], &stand.home()));
+    stand.write("doctor-builtin.json", &doctor(&[], &stand.home(), false));
 }
 
 /// On and clear: the built-in, run from its program with its home, and a refresh is started.

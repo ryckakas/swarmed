@@ -88,7 +88,7 @@ fn show(view: &BuiltinMcpView) {
         "not set up"
     };
     say(&format!("home\t{}\t{ready}", view.home));
-    show_index(view);
+    show_checked(view);
     show_elsewhere(view);
     for check in &view.checks {
         let how = match (check.ok, check.warning) {
@@ -112,12 +112,9 @@ fn show(view: &BuiltinMcpView) {
     ));
 }
 
-/// When the index was built and refreshed, how it was checked, and what Claude Code said.
-fn show_index(view: &BuiltinMcpView) {
-    if let Some(built) = &view.built_at {
-        let refreshed = view.refreshed_at.as_deref().unwrap_or("-");
-        say(&format!("index\tbuilt {built}\trefreshed {refreshed}"));
-    }
+/// How it was checked, and what Claude Code said. Its index and last refresh are among the
+/// checks.
+fn show_checked(view: &BuiltinMcpView) {
     if let Some(checked) = view.checked {
         say(&format!("checked\t{}", checked.as_str()));
     }
@@ -126,8 +123,8 @@ fn show_index(view: &BuiltinMcpView) {
     }
 }
 
-/// What else there is of repolore: the setup from before, its registrations, its server, and
-/// the hook in Claude Code's settings.
+/// What else there is of repolore: the setup from before, its registrations, its server while
+/// it is in use, and the hook in Claude Code's settings.
 fn show_elsewhere(view: &BuiltinMcpView) {
     if let Some(existing) = &view.existing {
         let indexed = if existing.indexed {
@@ -162,7 +159,7 @@ fn show_elsewhere(view: &BuiltinMcpView) {
             .pid
             .map_or_else(|| "-".to_string(), |pid| pid.to_string());
         say(&format!(
-            "old server\tpid {pid}\t{} relay(s)",
+            "old server\tpid {pid}\t{} session(s) connected",
             server.relays
         ));
     }

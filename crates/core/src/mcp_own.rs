@@ -129,7 +129,7 @@ impl Splitter {
 }
 
 /// A command line as its words. Quotes keep a word with spaces in it together.
-fn words(line: &str) -> Vec<String> {
+pub(crate) fn words(line: &str) -> Vec<String> {
     let mut splitter = Splitter::default();
     line.chars().for_each(|char| splitter.take(char));
     splitter.end_word();

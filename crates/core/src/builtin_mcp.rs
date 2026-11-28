@@ -8,22 +8,26 @@
 //! and how, is in `repolore.rs`.
 //!
 //! **One repolore at a time.** Two would hold two models, so the built-in is given to sessions
-//! only while repolore is registered nowhere else and the old home's shared server has stopped.
-//! A row is in one of five states, worked out by [`state_of`]:
+//! only while repolore is registered nowhere else and the old home's shared server is not in
+//! use: stopped, and no session connected to it, since each would start it again. A row is in
+//! one of five states, worked out by [`state_of`]:
 //!
 //! - `missing`: `repolore` or `repolore-mcp` is not installed;
 //! - `outdated`: its version is older than `repolore::MINIMUM`, or it does not say;
 //! - `off`: not turned on;
-//! - `waiting`: turned on, but a registration is left or the old server still runs;
+//! - `waiting`: turned on, but a registration is left or the old server is still in use;
 //! - `on`: turned on, and nothing stands in its way.
 //!
 //! Registrations come from repolore's doctor, which knows every client repolore registers
 //! with, and from Swarmed's own readers of Claude Code, its plugins, Codex, OpenCode and
-//! `mcp.toml`. Each is taken out with its own remove command, shown before it runs: Swarmed
-//! runs only one of repolore's doctor, found again by its key, and only Claude Code's or
-//! Codex's own that belongs to no folder (`remover`): a folder's would run in none. Anything
-//! else is a step for the user. Nothing is written into an agent's files, and a `repolore
-//! session-start` hook in Claude Code's settings is pointed out, never edited.
+//! `mcp.toml`. repolore says how each is taken out as text (`removal`): a command in
+//! backticks for Claude Code, a step elsewhere. Swarmed runs a command only for one of
+//! repolore's doctor, found again by its key, and only Claude Code's or Codex's own that
+//! belongs to no folder (`remover`): a folder's would run in none. For Codex's own, of which
+//! repolore says to edit its file, Swarmed runs `codex mcp remove <name>`. The command is
+//! shown before it runs. Anything else is a step for the user, as repolore says it. Nothing
+//! is written into an agent's files, and a `repolore session-start` hook in Claude Code's
+//! settings is pointed out, never edited.
 //!
 //! **Whether it stands clear** is stored (`builtin_mcp` in the database, beside whether it is
 //! turned on), so that a session starts without asking repolore anything: no Python runs
@@ -149,13 +153,13 @@ pub struct BuiltinMcpView {
     pub install_command: String,
     /// Its home in Swarmed's data directory.
     pub home: String,
-    /// Whether that home is set up: repositories chosen.
+    /// Whether that home is set up: its configuration file is there, or it has an index.
     pub home_ready: bool,
     /// The user's own setup from before, if one was found: what turning on can copy.
     pub existing: Option<ExistingSetup>,
     /// Where else repolore is registered: what keeps the built-in waiting.
     pub registrations: Vec<BuiltinRegistration>,
-    /// The old setup's shared server, while it runs.
+    /// The old setup's shared server, while it is in use: see [`OldServer`].
     pub old_server: Option<OldServer>,
     /// The sessions running here on a repolore other than the built-in.
     pub sessions: Vec<HeldSession>,
@@ -164,12 +168,8 @@ pub struct BuiltinMcpView {
     pub hook: bool,
     /// What its last check found.
     pub checks: Vec<DoctorCheck>,
-    /// How that check was made, if one was.
+    /// How that check was made, if one was. Its index and last refresh are among the checks.
     pub checked: Option<CheckKind>,
-    /// When its index was built.
-    pub built_at: Option<String>,
-    /// When its index was last refreshed.
-    pub refreshed_at: Option<String>,
     /// What Claude Code last said of the server `repolore`, such as `connected`.
     pub status: Option<String>,
     /// Whether its page runs.
@@ -181,9 +181,9 @@ pub struct BuiltinMcpView {
 /// The user's own repolore setup from before the built-in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExistingSetup {
-    /// The folders it is kept in.
+    /// The folders it is kept in: where its configuration file is, and its data folder.
     pub folders: Vec<String>,
-    /// Whether it has an index, which copying keeps.
+    /// Whether it has an index, which copying keeps: its index check passed.
     pub indexed: bool,
 }
 
@@ -194,22 +194,25 @@ pub struct BuiltinRegistration {
     pub key: String,
     /// The client it is registered with, to show.
     pub client: String,
-    /// Where in that client: `user`, `local`, `plugin` and the like.
+    /// Where in that client: `user`, `local`, `project`, `plugin` and the like.
     pub scope: String,
-    /// The command that takes it out, to show before it runs, or to run by hand.
+    /// The command Swarmed would take it out with, to show before it runs, or to run by hand
+    /// where Swarmed does not find its program. None for one only the user takes out.
     pub command: Option<String>,
-    /// Whether Swarmed runs that command itself.
+    /// Whether Swarmed runs that command itself: there is one, and its program is here.
     pub runs_here: bool,
-    /// What the user does to take it out, when Swarmed does not.
+    /// What the user does to take it out, as repolore says it, when there is no command.
     pub step: Option<String>,
 }
 
-/// The old setup's shared server.
+/// The old setup's shared server, while it is in use: running, starting, or with a session
+/// connected, which would start it again. The field names are kept for the front ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct OldServer {
-    /// Its process, if it said.
+    /// Its process: none while it is stopped, or starting and not saying yet.
     pub pid: Option<u32>,
-    /// How many sessions' servers it still answers through.
+    /// How many sessions are connected to it (repolore's `sessions`), counted while it is
+    /// stopped too.
     pub relays: u32,
 }
 
@@ -387,30 +390,34 @@ impl Reading {
     fn fill(self, view: &mut BuiltinMcpView, full: bool) {
         view.version = self.version;
         view.problem = (!self.problems.is_empty()).then(|| self.problems.join(" "));
-        let running = self.server.filter(|server| server.running);
-        view.old_server = running.map(|server| OldServer {
-            pid: server.pid,
-            relays: server.relays,
-        });
+        view.old_server = self.server.as_ref().and_then(old_server_of);
         view.existing = self.old.as_ref().and_then(existing_of);
         let Some(doctor) = self.builtin else {
             return;
         };
-        view.home_ready = doctor.configured;
+        view.home_ready = doctor.set_up();
         view.checks = doctor.checks;
         view.checked = Some(if full {
             CheckKind::Full
         } else {
             CheckKind::Offline
         });
-        view.built_at = doctor.index.built_at;
-        view.refreshed_at = doctor.index.refreshed_at;
     }
 }
 
+/// The old server as a front end shows it, while it is in use: its process only while it
+/// runs, and its sessions as `relays`.
+fn old_server_of(server: &ServerStatus) -> Option<OldServer> {
+    server.in_use().then(|| OldServer {
+        pid: server.pid.filter(|_| server.running),
+        relays: server.sessions,
+    })
+}
+
 /// Whether nothing stands in the built-in's way, if this reading can tell: an older
-/// repolore or a registration says no, none and the old server stopped says yes. `None`
-/// when it got too few answers to tell, which leaves the last word as it was.
+/// repolore, a registration or the old server in use says no; none, and the old server not
+/// in use, says yes. `None` when it got too few answers to tell, which leaves the last word
+/// as it was.
 fn clear_from(reading: &Reading, registrations: usize) -> Option<bool> {
     if reading.version.is_some() && !reading.current {
         return Some(false);
@@ -420,16 +427,16 @@ fn clear_from(reading: &Reading, registrations: usize) -> Option<bool> {
     }
     reading.builtin.as_ref()?;
     let server = reading.server.as_ref()?;
-    Some(!server.running)
+    Some(!server.in_use())
 }
 
-/// The user's setup from before, from what the old home's doctor says: none if it was never
-/// set up, or its folders are not there.
+/// The user's setup from before, from what the old home's doctor says and its files: none if
+/// it was never set up, or its folders are not there.
 fn existing_of(doctor: &Doctor) -> Option<ExistingSetup> {
-    let indexed = doctor.index.built_at.is_some();
-    if !doctor.configured && !indexed {
+    if !doctor.set_up() {
         return None;
     }
+    let indexed = doctor.indexed();
     let folders = doctor.paths.folders().into_iter();
     let folders: Vec<String> = folders
         .filter(|folder| folder.is_dir())
@@ -498,6 +505,26 @@ fn client_name(client: &str) -> &str {
     }
 }
 
+/// The command Swarmed takes out a registration repolore's doctor lists with, if it runs
+/// one: for Codex's user scope, of which repolore says to delete the entry from its file,
+/// `codex mcp remove <name>`; else the command repolore names in backticks, if it is one
+/// Swarmed runs (`remover`). Codex's other scopes belong to a folder, and are the user's step,
+/// as is anything repolore says that is no command.
+fn removal(said: &Registration) -> Option<Vec<String>> {
+    let argv = match (said.client.as_str(), said.scope.as_str()) {
+        (mcp_codex::ORIGIN, "user") => codex_removal(&said.name)?,
+        (mcp_codex::ORIGIN, _) => return None,
+        _ => said.remove_command()?,
+    };
+    remover(&argv).is_some().then_some(argv)
+}
+
+/// Codex's command that takes out its server `name`, unless the name would read as an option.
+fn codex_removal(name: &str) -> Option<Vec<String>> {
+    let plain = !name.trim().is_empty() && !name.starts_with('-');
+    plain.then(|| ["codex", "mcp", "remove", name].map(String::from).to_vec())
+}
+
 /// The program a registration's remove command `argv` starts with, if Swarmed runs it itself:
 /// Claude Code's `mcp remove` of the user's own servers, its `plugin uninstall`, and Codex's
 /// `mcp remove`. Claude Code's other scopes, or none named, belong to a folder, and the
@@ -530,21 +557,21 @@ fn shown_line(argv: &[String]) -> String {
     words.join(" ")
 }
 
-/// One registration repolore's doctor lists, as a front end shows it. `runs_here` says
-/// whether a program is on this machine.
+/// One registration repolore's doctor lists, as a front end shows it: with the command Swarmed
+/// would run, or else repolore's step. `runs_here` says whether a program is on this machine.
 fn registration_of(
     said: &Registration,
     key: String,
     runs_here: &dyn Fn(&str) -> bool,
 ) -> BuiltinRegistration {
-    let argv = said.remove.as_deref().unwrap_or_default();
-    let here = remover(argv).is_some_and(runs_here);
+    let argv = removal(said);
+    let here = argv.as_deref().and_then(remover).is_some_and(runs_here);
     let client = if said.client_name.trim().is_empty() {
         client_name(&said.client).to_string()
     } else {
         said.client_name.clone()
     };
-    let step = match said.remove_text.trim() {
+    let step = match said.remove.trim() {
         "" => format!("Remove `{}` from {client} yourself.", said.name),
         text => text.to_string(),
     };
@@ -552,9 +579,9 @@ fn registration_of(
         key,
         client,
         scope: said.scope.clone(),
-        command: (!argv.is_empty()).then(|| shown_line(argv)),
+        command: argv.as_deref().map(shown_line),
         runs_here: here,
-        step: (!here).then_some(step),
+        step: argv.is_none().then_some(step),
     }
 }
 
@@ -649,7 +676,7 @@ fn runs_session_start(hook: &serde_json::Map<String, Value>) -> bool {
 }
 
 /// The old setup's folders, if they may go to the Trash now: once the built-in is on, its check
-/// passed and the old server has stopped.
+/// passed and the old server is no longer in use.
 fn trashable(view: &BuiltinMcpView) -> Result<Vec<PathBuf>> {
     let refuse = |why: &str| {
         Err(Error::Mcp(format!(
@@ -667,7 +694,7 @@ fn trashable(view: &BuiltinMcpView) -> Result<Vec<PathBuf>> {
         return refuse("only once its check passes");
     }
     if view.old_server.is_some() {
-        return refuse("its server still runs");
+        return refuse("its server still runs, or a session would start it again");
     }
     let Some(existing) = &view.existing else {
         return refuse("no old setup was found");
@@ -797,7 +824,7 @@ impl Core {
         let repolore = self.repolore_current().await?;
         let home = self.paths.repolore_home();
         let doctor = repolore.doctor(Home::Builtin(&home), false).await;
-        if !doctor.is_ok_and(|doctor| doctor.configured) {
+        if !doctor.is_ok_and(|doctor| doctor.set_up()) {
             home_made(&repolore, &home, copy).await?;
         }
         self.store().builtin_mcp_turn(name, true)?;
@@ -812,11 +839,11 @@ impl Core {
         self.builtin_view(name, false).await
     }
 
-    /// Takes out repolore's registration `key` with its own remove command, which goes to
-    /// `sink` as it runs. The command is never one a front end hands over: it is the one
-    /// repolore's doctor lists under that key now, and only if it is one of Claude Code's or
-    /// Codex's own that belongs to no folder (`remover`). Any other is the user's step, and
-    /// the error says it.
+    /// Takes out repolore's registration `key` with its client's own remove command, which
+    /// goes to `sink` as it runs. The command is never one a front end hands over: it is made
+    /// from what repolore's doctor lists under that key now, and only if it is one of Claude
+    /// Code's or Codex's own that belongs to no folder (`removal`). Any other is the user's
+    /// step, and the error says it.
     pub async fn builtin_mcp_remove_registration(
         &self,
         name: &str,
@@ -832,9 +859,10 @@ impl Core {
         let Some((_, said)) = keyed.into_iter().find(|(known, _)| known == key) else {
             return self.not_listed(name, key).await;
         };
-        let argv = said.remove.as_deref().unwrap_or_default();
-        let program = remover(argv).and_then(|program| find_program(program, &self.tool_dirs));
-        let Some(program) = program else {
+        let argv = removal(said);
+        let program = argv.as_deref().and_then(remover);
+        let program = program.and_then(|program| find_program(program, &self.tool_dirs));
+        let (Some(argv), Some(program)) = (argv.as_deref(), program) else {
             return Err(yours(&registration_of(said, key.to_string(), &|_| false)));
         };
         let (command, env) = argv_for_shell(&program, argv.get(1..).unwrap_or_default());
@@ -939,8 +967,8 @@ impl Core {
     }
 
     /// Moves the user's setup from before to the Trash: only once the built-in is on, passes
-    /// a check made now, and the old server has stopped. Every folder is checked before any
-    /// is moved.
+    /// a check made now, and the old server is no longer in use. Every folder is checked
+    /// before any is moved.
     pub async fn builtin_mcp_trash_old(&self, name: &str) -> Result<BuiltinMcpView> {
         let name = builtin(name)?;
         let view = self.builtin_view(name, false).await?;
@@ -1083,8 +1111,6 @@ impl Core {
             hook: repolore_hook(&self.paths.claude_config),
             checks: Vec::new(),
             checked: None,
-            built_at: None,
-            refreshed_at: None,
             status,
             page_open: self.repolore_page_open(),
             problem: None,
@@ -1313,13 +1339,14 @@ fn show(address: &str) -> Result<()> {
     })
 }
 
-/// The error for a registration Swarmed does not take out itself, with the user's step.
+/// The error for a registration Swarmed does not take out itself, with the user's step: the
+/// command to run by hand where its program is not found here.
 fn yours(registration: &BuiltinRegistration) -> Error {
-    let step = registration
-        .step
-        .clone()
-        .or_else(|| registration.command.clone());
-    let step = step.unwrap_or_default();
+    let step = match (&registration.step, &registration.command) {
+        (Some(step), _) => step.clone(),
+        (None, Some(command)) => format!("run `{command}` yourself"),
+        (None, None) => String::new(),
+    };
     Error::Mcp(format!("Swarmed does not take this one out itself: {step}"))
 }
 
@@ -1430,8 +1457,6 @@ mod tests {
                 fix: None,
             }],
             checked: Some(CheckKind::Offline),
-            built_at: Some("2026-11-20".into()),
-            refreshed_at: None,
             status: Some("connected".into()),
             page_open: false,
             problem: None,
@@ -1453,8 +1478,7 @@ mod tests {
             "hook": true,
             "checks": [{"name": "model", "ok": true, "warning": true, "detail": "slow",
                 "fix": null}],
-            "checked": "offline", "built_at": "2026-11-20", "refreshed_at": null,
-            "status": "connected", "page_open": false, "problem": null,
+            "checked": "offline", "status": "connected", "page_open": false, "problem": null,
         });
         assert_eq!(shown, expected);
     }
@@ -1523,6 +1547,20 @@ mod tests {
         assert_eq!(clear_from(&answered(false), 0), Some(true));
         assert_eq!(clear_from(&answered(true), 0), Some(false));
         assert_eq!(clear_from(&answered(false), 1), Some(false));
+        // Stopped, but starting again, or with a session that would start it.
+        let mut starting = answered(true);
+        starting.server = Some(ServerStatus {
+            running: true,
+            starting: true,
+            ..ServerStatus::default()
+        });
+        assert_eq!(clear_from(&starting, 0), Some(false));
+        let mut connected = answered(false);
+        connected.server = Some(ServerStatus {
+            sessions: 1,
+            ..ServerStatus::default()
+        });
+        assert_eq!(clear_from(&connected, 0), Some(false));
         // No server answer: nothing to say, unless a registration was found anyway.
         let mut silent = answered(false);
         silent.server = None;
@@ -1535,6 +1573,39 @@ mod tests {
         };
         assert_eq!(clear_from(&old, 0), Some(false));
         assert_eq!(clear_from(&Reading::default(), 0), None);
+    }
+
+    #[test]
+    fn the_old_server_is_shown_while_it_is_in_use_with_its_sessions() {
+        let status = |running, starting, pid, sessions| ServerStatus {
+            running,
+            starting,
+            pid,
+            sessions,
+        };
+        assert_eq!(old_server_of(&status(false, false, None, 0)), None);
+        assert_eq!(
+            old_server_of(&status(true, false, Some(42), 2)),
+            Some(OldServer {
+                pid: Some(42),
+                relays: 2
+            })
+        );
+        assert_eq!(
+            old_server_of(&status(true, true, None, 0)),
+            Some(OldServer {
+                pid: None,
+                relays: 0
+            })
+        );
+        // Stopped with a session connected: in use, with no process.
+        assert_eq!(
+            old_server_of(&status(false, false, Some(42), 1)),
+            Some(OldServer {
+                pid: None,
+                relays: 1
+            })
+        );
     }
 
     #[test]
@@ -1568,19 +1639,13 @@ mod tests {
         assert!(is_builtin(&builtin));
     }
 
-    fn registration(
-        client: &str,
-        scope: &str,
-        remove: Option<&[&str]>,
-        text: &str,
-    ) -> Registration {
+    fn registration(client: &str, scope: &str, remove: &str) -> Registration {
         Registration {
             client: client.into(),
             client_name: String::new(),
             name: REPOLORE.into(),
             scope: scope.into(),
-            remove: remove.map(|argv| argv.iter().map(ToString::to_string).collect()),
-            remove_text: text.into(),
+            remove: remove.into(),
         }
     }
 
@@ -1590,35 +1655,35 @@ mod tests {
             registration(
                 "claude",
                 "user",
-                Some(&["claude", "mcp", "remove", "repolore", "-s", "user"]),
-                "",
+                "`claude mcp remove repolore --scope user`",
             ),
             registration(
                 "claude",
                 "local",
-                Some(&["claude", "mcp", "remove", "repolore", "-s", "local"]),
-                "Run it in /Users/me/project.",
+                "`claude mcp remove repolore --scope local`",
             ),
             registration(
                 "claude",
                 "local",
-                Some(&["claude", "mcp", "remove", "repolore", "--scope=local"]),
-                "",
+                "`claude mcp remove repolore --scope=local`",
             ),
             registration(
                 "claude",
                 "plugin",
-                Some(&["claude", "plugin", "uninstall", "repolore@repolore"]),
-                "",
+                "`claude plugin uninstall repolore@repolore --scope user`",
             ),
             registration(
                 "codex",
                 "user",
-                Some(&["codex", "mcp", "remove", "repolore"]),
-                "",
+                "delete [mcp_servers.repolore] from /Users/me/.codex/config.toml",
             ),
-            registration("opencode", "user", None, "Delete it from opencode.json."),
-            registration("cursor", "user", Some(&["sh", "-c", "rm -rf ~"]), ""),
+            registration(
+                "opencode",
+                "user",
+                "delete repolore from /Users/me/.config/opencode/opencode.json",
+            ),
+            registration("cursor", "user", "`sh -c \"rm -rf ~\"`"),
+            registration("gemini", "user", ""),
         ];
         let found = [
             Found::of("claude", "user", &stdio("repolore", "x", &[]), "here").expect("found"),
@@ -1643,38 +1708,95 @@ mod tests {
                 "codex:user:repolore",
                 "opencode:user:repolore",
                 "cursor:user:repolore",
+                "gemini:user:repolore",
                 "swarmed:own:lore",
             ]
         );
         let runs: Vec<bool> = shown.iter().map(|shown| shown.runs_here).collect();
-        assert_eq!(runs, [true, false, false, true, false, false, false, false]);
         assert_eq!(
-            shown[0].command.as_deref(),
-            Some("claude mcp remove repolore -s user")
+            runs,
+            [true, false, false, true, false, false, false, false, false]
+        );
+        let commands: Vec<Option<&str>> = shown.iter().map(|s| s.command.as_deref()).collect();
+        assert_eq!(
+            commands,
+            [
+                Some("claude mcp remove repolore --scope user"),
+                None,
+                None,
+                Some("claude plugin uninstall repolore@repolore --scope user"),
+                // Built by Swarmed: repolore says to edit Codex's file.
+                Some("codex mcp remove repolore"),
+                None,
+                None,
+                None,
+                None,
+            ]
         );
         assert_eq!(shown[0].step, None);
         assert_eq!(shown[0].client, "Claude Code");
-        // A folder's own is the user's step, with the command to run there.
+        // A folder's own is the user's step, as repolore says it.
         assert_eq!(
             shown[1].step.as_deref(),
-            Some("Run it in /Users/me/project.")
+            Some("`claude mcp remove repolore --scope local`")
         );
-        assert!(shown[1].command.is_some());
         assert!(shown[2].step.is_some());
+        // Codex's command is there, though Codex is not: the user runs it by hand.
+        assert_eq!(shown[4].step, None);
         assert_eq!(
             shown[5].step.as_deref(),
-            Some("Delete it from opencode.json.")
+            Some("delete repolore from /Users/me/.config/opencode/opencode.json")
         );
-        assert_eq!(shown[5].command, None);
-        assert_eq!(shown[6].command.as_deref(), Some("sh -c \"rm -rf ~\""));
-        assert!(
-            shown[6]
-                .step
-                .as_deref()
-                .is_some_and(|step| step.contains("yourself"))
+        // A command of no kind Swarmed runs is never offered as one.
+        assert_eq!(shown[6].step.as_deref(), Some("`sh -c \"rm -rf ~\"`"));
+        assert_eq!(
+            shown[7].step.as_deref(),
+            Some("Remove `repolore` from gemini yourself.")
         );
-        assert_eq!(shown[7].client, "Swarmed");
-        assert_eq!(shown[7].step.as_deref(), Some("Remove `lore` from there."));
+        assert_eq!(shown[8].client, "Swarmed");
+        assert_eq!(shown[8].step.as_deref(), Some("Remove `lore` from there."));
+    }
+
+    #[test]
+    fn codex_is_taken_out_by_swarmed_only_from_its_user_scope() {
+        let codex = |scope: &str, name: &str| {
+            let said = Registration {
+                name: name.into(),
+                ..registration(
+                    "codex",
+                    scope,
+                    "delete [mcp_servers.repolore] from /Users/me/.codex/config.toml",
+                )
+            };
+            registration_of(&said, "codex".into(), &|program| program == "codex")
+        };
+        let user = codex("user", "repolore");
+        assert_eq!(user.command.as_deref(), Some("codex mcp remove repolore"));
+        assert!(user.runs_here);
+        assert_eq!(user.step, None);
+        assert_eq!(
+            removal(&registration("codex", "user", "")),
+            Some(vec![
+                "codex".into(),
+                "mcp".into(),
+                "remove".into(),
+                "repolore".into()
+            ])
+        );
+        // A project's own belongs to its folder: the user's step, as repolore says it.
+        let project = codex("project", "repolore");
+        assert_eq!(project.command, None);
+        assert!(!project.runs_here);
+        assert_eq!(
+            project.step.as_deref(),
+            Some("delete [mcp_servers.repolore] from /Users/me/.codex/config.toml")
+        );
+        // Even when repolore names a command for it.
+        let named = registration("codex", "project", "`codex mcp remove repolore`");
+        assert_eq!(removal(&named), None);
+        // A name Codex would read as an option is left to the user.
+        assert_eq!(codex("user", "--help").command, None);
+        assert_eq!(codex("user", " ").command, None);
     }
 
     #[test]

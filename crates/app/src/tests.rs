@@ -2070,27 +2070,32 @@ fn the_ui_can_set_up_an_mcp_server_and_never_reads_its_secrets_back() {
     );
 }
 
-/// A stand-in for repolore's command line, answering from files in `__STATE__`: the built-in's
-/// home is told from the user's own by `REPOLORE_HOME`. A home with no file is one never set
-/// up, answered with the whole doctor the contract has, as an answer has to be. Its page never
-/// says where it is, so no test opens a browser.
+/// A stand-in for repolore's command line, answering from files in `__STATE__` as repolore
+/// 0.5.1 does: the built-in's home is told from the user's own by `REPOLORE_HOME`. A home with
+/// no file is one never set up, answered with the whole doctor, as an answer has to be: no
+/// configuration file there, and its index check failing. Its page never says where it is, so
+/// no test opens a browser.
 const FAKE_REPOLORE: &str = r#"#!/bin/sh
 state="__STATE__"
 which=old
 if [ -n "$REPOLORE_HOME" ]; then which=builtin; fi
+server='{"running": false, "starting": false, "pid": null, "url": null, "version": null, "started_at": null, "model_ready": null, "sessions": 0}'
 case "$1" in
   version) echo "repolore 0.5.1" ;;
   doctor)
     if [ -f "$state/doctor-$which.json" ]; then cat "$state/doctor-$which.json"; exit 0; fi
     cat <<JSON
-{"version": "0.5.1", "managed_by": null,
- "paths": {"home": null, "config_file": "$state/never/repolore.toml", "data_dir": "$state/never"},
- "configured": false, "index": {"built_at": null, "refreshed_at": null},
- "checks": [], "registrations": [],
- "server": {"running": false, "pid": null, "version": null, "relays": 0}}
+{"version": "0.5.1", "managed_by": null, "db": "default",
+ "paths": {"config_file": "$state/never/repolore.toml",
+   "questions_file": "$state/never/evals/questions.yaml", "data_dir": "$state/never",
+   "config_from": "default", "data_from": "default"},
+ "ok": false,
+ "checks": [{"name": "index default", "ok": false, "warning": false,
+   "detail": "none at $state/never/db/default.db", "fix": "run repolore refresh"}],
+ "server": $server, "registrations": []}
 JSON
     ;;
-  server) echo '{"running": false, "pid": null, "version": null, "relays": 0}' ;;
+  server) echo "$server" ;;
   copy) mkdir -p "$2" && echo "repos = []" > "$2/repolore.toml" ;;
   session-start) ;;
   ui) echo "no page in this stand-in" ;;
@@ -2114,22 +2119,30 @@ fn executable(path: &Path, text: &str) {
     assert!(status.success());
 }
 
-/// What the stand-in's doctor says of the built-in's `home`, set up or not, registered in
-/// OpenCode too or not.
-fn builtin_doctor(home: &Path, configured: bool, opencode: bool) -> String {
+/// What the stand-in's doctor says of the built-in's `home`, registered in OpenCode too or
+/// not, indexed or not. Whether the home is set up is read from it too: its configuration
+/// file, which the stand-in's copy writes.
+fn builtin_doctor(home: &Path, opencode: bool, indexed: bool) -> String {
     let registration = json!({
         "client": "opencode", "client_name": "OpenCode", "name": "repolore",
         "command": ["repolore-mcp"], "scope": "user", "for_every_project": true,
-        "remove": null, "remove_text": "Delete repolore from opencode.json.",
+        "remove": "delete repolore from /Users/me/.config/opencode/opencode.json",
     });
     let registrations = if opencode { vec![registration] } else { vec![] };
     json!({
-        "version": "0.5.1", "managed_by": "Swarmed",
-        "paths": { "home": home, "config_file": home.join("repolore.toml"), "data_dir": home },
-        "configured": configured,
-        "index": { "built_at": "2026-11-20T10:00:00Z", "refreshed_at": "2026-11-27T08:00:00Z" },
-        "checks": [{ "name": "config", "ok": true, "warning": false, "detail": "", "fix": null }],
-        "server": { "running": false, "pid": null, "version": null, "relays": 0 },
+        "version": "0.5.1", "managed_by": "Swarmed", "db": "default",
+        "paths": {
+            "config_file": home.join("repolore.toml"),
+            "questions_file": home.join("evals").join("questions.yaml"),
+            "data_dir": home, "config_from": "REPOLORE_HOME", "data_from": "REPOLORE_HOME",
+        },
+        "ok": !opencode && indexed,
+        "checks": [
+            { "name": "repolore.toml", "ok": true, "warning": false, "detail": "", "fix": null },
+            { "name": "index default", "ok": indexed, "warning": false, "detail": "", "fix": null },
+        ],
+        "server": { "running": false, "starting": false, "pid": null, "url": null,
+            "version": null, "started_at": null, "model_ready": null, "sessions": 0 },
         "registrations": registrations,
     })
     .to_string()
@@ -2209,15 +2222,18 @@ fn the_ui_can_turn_the_built_in_repolore_on_and_off() {
     });
     let home = app.repo.with_file_name("data").join("repolore");
     let doctor = state.join("doctor-builtin.json");
-    std::fs::write(&doctor, builtin_doctor(&home, false, true)).expect("writes");
+    std::fs::write(&doctor, builtin_doctor(&home, true, false)).expect("writes");
 
     let row = &app.ok("builtin_mcp_servers", json!({}))[0];
     assert_eq!(row["state"], "off", "{row}");
     assert_eq!(row["home"], json!(home));
+    assert_eq!(row["home_ready"], false, "{row}");
+    // The index's times are among the checks: the row has no fields of its own for them.
+    assert!(row.get("built_at").is_none() && row.get("refreshed_at").is_none());
     built_in_waits_for_opencode(&app, &home);
 
     // The user took OpenCode's out: nothing is left in the way.
-    std::fs::write(&doctor, builtin_doctor(&home, true, false)).expect("writes");
+    std::fs::write(&doctor, builtin_doctor(&home, false, true)).expect("writes");
     built_in_on_then_off(&app, &home);
 }
 
@@ -2230,6 +2246,8 @@ fn built_in_waits_for_opencode(app: &App, home: &Path) {
     );
     assert_eq!(waiting["state"], "waiting", "{waiting}");
     assert!(home.join("repolore.toml").is_file());
+    // Set up by the configuration file the copy wrote, though it has no index yet.
+    assert_eq!(waiting["home_ready"], true, "{waiting}");
     let left = &waiting["registrations"][0];
     assert_eq!(
         (&left["key"], &left["runs_here"]),
@@ -2238,7 +2256,7 @@ fn built_in_waits_for_opencode(app: &App, home: &Path) {
     let removed = json!({ "name": "repolore", "key": OPENCODE_KEY });
     let refused = app.invoke("builtin_mcp_remove_registration", removed);
     let said = refused.expect_err("the user's step");
-    assert!(says(&said, "Delete repolore from opencode.json"), "{said}");
+    assert!(says(&said, "delete repolore from /Users/me/"), "{said}");
     let restarted = app.ok(
         "builtin_mcp_restart_sessions",
         json!({ "name": "repolore" }),
