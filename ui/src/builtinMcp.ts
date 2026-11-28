@@ -51,9 +51,7 @@ export function summaryLine(view: BuiltinMcpView): string {
         case "missing":
             return `Swarmed installs ${name}, keeps its settings and index in a folder of its own, and gives it to every session once it is on.`;
         case "outdated":
-            return view.version === null
-                ? `The ${name} installed is too old: Swarmed needs ${view.minimum} or later.`
-                : `${name} ${view.version} is installed, and Swarmed needs ${view.minimum} or later.`;
+            return `${outdatedLine(view)} ${KEPT_THROUGH_UPDATE}`;
         case "off":
             return offLine(view);
         case "waiting":
@@ -61,6 +59,21 @@ export function summaryLine(view: BuiltinMcpView): string {
         case "on":
             return "Given to every session started from now on.";
     }
+}
+
+/**
+ * What an update leaves. An older repolore cannot copy, so a setup of the user's is offered
+ * for copying only once it is updated, and only if it was not copied already: the row cannot
+ * tell which, since an out-of-date repolore is asked nothing more than its version.
+ */
+const KEPT_THROUGH_UPDATE =
+    "A setup of your own is left as it is: if it was not copied yet, copying it is offered once updated.";
+
+function outdatedLine(view: BuiltinMcpView): string {
+    const { name, minimum } = view;
+    return view.version === null
+        ? `The ${name} installed is too old: Swarmed needs ${minimum} or later.`
+        : `${name} ${view.version} is installed, and Swarmed needs ${minimum} or later.`;
 }
 
 function offLine(view: BuiltinMcpView): string {

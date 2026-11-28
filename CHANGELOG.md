@@ -21,6 +21,15 @@ notice adds its line under Unreleased.
   folded, as each agent's own servers are, and its heading still shows each built-in's state.
   A dot pulses on it while something inside runs.
 
+### Fixed
+
+- **A failed install of the built-in repolore says why.** It said only "exit status: 1"; now
+  it says what the installer said. When a cooldown in your uv configuration (`exclude-newer`)
+  hides the repolore Swarmed needs, it says so, and what you can do: update again once that
+  release is old enough, or run the command yourself past the cooldown. An out-of-date
+  repolore's row also says that a setup of yours not copied yet can be copied once it is
+  updated.
+
 ## [0.4.12] - 2026-11-28
 
 ### Added

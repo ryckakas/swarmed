@@ -7,6 +7,12 @@
 //! else is configured in repolore's own page, which Swarmed opens. What is asked of repolore,
 //! and how, is in `repolore.rs`.
 //!
+//! **Installing** is uv's `tool install`, shown before it runs. When it fails, the error says
+//! the installer's last error where it printed one ([`installer_said`]), not only its exit
+//! code. A cooldown the user set in uv (`exclude-newer`) is theirs, and Swarmed never lifts
+//! it: when uv says it hid the version Swarmed needs, the error says so, with what the user can
+//! do ([`install_failure`]).
+//!
 //! **One repolore at a time.** Two would hold two models, so the built-in is given to sessions
 //! only while repolore is registered nowhere else and the old home's shared server is not in
 //! use: stopped, and no session connected to it, since each would start it again. A row is in
@@ -61,8 +67,9 @@
 //! check made then passed, as a step the user takes; never a folder that is, holds or is
 //! inside Swarmed's data directory.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -662,6 +669,81 @@ fn install_args() -> String {
     format!("--managed-python --python 3.12 --upgrade 'repolore-mcp>={MINIMUM}'")
 }
 
+/// What an installer printed last: enough to say why it failed.
+#[derive(Debug, Default)]
+struct Printed(Mutex<VecDeque<String>>);
+
+impl Printed {
+    const KEPT: usize = 200;
+
+    fn keep(&self, line: &str) {
+        let mut lines = lock(&self.0);
+        if lines.len() == Self::KEPT {
+            lines.pop_front();
+        }
+        lines.push_back(line.to_string());
+    }
+
+    /// Why it failed, as it said it: see [`installer_said`].
+    fn said(&self) -> Option<String> {
+        installer_said(lock(&self.0).iter().map(String::as_str))
+    }
+
+    /// Whether any line kept has `word` in it.
+    fn mentions(&self, word: &str) -> bool {
+        lock(&self.0).iter().any(|line| line.contains(word))
+    }
+}
+
+/// The installer's last error, from what it printed, `lines`, on one line: from the last line
+/// that opens one (uv's `×` or `error:`, Homebrew's `Error:`) to the end, with uv's tree
+/// drawing left out; else its last line that holds anything. One too long keeps its start and
+/// its end, where uv puts its hint.
+fn installer_said<'a>(lines: impl Iterator<Item = &'a str>) -> Option<String> {
+    const HALF: usize = 300;
+    let lines: Vec<&str> = lines
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let opens = |line: &&str| line.starts_with('×') || line.to_lowercase().starts_with("error:");
+    let last = lines.len().saturating_sub(1);
+    let start = lines.iter().rposition(opens).unwrap_or(last);
+    let drawing = |c: char| "×│├╰─▶ ".contains(c);
+    let words: Vec<&str> = lines
+        .get(start..)?
+        .iter()
+        .flat_map(|line| line.trim_start_matches(drawing).split_whitespace())
+        .collect();
+    let said = words.join(" ");
+    let chars: Vec<char> = said.chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+    if chars.len() <= 2 * HALF {
+        return Some(said);
+    }
+    let head: String = chars.iter().take(HALF).collect();
+    let tail: String = chars.iter().skip(chars.len() - HALF).collect();
+    Some(format!("{} … {}", head.trim_end(), tail.trim_start()))
+}
+
+/// Why an install failed, said for the user: a cooldown in uv that hid the version Swarmed
+/// needs, by name and with what to do; else what the installer said, where it said anything.
+fn install_failure(error: &Error, printed: &Printed) -> String {
+    let (Error::HookFailed { status, .. }, Some(said)) = (error, printed.said()) else {
+        return error.to_string();
+    };
+    if printed.mentions("exclude-newer") {
+        return format!(
+            "a cooldown in uv's configuration (`exclude-newer`) hides {SERVER_PROGRAM} {MINIMUM} \
+             and newer, which Swarmed needs: update again once that release is older than the \
+             cooldown, or run the command yourself with `--exclude-newer-package \
+             {SERVER_PROGRAM}=false` added. uv said: {said}"
+        );
+    }
+    format!("the installer ended with {status}, saying: {said}")
+}
+
 /// Whether a folder is empty or not there at all.
 fn empty_or_missing(folder: &Path) -> bool {
     std::fs::read_dir(folder).map_or(true, |mut entries| entries.next().is_none())
@@ -831,7 +913,8 @@ impl Core {
     }
 
     /// Installs the built-in `name`, or upgrades it, with `uv`, first installing `uv` with
-    /// Homebrew where it is missing. What the installer prints goes to `sink`.
+    /// Homebrew where it is missing. What the installer prints goes to `sink`; if it fails,
+    /// the error says why: what the installer said, or that a cooldown in uv is in the way.
     pub async fn builtin_mcp_install(
         &self,
         name: &str,
@@ -843,8 +926,13 @@ impl Core {
             reason,
         };
         let (command, env) = self.install_run().map_err(failed)?;
-        let ran = hooks::run("install", &command, &std::env::temp_dir(), &env, sink).await;
-        ran.map_err(|error| failed(error.to_string()))?;
+        let printed = Printed::default();
+        let passed_on = |line: &str| {
+            printed.keep(line);
+            sink(line);
+        };
+        let ran = hooks::run("install", &command, &std::env::temp_dir(), &env, &passed_on).await;
+        ran.map_err(|error| failed(install_failure(&error, &printed)))?;
         if !self.repolore_installed() {
             let reason = "the installer finished, but `repolore` is nowhere to be found";
             return Err(failed(reason.to_string()));
@@ -2091,5 +2179,124 @@ mod tests {
             std::fs::write(&settings, not).expect("written");
             assert!(!repolore_hook(&config), "{not}");
         }
+    }
+
+    /// uv 0.11.8's answer when a cooldown (`exclude-newer = "3 days"`) hides what is asked for.
+    const UV_COOLDOWN: [&str; 10] = [
+        "Resolving dependencies",
+        "  × No solution found when resolving dependencies:",
+        "  ╰─▶ Because only repolore-mcp<=0.5.0 is available and you require",
+        "      repolore-mcp>=0.5.1, we can conclude that your requirements are",
+        "      unsatisfiable.",
+        "",
+        "      hint: `repolore-mcp` was filtered by `exclude-newer` to only",
+        "      include packages uploaded before 2026-11-25T10:29:31.437782Z. The",
+        "      latest version satisfying the requirement is v0.5.1, published at",
+        "      2026-11-28T09:07:49.984Z.",
+    ];
+
+    fn printed(lines: &[&str]) -> Printed {
+        let printed = Printed::default();
+        for line in lines {
+            printed.keep(line);
+        }
+        printed
+    }
+
+    fn exit_1() -> Error {
+        Error::HookFailed {
+            hook: "install",
+            status: "exit status: 1".into(),
+        }
+    }
+
+    #[test]
+    fn a_failed_install_says_the_installers_last_error() {
+        assert_eq!(
+            installer_said(UV_COOLDOWN.into_iter()).as_deref(),
+            Some(
+                "No solution found when resolving dependencies: Because only \
+                 repolore-mcp<=0.5.0 is available and you require repolore-mcp>=0.5.1, we can \
+                 conclude that your requirements are unsatisfiable. hint: `repolore-mcp` was \
+                 filtered by `exclude-newer` to only include packages uploaded before \
+                 2026-11-25T10:29:31.437782Z. The latest version satisfying the requirement is \
+                 v0.5.1, published at 2026-11-28T09:07:49.984Z."
+            )
+        );
+        let brew = [
+            "==> Fetching uv",
+            "Error: No such keg: /opt/homebrew/Cellar/uv",
+        ];
+        assert_eq!(
+            installer_said(brew.into_iter()).as_deref(),
+            Some("Error: No such keg: /opt/homebrew/Cellar/uv")
+        );
+        // No error opened: its last line.
+        let plain = ["Downloading cpython", "connection reset by peer", "  "];
+        assert_eq!(
+            installer_said(plain.into_iter()).as_deref(),
+            Some("connection reset by peer")
+        );
+        assert_eq!(installer_said(["", " "].into_iter()), None);
+    }
+
+    #[test]
+    fn a_long_error_keeps_its_start_and_its_hint() {
+        let long = format!(
+            "× No solution found: {} hint: filtered by `exclude-newer`",
+            "because a depends on b ".repeat(60)
+        );
+        let said = installer_said(std::iter::once(long.as_str())).expect("said");
+        assert!(said.starts_with("No solution found: because"), "{said}");
+        assert!(said.contains(" … "), "{said}");
+        assert!(
+            said.ends_with("hint: filtered by `exclude-newer`"),
+            "{said}"
+        );
+        assert!(said.chars().count() <= 603, "{said}");
+    }
+
+    #[test]
+    fn what_an_installer_printed_is_kept_to_its_last_lines() {
+        let printed = Printed::default();
+        printed.keep("error: an old one");
+        for line in 0..Printed::KEPT {
+            printed.keep(&format!("line {line}"));
+        }
+        assert_eq!(printed.said().as_deref(), Some("line 199"));
+        assert!(!printed.mentions("an old one"));
+    }
+
+    #[test]
+    fn a_cooldown_in_uv_is_named_with_what_to_do_and_never_lifted() {
+        let said = install_failure(&exit_1(), &printed(&UV_COOLDOWN));
+        assert!(
+            said.starts_with(
+                "a cooldown in uv's configuration (`exclude-newer`) hides repolore-mcp 0.5.1 \
+                 and newer, which Swarmed needs: update again once that release is older than \
+                 the cooldown, or run the command yourself with `--exclude-newer-package \
+                 repolore-mcp=false` added. uv said: No solution found"
+            ),
+            "{said}"
+        );
+        assert!(
+            said.ends_with("published at 2026-11-28T09:07:49.984Z."),
+            "{said}"
+        );
+        // Swarmed's own command never lifts it.
+        assert!(!install_args().contains("exclude-newer"));
+        let other = printed(&["error: Failed to fetch: `https://pypi.org/simple/repolore-mcp/`"]);
+        assert_eq!(
+            install_failure(&exit_1(), &other),
+            "the installer ended with exit status: 1, saying: error: Failed to fetch: \
+             `https://pypi.org/simple/repolore-mcp/`"
+        );
+        // Nothing printed, or no failure of the installer's: the error as it is.
+        assert_eq!(
+            install_failure(&exit_1(), &Printed::default()),
+            "the `install` hook failed with exit status: 1"
+        );
+        let unstarted = Error::Mcp("no shell".into());
+        assert_eq!(install_failure(&unstarted, &other), unstarted.to_string());
     }
 }
