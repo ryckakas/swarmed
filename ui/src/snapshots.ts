@@ -28,6 +28,15 @@ export function snapshotRows(
     return [row(null), ...environments.map(row)];
 }
 
+/** What a row says of its snapshot: whom it is from and when, and whether it is behind. */
+export function snapshotHint(snapshot: Snapshot, task: string): string {
+    const from = `From ${snapshot.task}, ${takenAt(snapshot)}`;
+    if (!snapshot.behind) {
+        return from;
+    }
+    return `${from}. Behind the base branch: its dependencies have changed there since, so the next ${task} started from it is kept in its place.`;
+}
+
 /** When a snapshot was taken, as a date and a time of day. */
 export function takenAt(snapshot: Snapshot): string {
     return new Date(snapshot.taken_at * 1000).toLocaleString(undefined, {

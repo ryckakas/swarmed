@@ -661,6 +661,17 @@ impl Store {
         Ok(())
     }
 
+    /// Whether the task's branch was made for it, rather than checked out as it was; `None`
+    /// for a task made before that was kept.
+    pub(crate) fn task_branch_made(&self, task_id: i64) -> Result<Option<bool>> {
+        let made = self.conn.query_row(
+            "SELECT branch_made FROM tasks WHERE id = ?1",
+            params![task_id],
+            |row| row.get(0),
+        )?;
+        Ok(made)
+    }
+
     /// The branches of the project's removed tasks, the latest removed first.
     pub(crate) fn removed_branches(&self, project_id: i64) -> Result<Vec<RemovedBranch>> {
         let mut stmt = self.conn.prepare(

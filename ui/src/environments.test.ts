@@ -5,6 +5,8 @@ import {
     environmentOptions,
     environmentShown,
     envToText,
+    keysFromText,
+    keysToText,
     OWN_SETUP,
     portsFromText,
     portsToText,
@@ -41,6 +43,18 @@ describe("an environment's variables", () => {
     it("are shown again as they are kept", () => {
         expect(envToText({ A: "1", B: "two words" })).toBe("A=1\nB=two words");
         expect(envFromText(envToText({ A: "1", B: "x=y" }))).toEqual({ A: "1", B: "x=y" });
+    });
+});
+
+describe("the files an environment's dependencies are pinned in", () => {
+    it("are typed one to a line, blank lines and spaces left out", () => {
+        expect(keysFromText(" pnpm-lock.yaml \n\ncomposer.lock\n")).toEqual([
+            "pnpm-lock.yaml",
+            "composer.lock",
+        ]);
+        expect(keysFromText("")).toEqual([]);
+        expect(keysToText(["pnpm-lock.yaml", "go.sum"])).toBe("pnpm-lock.yaml\ngo.sum");
+        expect(keysToText(undefined)).toBe("");
     });
 });
 

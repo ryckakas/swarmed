@@ -623,7 +623,8 @@ fn costs(core: &Core) -> Result<()> {
 enum SnapshotCommand {
     /// Keep the files git ignores in the task's worktree as the snapshot of its environment.
     Save { project: String, task: String },
-    /// List the project's snapshots.
+    /// List the project's snapshots, saying which are behind the base: their dependencies have
+    /// changed there since they were taken.
     List { project: String },
     /// Forget a snapshot: the one of tasks without an environment, unless one is named.
     Remove {
@@ -636,8 +637,13 @@ enum SnapshotCommand {
 async fn snapshot(core: &Core, command: SnapshotCommand) -> Result<()> {
     let describe = |snapshot: &swarmed_core::Snapshot| {
         let environment = snapshot.environment.as_deref().unwrap_or("(none)");
+        let behind = if snapshot.behind {
+            "\tbehind the base: its dependencies have changed there since"
+        } else {
+            ""
+        };
         format!(
-            "{environment}\tfrom {}\t{} entries",
+            "{environment}\tfrom {}\t{} entries{behind}",
             snapshot.task, snapshot.entries
         )
     };
@@ -646,7 +652,7 @@ async fn snapshot(core: &Core, command: SnapshotCommand) -> Result<()> {
             say(&describe(&core.snapshot_save(&project, &task).await?));
         }
         SnapshotCommand::List { project } => {
-            for snapshot in core.snapshots(&project)? {
+            for snapshot in core.snapshots(&project).await? {
                 say(&describe(&snapshot));
             }
         }

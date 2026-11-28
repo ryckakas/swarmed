@@ -62,6 +62,19 @@ export function portsFromText(text: string): Record<string, number> {
     return ports;
 }
 
+/** The files dependencies are pinned in as they are typed: one path to a line. */
+export function keysToText(keys: string[] | undefined): string {
+    return (keys ?? []).join("\n");
+}
+
+/** The files typed one to a line, without blank lines or the spaces around a path. */
+export function keysFromText(text: string): string[] {
+    return text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+}
+
 /** The largest stack limit the core can keep. */
 const MOST_STACKS = 0xffff_ffff;
 

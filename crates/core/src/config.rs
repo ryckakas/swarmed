@@ -34,6 +34,11 @@ pub struct ProjectConfig {
     pub hooks: Hooks,
     /// Extra environment for hooks. Values may use variables.
     pub env: BTreeMap<String, String>,
+    /// The tracked files the dependencies are pinned in, such as `pnpm-lock.yaml`: once one
+    /// differs from what the snapshot was taken with, the next task started from the base
+    /// takes its place (`snapshots.rs`). Empty, the first task set up well stays the snapshot.
+    /// An environment may name its own.
+    pub snapshot_keys: Vec<String>,
 }
 
 /// A project's hook commands. Each runs with `sh -c` in the task's worktree; an empty one is
@@ -71,6 +76,7 @@ impl Default for ProjectConfig {
             open_url: String::new(),
             hooks: Hooks::default(),
             env: BTreeMap::new(),
+            snapshot_keys: Vec::new(),
         }
     }
 }
@@ -96,6 +102,8 @@ max_stacks = 5
 port_step = 100                 # task port = base + slot * port_step
 # open_url = "http://localhost:{{port.web}}"   # what "Open in browser" opens for a task;
 #                                              # without it, the local addresses `start` prints
+# snapshot_keys = ["pnpm-lock.yaml"]   # files dependencies are pinned in: once they change on
+#                                      # the base branch, a new task keeps a newer snapshot
 
 [ports]
 # web = 3000

@@ -88,6 +88,7 @@ WEB_PORT = "{{port.web}}"
 | `open_url` | the first local address `start` prints | what "Open in browser" opens |
 | `hooks` | none | `setup`, `start`, `stop` and `teardown` commands |
 | `env` | none | environment for the hooks and the task's agents |
+| `snapshot_keys` | none | tracked files the dependencies are pinned in, such as `["pnpm-lock.yaml", "composer.lock"]`: see [Snapshots](#snapshots) |
 
 ### A task's branch
 
@@ -109,7 +110,9 @@ Each hook runs with `sh -c` in the task's worktree, and an empty one is skipped.
 
 1. A new task gets its branch and worktree, then its environment's snapshot, then `setup`. A task
    whose setup failed is kept, and setup can be run again. When `setup` succeeds and the
-   environment has no snapshot yet, the task is kept as its snapshot. Started from the
+   environment has no snapshot yet, the task is kept as its snapshot; so is a task started from
+   the base branch whose dependency files (`snapshot_keys`) differ from those the snapshot was
+   taken with, in the old one's place. Started from the
    new-task view, the task's first session is there at once, with your prompt waiting in its
    queue until setup succeeds; what you type meanwhile waits behind it. See [While a task is
    set up](#while-a-task-is-set-up).
@@ -212,7 +215,7 @@ ports and variables, which are added to the project's in place of any of the sam
 `max_stacks`, "Stacks at once" in the app, is how many of the project's stacks, in any
 environment, may be running for one of its tasks to start its own, and its own `max_setups`,
 "Setups at once", how many of the project's setups may run for one of its tasks to run its
-own. A task
+own. Its own `snapshot_keys`, "Dependency files", take the place of the project's. A task
 is created in one environment, or none, and keeps it. An environment cannot be removed while a
 task still uses it.
 
@@ -241,7 +244,35 @@ There is one per environment, and Swarmed takes it itself: the first task whose 
 in an environment with no snapshot is kept as its snapshot, before the task's stack starts, so
 that its logs and caches are not in it. That copy runs once, and the task waits for it. The
 next tasks start from it. A task whose `setup` is run again is kept only if it had not
-succeeded before: one that had has been worked in since. Once what setup makes has changed, such as after a dependency update,
+succeeded before: one that had has been worked in since.
+
+As the base branch moves on, its dependencies change, and each new task's `setup` has more to
+reinstall. Name the tracked files they are pinned in, in `snapshot_keys` or an environment's
+**Dependency files**:
+
+```toml
+snapshot_keys = ["pnpm-lock.yaml", "composer.lock"]
+```
+
+Each is an exact path from the repository's root, with no patterns: `apps/web/pnpm-lock.yaml`,
+not `*/pnpm-lock.yaml`. A folder may be named, and then anything in it counts. A path that names
+nothing tracked is never seen to change.
+
+A snapshot then notes a fingerprint of those files as they were in the task it was taken from,
+from what git keeps of them (`git ls-tree`), so no file is read. A new task started from the
+base branch whose files differ, one added or removed included, and are still the base's, is
+kept in the snapshot's place, at the same moment and in the same way as the first one, and its
+setup says so. One whose setup ends after the base has moved on again, such as one set up again
+after it failed, leaves a newer snapshot alone. A key git cannot read, such as a path outside the
+repository, is said in the setup output, and no snapshot is replaced until it is fixed. The copy is
+built beside the old snapshot, which stays if it fails. A task whose files match copies nothing.
+A task started from another branch, or on an existing branch such as a pull request's, has that
+branch's dependencies, so it never takes the place of a snapshot; it is still kept as the first
+one where there is none. A snapshot taken without a fingerprint, before `snapshot_keys` were
+set, is replaced by the next task from the base. The app's list and `swarmed snapshot list`
+say when a snapshot is behind the base branch: its files differ there.
+
+Without `snapshot_keys`, once what setup makes has changed, such as after a dependency update,
 take it again from a task set up since, in the app's Environments dialog or with
 `swarmed snapshot save <project> <task>`; forgetting it has the next task set up well kept
 instead. Settings' **Clean up** lists every repository's snapshots with their size and age, to

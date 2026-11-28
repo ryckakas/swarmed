@@ -298,7 +298,7 @@ impl Core {
 
     /// Runs the task's `setup` and what follows it, then says how it ended: in its log, to
     /// front ends and in the database. `fresh` for a task never set up well before, which is
-    /// one a first snapshot can be of; `run` is the task's place among the running setups,
+    /// one a snapshot can be kept of; `run` is the task's place among the running setups,
     /// through which a removal, the user or quitting stops it. With `send`, the messages its
     /// sessions wait to send go once it finishes well.
     async fn run_setup(
@@ -325,8 +325,8 @@ impl Core {
         result
     }
 
-    /// The steps of a setup: its hook, once a place is free for it; the first snapshot of its
-    /// environment, if it is one; and its stack.
+    /// The steps of a setup: its hook, once a place is free for it; the snapshot of its
+    /// environment, if it is to be kept of this task; and its stack.
     async fn setup_steps(
         &self,
         project: &Project,
@@ -349,12 +349,13 @@ impl Core {
         task.setup_reason.clone_from(&reason);
         self.store()
             .task_set_setup_said(task.id, task.setup, reason.as_deref())?;
-        // The first task set up well in its environment is what the next ones start from: kept
-        // before its stack starts writing logs and caches beside what setup made. Not keeping
-        // it is said, and costs the task nothing.
+        // The first task set up well in its environment is what the next ones start from, and
+        // so is one from the base set up with newer dependencies than that: kept before its
+        // stack starts writing logs and caches beside what setup made. Not keeping it is said,
+        // and costs the task nothing.
         if result.is_ok() && fresh && setup.stopped().is_none() {
             setup.step_to(SetupStep::Keeping);
-            self.keep_first_snapshot(project, &task, sink).await;
+            self.keep_snapshot(project, &task, sink).await;
         }
         // A removal that came meanwhile takes the task: nothing more is started in it.
         if let Some(why @ SetupStop::Removed) = setup.stopped() {
@@ -1038,7 +1039,7 @@ fn first_free(name: &str, taken: &TakenNames<'_>) -> Result<Option<String>> {
 }
 
 /// The branch new tasks start from: the configured one, or the repository's default.
-async fn base_of(repo: &Path, config: &ProjectConfig) -> Result<String> {
+pub(crate) async fn base_of(repo: &Path, config: &ProjectConfig) -> Result<String> {
     if config.base_branch.is_empty() {
         git::default_base(repo).await
     } else {
