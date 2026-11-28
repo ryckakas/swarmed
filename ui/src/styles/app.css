@@ -7775,7 +7775,8 @@ kbd {
     transition: transform 120ms;
 }
 
-.mcp-group[open] .mcp-group-fold {
+.mcp-group[open] .mcp-group-fold,
+.builtin-mcp[open] .mcp-group-fold {
     transform: rotate(90deg);
 }
 
@@ -7876,10 +7877,9 @@ kbd {
 }
 
 /* The servers Swarmed installs and runs itself, at the top of the MCP servers: a framed block
-   with one row to each, and under a row's head what its state holds. */
+   that folds, with one row to each, and under a row's head what its state holds. The grid is
+   on the body, not the `<details>`, which not every engine lays out as a grid. */
 .builtin-mcp {
-    display: grid;
-    gap: var(--space-2);
     margin: var(--space-3) 0;
     padding: var(--space-3);
     border: 1px solid var(--line);
@@ -7887,11 +7887,53 @@ kbd {
     background: var(--panel);
 }
 
+.builtin-mcp-body {
+    display: grid;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
 .builtin-mcp-head {
-    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
     color: var(--text);
     font-size: var(--text-sm);
     font-weight: 600;
+    cursor: default;
+    list-style: none;
+}
+
+.builtin-mcp-head::-webkit-details-marker {
+    display: none;
+}
+
+/* Each built-in's state on the heading while folded; unfolded, its row says it. */
+.builtin-mcp-state {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    font-weight: 400;
+}
+
+.builtin-mcp[open] .builtin-mcp-state {
+    display: none;
+}
+
+/* Folded while a step runs inside: the heading pulses, as the step's own line does. */
+.builtin-mcp:not([open]):has(.builtin-busy) > .builtin-mcp-head::after {
+    content: "";
+    width: 0.55em;
+    height: 0.55em;
+    border-radius: 50%;
+    background: var(--moss);
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .builtin-mcp-head::after {
+        animation: none;
+    }
 }
 
 .builtin-row {

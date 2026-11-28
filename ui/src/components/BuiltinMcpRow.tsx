@@ -44,6 +44,10 @@ import { Dialog } from "./Dialog";
  * The servers Swarmed installs and runs itself, such as repolore, at the top of the MCP
  * servers. Read when the tab opens and after each step the user takes, never on a timer:
  * reading runs the server's own quick doctor. Each step shows what it runs before it does.
+ *
+ * Folded, as each agent's own servers are. Folded, the heading says each one's state, and a dot
+ * pulses on it while a step runs inside, so folding hides no running work; unfolded, the rows
+ * say it. The rows stay mounted while folded, so the reading is done when the tab opens.
  */
 export function BuiltinMcpSection() {
     const [views, setViews] = useState<BuiltinMcpView[] | null>(null);
@@ -56,22 +60,37 @@ export function BuiltinMcpSection() {
     const replace = (changed: BuiltinMcpView) =>
         setViews((all) => (all ?? []).map((view) => (view.name === changed.name ? changed : view)));
     return (
-        <section className="builtin-mcp" aria-label="Swarmed built-in">
-            <h4 className="builtin-mcp-head">Swarmed built-in</h4>
-            <p className="settings-hint">
-                Servers Swarmed installs, keeps in a folder of its own and gives to every session.
-                Each is off until you turn it on.
-            </p>
-            {problem !== null && (
-                <p className="builtin-problem" role="alert">
-                    {problem}
+        <details className="builtin-mcp">
+            <summary className="builtin-mcp-head">
+                <span className="mcp-group-fold" aria-hidden="true">
+                    ›
+                </span>
+                <span className="mcp-group-name">Swarmed built-in</span>
+                {problem !== null && (
+                    <span className="builtin-mcp-state mcp-status mcp-status-off">not read</span>
+                )}
+                {(views ?? []).map((view) => (
+                    <span key={view.name} className="builtin-mcp-state">
+                        {view.name} <StateMark view={view} />
+                    </span>
+                ))}
+            </summary>
+            <div className="builtin-mcp-body">
+                <p className="settings-hint">
+                    Servers Swarmed installs, keeps in a folder of its own and gives to every
+                    session. Each is off until you turn it on.
                 </p>
-            )}
-            {views === null && problem === null && <BusyLine>Reading…</BusyLine>}
-            {(views ?? []).map((view) => (
-                <BuiltinMcpRow key={view.name} view={view} onChange={replace} />
-            ))}
-        </section>
+                {problem !== null && (
+                    <p className="builtin-problem" role="alert">
+                        {problem}
+                    </p>
+                )}
+                {views === null && problem === null && <BusyLine>Reading…</BusyLine>}
+                {(views ?? []).map((view) => (
+                    <BuiltinMcpRow key={view.name} view={view} onChange={replace} />
+                ))}
+            </div>
+        </details>
     );
 }
 
