@@ -9,7 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use common::{core_with_project, fixture, next, turn};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
-    Core, DoneWhy, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, Settings, hooks,
+    Core, Delivery, DoneWhy, Error, NewTaskOptions, Session, SessionEvent, SessionOptions,
+    Settings, hooks,
 };
 use tokio::sync::broadcast::Receiver;
 
@@ -143,6 +144,52 @@ async fn writing_to_a_snoozed_session_wakes_it() {
     core.session_send(session.id, "and now?").expect("sends");
     turn(&mut bus, session.id).await;
     assert_eq!(snoozed(&core, session.id), None);
+}
+
+/// Whether `events` begin with a message session `from` left.
+fn left_by(events: &[AgentEvent], from: i64) -> bool {
+    matches!(
+        events.first(),
+        Some(AgentEvent::UserMessage { from_session: Some(by), .. }) if *by == from
+    )
+}
+
+#[tokio::test]
+async fn a_message_another_session_leaves_does_not_wake_it_sent_or_queued() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    let worker = worked_session(&core).await;
+    let planner = worked_session(&core).await;
+    let mut bus = core.subscribe();
+    let until = in_an_hour();
+    core.session_snooze(planner.id, Some(until))
+        .expect("snoozes");
+
+    // Idle: it goes at once, recorded as the worker's, and the planner sleeps on.
+    let sent = core.peer_message(worker.id, planner.id, "done with the tests");
+    assert_eq!(sent.expect("delivers"), Delivery::Sent);
+    let events = turn(&mut bus, planner.id).await;
+    assert!(left_by(&events, worker.id), "{events:?}");
+    assert_eq!(snoozed(&core, planner.id), Some(until));
+
+    // Busy: it waits with who left it, and goes as the worker's once the turn is stopped.
+    core.session_send(planner.id, "slow").expect("sends");
+    published(&mut bus, planner.id, |event| {
+        matches!(event, AgentEvent::Text { .. })
+    })
+    .await;
+    core.session_snooze(planner.id, Some(until))
+        .expect("snoozes");
+    let queued = core.peer_message(worker.id, planner.id, "and the docs");
+    assert_eq!(queued.expect("queues"), Delivery::Queued);
+    let waiting = core.session_queue(planner.id).expect("reads");
+    let senders: Vec<Option<i64>> = waiting.iter().map(|message| message.from_session).collect();
+    assert_eq!(senders, [Some(worker.id)]);
+    core.session_interrupt(planner.id).expect("stops the turn");
+    turn(&mut bus, planner.id).await;
+    let events = turn(&mut bus, planner.id).await;
+    assert!(left_by(&events, worker.id), "{events:?}");
+    assert_eq!(snoozed(&core, planner.id), Some(until));
 }
 
 #[tokio::test]

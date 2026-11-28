@@ -357,6 +357,11 @@ pub enum AgentEvent {
         /// recorded before this, and from every message typed.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         at_reset: bool,
+        /// The session whose agent left it (`send_message`, `peers.rs`), when another session
+        /// wrote it rather than the user. Absent from what was recorded before this, and from
+        /// the user's own, typed here or on claude.ai.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_session: Option<i64>,
     },
     /// The agent process is up.
     Init {

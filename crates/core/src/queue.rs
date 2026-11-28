@@ -45,6 +45,10 @@ pub struct QueuedMessage {
     /// reset, as the user asked it to. Absent from what the user wrote.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub at_reset: bool,
+    /// The session whose agent left it (`peers.rs`), while this one was busy. Absent from what
+    /// the user wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_session: Option<i64>,
 }
 
 /// How long a hold on a waiting message lasts unless it is renewed. An open edit box renews it
@@ -118,17 +122,25 @@ impl Queues {
         waiting.get(&session).is_some_and(|queue| !queue.is_empty())
     }
 
-    fn push(&self, session: i64, text: &str) {
-        let message = self.message(text);
+    /// Puts a message last in the queue, left by session `from_session`'s agent if it is given.
+    fn push(&self, session: i64, text: &str, from_session: Option<i64>) {
+        let message = QueuedMessage {
+            from_session,
+            ..self.message(text)
+        };
         lock(&self.waiting)
             .entry(session)
             .or_default()
             .push(message);
     }
 
-    /// Puts a message first in the queue, ahead of those waiting.
-    fn push_front(&self, session: i64, text: &str) {
-        let message = self.message(text);
+    /// Puts a message first in the queue, ahead of those waiting, left by session
+    /// `from_session`'s agent if it is given.
+    fn push_front(&self, session: i64, text: &str, from_session: Option<i64>) {
+        let message = QueuedMessage {
+            from_session,
+            ..self.message(text)
+        };
         lock(&self.waiting)
             .entry(session)
             .or_default()
@@ -154,6 +166,7 @@ impl Queues {
             id,
             text: text.to_string(),
             at_reset: false,
+            from_session: None,
         }
     }
 
@@ -168,6 +181,7 @@ impl Queues {
             message.text = text.to_string();
             // The user's own words now, whatever put the message there.
             message.at_reset = false;
+            message.from_session = None;
         }
     }
 
@@ -402,13 +416,15 @@ pub(crate) fn publish(store: &Mutex<Store>, live: &Live, session: i64) -> Result
 }
 
 /// Puts messages told to the session's agent mid-turn, which it never took in, back at the
-/// front of the session's queue in the order they were told. They wait there as any message.
-pub(crate) fn wait_again(store: &Mutex<Store>, live: &Live, session: i64, texts: &[String]) {
-    if texts.is_empty() {
+/// front of the session's queue in the order they were told, each as typed and from whom it
+/// was. They wait there as any message.
+pub(crate) fn wait_again(store: &Mutex<Store>, live: &Live, session: i64, told: &[Told]) {
+    if told.is_empty() {
         return;
     }
-    for text in texts.iter().rev() {
-        live.queues.push_front(session, text);
+    for message in told.iter().rev() {
+        live.queues
+            .push_front(session, &message.typed, message.from_session);
     }
     // An error only means the session is gone, and its queue with it.
     publish(store, live, session).ok();
@@ -436,7 +452,8 @@ pub(crate) fn send_next(outbox: &Outbox, session: i64) -> Result<()> {
     let with = (&*outbox.terminals, &outbox.paths);
     // The pull requests and issues it mentions as they are now, not as when it was typed.
     let text = fresh_list(&message.text, &live.github);
-    let sent = send_text(store, live, with, session, (&text, message.at_reset));
+    let origin = (&*text, message.at_reset, message.from_session);
+    let sent = send_text(store, live, with, session, origin);
     if sent.is_err() {
         live.queues.put_back(session, message);
     } else {
@@ -535,11 +552,22 @@ impl Core {
     /// Adds a message to the end of the session's queue and returns the queue. A command
     /// Swarmed does not send on is refused here as it is when sent: [`Error::TerminalOnly`].
     pub fn session_enqueue(&self, id: i64, text: &str) -> Result<Vec<QueuedMessage>> {
+        self.enqueue_from(id, text, None)
+    }
+
+    /// Adds a message to the end of the session's queue, left by session `from_session`'s agent
+    /// if it is given, else the user's, as [`Core::session_enqueue`] does.
+    pub(crate) fn enqueue_from(
+        &self,
+        id: i64,
+        text: &str,
+        from_session: Option<i64>,
+    ) -> Result<Vec<QueuedMessage>> {
         self.may_wait(id, text)?;
         if text.trim().is_empty() {
             return Err(Error::EmptyMessage);
         }
-        self.live.queues.push(id, text);
+        self.live.queues.push(id, text, from_session);
         self.queued_for(id);
         self.github_follow_waiting();
         self.queue_changed(id)
@@ -626,7 +654,7 @@ impl Core {
         let running = self.live.is_running(id);
         self.session_start(id, auth)?;
         let pressing = self.live.queues.pressing();
-        self.live.queues.push_front(id, text);
+        self.live.queues.push_front(id, text, None);
         self.send_first_now(id, running, pressing)
     }
 
@@ -684,6 +712,7 @@ impl Core {
         let message = Told {
             sent: called.unwrap_or_else(|| text.clone()),
             typed: text,
+            from_session: taken.from_session,
         };
         let told = self.live.tell(id, message);
         if told.is_err() {
@@ -746,9 +775,25 @@ mod tests {
     }
 
     #[test]
+    fn a_message_another_session_left_keeps_its_sender_until_the_user_changes_it() {
+        let queues = Queues::default();
+        queues.push(1, "Message from session 4: done", Some(4));
+        queues.push(1, "and mine", None);
+        let senders: Vec<Option<i64>> = queues
+            .list(1)
+            .iter()
+            .map(|message| message.from_session)
+            .collect();
+        assert_eq!(senders, [Some(4), None]);
+        let left = queues.list(1)[0].id;
+        queues.edit(1, left, "Done, and look at the docs too.");
+        assert_eq!(queues.list(1)[0].from_session, None);
+    }
+
+    #[test]
     fn a_hold_that_is_not_renewed_lapses() {
         let queues = Queues::default();
-        queues.push(1, "first");
+        queues.push(1, "first", None);
         let id = queues.list(1)[0].id;
         assert!(queues.hold(1, id));
         assert!(queues.first_held(1));

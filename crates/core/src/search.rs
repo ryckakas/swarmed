@@ -191,6 +191,7 @@ mod tests {
             text: "hello".to_string(),
             remote: false,
             at_reset: false,
+            from_session: None,
         };
         assert_eq!(said(&typed), Some(("hello", true)));
         let reply = AgentEvent::Text {

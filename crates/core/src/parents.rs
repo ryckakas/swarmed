@@ -584,6 +584,7 @@ pub(crate) mod tests {
             text: "go on".into(),
             remote: false,
             at_reset: false,
+            from_session: None,
         };
         let renamed = AgentEvent::Renamed {
             title: "Fix it".into(),

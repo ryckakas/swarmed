@@ -13,10 +13,14 @@
 //!   and each front end draws again when it comes. So no follower, timer or house is needed,
 //!   and a Swarmed that was not running at the time shows the session as soon as it starts.
 //! - **Back early when it needs the user.** Recording an event clears it ([`wakes`], from
-//!   `Store::record`) for a message the user writes, a permission request (a question is
-//!   one) and an exit with an error, as a message clears a mark. A turn that ends well does
-//!   not: the session is unread when its time comes, and its "Finished" notice is not given
-//!   meanwhile (`notices.rs`). Closing clears it too; a fork starts without one.
+//!   `Store::record`) for a message the user writes, in Swarmed or on claude.ai, a permission
+//!   request (a question is one) and an exit with an error, as a message clears a mark. A
+//!   message another session left (`from_session`, `peers.rs`) does not, nor the one Swarmed
+//!   sends by itself when a usage limit resets (`at_reset`): neither is the user's, and a
+//!   planner snoozed until Monday must not come back each time a worker reports. A turn that
+//!   ends well does not wake it either: the session is unread when its time comes, and its
+//!   "Finished" notice is not given meanwhile (`notices.rs`). Closing clears it too; a fork
+//!   starts without one.
 //! - **Not an event.** As a highlight is (`highlights.rs`), a snooze is in the tree, not in the
 //!   conversation: the change is published as [`AgentEvent::TreeChanged`] on session 0, and
 //!   another Swarmed sees the row change through the tree's fingerprint (`elsewhere.rs`). A
@@ -43,13 +47,20 @@ use crate::sessions::{Session, SessionStatus};
 use crate::store::Store;
 
 /// Whether recording `event`, which leads to `status`, wakes its session: the user wrote to
-/// it, its agent asks for a decision, or its agent stopped with an error. Each needs the user
-/// now, whatever time the snooze was for.
+/// it, here or on claude.ai, its agent asks for a decision, or its agent stopped with an error.
+/// Each needs the user now, whatever time the snooze was for. A message another session left
+/// does not, nor the one Swarmed sends by itself when a usage limit resets: the user did not
+/// write either.
 pub(crate) fn wakes(event: &AgentEvent, status: Option<SessionStatus>) -> bool {
-    matches!(
-        event,
-        AgentEvent::UserMessage { .. } | AgentEvent::PermissionRequest { .. }
-    ) || status == Some(SessionStatus::Errored)
+    match event {
+        AgentEvent::UserMessage {
+            at_reset,
+            from_session,
+            ..
+        } => !at_reset && from_session.is_none(),
+        AgentEvent::PermissionRequest { .. } => true,
+        _ => status == Some(SessionStatus::Errored),
+    }
 }
 
 /// Whether `session` is snoozed now: until a time still to come.
@@ -102,6 +113,7 @@ mod tests {
             text: "go on".to_string(),
             remote: false,
             at_reset: false,
+            from_session: None,
         };
         let request = AgentEvent::PermissionRequest {
             request_id: "r1".to_string(),
@@ -126,6 +138,23 @@ mod tests {
         };
         let status = |event: &AgentEvent| SessionStatus::after(event, false);
         assert!(wakes(&message, status(&message)));
+        // What the user did not write leaves it asleep: another session's message, and the
+        // one Swarmed sends by itself at a usage limit's reset.
+        let left = AgentEvent::UserMessage {
+            text: "Message from session 4 (\"Tests\"), another agent session of the same user:\n\ndone"
+                .to_string(),
+            remote: false,
+            at_reset: false,
+            from_session: Some(4),
+        };
+        assert!(!wakes(&left, status(&left)));
+        let at_reset = AgentEvent::UserMessage {
+            text: "Continue where you stopped.".to_string(),
+            remote: false,
+            at_reset: true,
+            from_session: None,
+        };
+        assert!(!wakes(&at_reset, status(&at_reset)));
         assert!(wakes(&request, SessionStatus::after(&request, true)));
         assert!(wakes(&failed, status(&failed)));
         assert!(!wakes(&stopped, status(&stopped)));
@@ -172,6 +201,22 @@ mod tests {
         };
         record(done, Some(SessionStatus::Idle));
         assert_eq!(snoozed(), Some(later), "a turn that ends well keeps it");
+        let left = AgentEvent::UserMessage {
+            text: "done with the tests".to_string(),
+            remote: false,
+            at_reset: false,
+            from_session: Some(4),
+        };
+        record(left, Some(SessionStatus::Working));
+        assert_eq!(snoozed(), Some(later), "a worker's report keeps it");
+        let at_reset = AgentEvent::UserMessage {
+            text: "Continue where you stopped.".to_string(),
+            remote: false,
+            at_reset: true,
+            from_session: None,
+        };
+        record(at_reset, Some(SessionStatus::Working));
+        assert_eq!(snoozed(), Some(later), "going on at a reset keeps it");
         let request = AgentEvent::PermissionRequest {
             request_id: "r1".to_string(),
             tool_name: "AskUserQuestion".to_string(),
@@ -190,6 +235,7 @@ mod tests {
             text: "go on".to_string(),
             remote: true,
             at_reset: false,
+            from_session: None,
         };
         record(message, Some(SessionStatus::Working));
         assert_eq!(snoozed(), None, "a message wakes it, from claude.ai too");

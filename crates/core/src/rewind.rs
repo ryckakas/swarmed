@@ -588,6 +588,7 @@ mod tests {
             text: text.to_string(),
             remote: false,
             at_reset: false,
+            from_session: None,
         }
     }
 

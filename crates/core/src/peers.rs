@@ -634,12 +634,14 @@ impl Core {
             return Err(Error::EmptyMessage);
         }
         let message = left_by(&sender, text);
+        // Recorded as from `from`, never as the user's: it does not wake a snoozed session
+        // (`snooze.rs`). It is never one of the agent's commands, starting as it does.
         if is_busy(&receiver) {
-            self.session_enqueue(to, &message)?;
+            self.enqueue_from(to, &message, Some(from))?;
             return Ok(Delivery::Queued);
         }
         self.session_start(to, Auth::Subscription)?;
-        self.session_send(to, &message)?;
+        self.send_from(to, &message, Some(from))?;
         Ok(Delivery::Sent)
     }
 

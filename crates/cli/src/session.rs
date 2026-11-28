@@ -184,9 +184,10 @@ pub(crate) enum SessionCommand {
         off: bool,
     },
     /// Snooze a session until a time: the app leaves it out of its task's list and the inbox
-    /// until then, and its agent goes on with whatever it runs. Writing to it, a permission
-    /// request or a question, or an error wakes it early; a turn that ends well does not, and
-    /// it shows unread when its time comes. Closing it wakes it.
+    /// until then, and its agent goes on with whatever it runs. Writing to it yourself, a
+    /// permission request or a question, or an error wakes it early; a message another session
+    /// leaves and a turn that ends well do not, and it shows unread when its time comes.
+    /// Closing it wakes it.
     Snooze {
         id: i64,
         #[command(flatten)]
@@ -1078,10 +1079,12 @@ fn said(text: &str, remote: bool, at_reset: bool) -> String {
 /// The line an event is shown as, or `None` for events not worth a line.
 pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
     match event {
+        // A message another session left says so in its own words.
         AgentEvent::UserMessage {
             text,
             remote,
             at_reset,
+            ..
         } => Some(said(text, *remote, *at_reset)),
         AgentEvent::RemoteControl {
             state, url, detail, ..
