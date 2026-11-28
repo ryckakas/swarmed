@@ -795,6 +795,97 @@ describe("what another Swarmed process writes", () => {
     });
 });
 
+describe("a task removed by itself", () => {
+    it("is said on the problem line, and a second one under the first", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        const api: Api = {
+            ...createMockApi(),
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        useStore.setState({ problem: null });
+
+        const removed = (task: string, notes: string[]): AgentEvent => ({
+            type: "task_removed",
+            project: "demo",
+            task,
+            days: 30,
+            notes,
+        });
+        heard(published(0, removed("one", [])));
+        expect(useStore.getState().problem).toBe("Removed demo / one, put away for 30 days");
+        heard(published(0, removed("two", ["kept the branch two"])));
+        expect(useStore.getState().problem).toBe(
+            "Removed demo / one, put away for 30 days\n" +
+                "Removed demo / two, put away for 30 days, though not everything went as set up: " +
+                "kept the branch two",
+        );
+        expect(useStore.getState().events[0]).toBeUndefined();
+        disconnect();
+    });
+
+    it("forgets what the window kept of the task, and leaves its session on screen", async () => {
+        let heard: (event: SessionEvent) => void = () => {};
+        const api: Api = {
+            ...createMockApi(),
+            onSessionEvent: async (listener) => {
+                heard = listener;
+                return () => {};
+            },
+        };
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const project = useStore.getState().projects.find((p) => p.tasks.length > 1);
+        const [gone, stays] = project?.tasks ?? [];
+        const session = gone?.sessions[0];
+        if (!(project && gone && stays && session)) {
+            throw new Error("the sample has a repository with two tasks and a session");
+        }
+        useStore.setState({
+            problem: null,
+            selectedSessionId: session.id,
+            commitDrafts: { [gone.id]: "Fix the redirect loop", [stays.id]: "Export" },
+        });
+
+        heard(
+            published(0, {
+                type: "task_removed",
+                project: project.name,
+                task: gone.name,
+                days: 30,
+                notes: [],
+            }),
+        );
+        const state = useStore.getState();
+        expect(state.commitDrafts).toEqual({ [stays.id]: "Export" });
+        expect(state.selectedSessionId).toBeNull();
+        expect(state.draftProject).toBe(project.name);
+        expect(state.problem).toBe(`Removed ${project.name} / ${gone.name}, put away for 30 days`);
+        disconnect();
+    });
+
+    it("has a click on its notice open no session", async () => {
+        let clicked: (sessionId: number) => void = () => {};
+        const api: Api = {
+            ...createMockApi(),
+            onNoticeOpened: async (listener) => {
+                clicked = listener;
+                return () => {};
+            },
+        };
+        const disconnect = connect(api);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        useStore.setState({ selectedSessionId: null });
+        clicked(0);
+        expect(useStore.getState().selectedSessionId).toBeNull();
+        disconnect();
+    });
+});
+
 describe("the account's usage", () => {
     const usage = (used: number): AccountUsage => ({
         windows: [

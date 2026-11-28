@@ -518,11 +518,24 @@ pub enum AgentEvent {
         kind: String,
     },
     /// Another Swarmed process on the same data, such as the command line, changed
-    /// repositories, tasks or sessions, or started or stopped a stack, or a task was put away
-    /// or brought back here (`put_away.rs`), or a task or a session was highlighted
-    /// (`highlights.rs`), so front ends read the tree again. It belongs to no session:
-    /// published with session id 0, which no session has, and never recorded.
+    /// repositories, tasks or sessions, or started or stopped a stack, or a task was put away,
+    /// brought back or removed by itself here (`put_away.rs`), or a task or a session was
+    /// highlighted (`highlights.rs`), so front ends read the tree again. It belongs to no
+    /// session: published with session id 0, which no session has, and never recorded.
     TreeChanged,
+    /// A task put away for `days` was removed by itself, as the user's settings say
+    /// (`put_away.rs`). It belongs to no session: published with session id 0, which no session
+    /// has, and never recorded.
+    TaskRemoved {
+        /// The repository it was in.
+        project: String,
+        /// The task, by its name.
+        task: String,
+        /// How many days it had been put away, as the settings said.
+        days: u32,
+        /// What the removal passed over, to be said: a branch kept, a teardown that failed.
+        notes: Vec<String>,
+    },
     /// How a task's setup goes: where it is, what it printed, and how it ended. It belongs to
     /// no session: published with session id 0, which no session has, and never recorded.
     Setup {

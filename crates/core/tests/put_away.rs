@@ -9,7 +9,8 @@ use std::sync::Arc;
 use common::{core_with_project, fixture, turn};
 use swarmed_core::agent::{AgentEvent, Auth, FakeBackend};
 use swarmed_core::{
-    CHATS, Core, DoneWhy, Error, NewTaskOptions, Session, SessionOptions, Settings, Task, hooks,
+    CHATS, Core, DoneWhy, Error, NewTaskOptions, Session, SessionEvent, SessionOptions, Settings,
+    Task, hooks,
 };
 
 async fn core_with_task(fx: &common::Fixture) -> Core {
@@ -270,4 +271,167 @@ async fn the_idle_rule_counts_from_the_last_thing_its_sessions_recorded() {
     // Brought back by hand, it counts from then.
     core.task_undone("demo", "one").expect("brings back");
     assert_eq!(core.tasks_put_away_due().await.expect("looks"), []);
+}
+
+/// Moves when task `one` was put away `days` back.
+fn put_away_days_ago(fx: &common::Fixture, days: i64) {
+    let db = rusqlite::Connection::open(fx.paths.db_file()).expect("opens");
+    db.execute(
+        "UPDATE tasks SET done_at = done_at - ?1 * 86400 WHERE done_at IS NOT NULL",
+        [days],
+    )
+    .expect("backdates");
+}
+
+/// Whether the repository still has the local branch.
+fn has_branch(repo: &Path, branch: &str) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["show-ref", "--verify", "--quiet"])
+        .arg(format!("refs/heads/{branch}"))
+        .status()
+        .expect("runs git")
+        .success()
+}
+
+#[tokio::test]
+async fn a_task_put_away_long_enough_is_removed_as_remove_does() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    core.arrive().expect("arrives");
+    let one = task(&core);
+    // Work never committed: a forced removal loses it, as the user chose.
+    std::fs::write(one.worktree_path.join("draft.txt"), "unsaved").expect("writes");
+    core.task_done("demo", "one", false, &hooks::discard)
+        .await
+        .expect("puts away");
+    core.set_settings(&settings(|s| s.put_away_remove_days = 3))
+        .expect("saves");
+    assert_eq!(core.tasks_removed_due().await.expect("looks"), []);
+    assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
+
+    put_away_days_ago(&fx, 4);
+    let mut bus = core.subscribe();
+    let removed = core.tasks_removed_due().await.expect("looks");
+    let names: Vec<_> = removed
+        .iter()
+        .map(|(p, t, _)| (p.as_str(), t.as_str()))
+        .collect();
+    assert_eq!(names, [("demo", "one")]);
+    assert_eq!(core.tasks("demo", false).expect("lists"), vec![]);
+    assert!(!one.worktree_path.exists());
+    assert!(!has_branch(&fx.repo, &one.branch));
+    let heard: Vec<_> = std::iter::from_fn(|| bus.try_recv().ok()).collect();
+    assert!(
+        heard.iter().any(|seen| seen.session_id == 0
+            && matches!(&seen.event, AgentEvent::TaskRemoved { project, task, days: 3, .. }
+                if project == "demo" && task == "one")),
+        "the user is told: {heard:?}"
+    );
+    assert!(
+        heard
+            .iter()
+            .any(|seen| matches!(seen.event, AgentEvent::TreeChanged)),
+        "front ends read the tree again"
+    );
+}
+
+#[tokio::test]
+async fn nothing_is_removed_at_0_days_nor_a_task_not_put_away() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    core.arrive().expect("arrives");
+    core.task_done("demo", "one", false, &hooks::discard)
+        .await
+        .expect("puts away");
+    put_away_days_ago(&fx, 400);
+    assert_eq!(core.tasks_removed_due().await.expect("looks"), []);
+    assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
+
+    // Brought back, it is not put away, however long it once was.
+    core.task_undone("demo", "one").expect("brings back");
+    core.set_settings(&settings(|s| s.put_away_remove_days = 1))
+        .expect("saves");
+    assert_eq!(core.tasks_removed_due().await.expect("looks"), []);
+    assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
+}
+
+#[tokio::test]
+async fn only_the_house_removes() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    core.task_done("demo", "one", false, &hooks::discard)
+        .await
+        .expect("puts away");
+    core.set_settings(&settings(|s| s.put_away_remove_days = 1))
+        .expect("saves");
+    put_away_days_ago(&fx, 2);
+    assert_eq!(core.tasks_removed_due().await.expect("looks"), []);
+    assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
+
+    core.arrive().expect("arrives");
+    assert_eq!(core.tasks_removed_due().await.expect("looks").len(), 1);
+}
+
+#[tokio::test]
+async fn a_task_put_away_is_not_removed_while_work_goes_on_in_it() {
+    let fx = fixture();
+    let core = core_with_task(&fx).await;
+    core.arrive().expect("arrives");
+    let session = core
+        .session_new("demo", "one", &SessionOptions::default())
+        .expect("makes");
+    core.task_done("demo", "one", false, &hooks::discard)
+        .await
+        .expect("puts away");
+    core.set_settings(&settings(|s| s.put_away_remove_days = 1))
+        .expect("saves");
+    put_away_days_ago(&fx, 2);
+    // Its session goes on by itself when a usage limit resets, in an hour.
+    let db = rusqlite::Connection::open(fx.paths.db_file()).expect("opens");
+    db.execute(
+        "UPDATE sessions SET continue_at = CAST(strftime('%s', 'now') AS INTEGER) + 3600 \
+         WHERE id = ?1",
+        [session.id],
+    )
+    .expect("waits for a reset");
+
+    assert_eq!(core.tasks_removed_due().await.expect("looks"), []);
+    assert_eq!(core.tasks("demo", false).expect("lists").len(), 1);
+
+    db.execute(
+        "UPDATE sessions SET continue_at = NULL WHERE id = ?1",
+        [session.id],
+    )
+    .expect("waits no more");
+    let removed = core.tasks_removed_due().await.expect("looks");
+    assert_eq!(removed.len(), 1, "once nothing goes on, it goes");
+}
+
+#[tokio::test]
+async fn a_task_removed_by_itself_is_told_while_notifications_are_on() {
+    let fx = fixture();
+    let core = core_with_project(&fx).await;
+    let removed = SessionEvent {
+        session_id: 0,
+        status: None,
+        unread: None,
+        background: None,
+        event: AgentEvent::TaskRemoved {
+            project: "demo".to_string(),
+            task: "one".to_string(),
+            days: 30,
+            notes: Vec::new(),
+        },
+        elsewhere: false,
+    };
+    let notice = core.notice_for(&removed).expect("reads").expect("told");
+    assert_eq!(notice.session_id, 0);
+    assert_eq!(notice.title, "Removed: one");
+    assert_eq!(notice.body, "demo / one\nPut away for 30 days");
+
+    core.set_settings(&settings(|s| s.notifications = false))
+        .expect("saves");
+    assert_eq!(core.notice_for(&removed).expect("reads"), None);
 }

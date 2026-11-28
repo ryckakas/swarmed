@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import type { Project, RemoveTarget, Task } from "../api/types";
-import { putAwayDoes } from "../putAway";
+import { putAwayInsteadSaid } from "../putAway";
 import { anywayHelps, refusalSaid } from "../removal";
 import { useStore } from "../store";
 import { useWords } from "../useWords";
@@ -159,11 +159,7 @@ function PutAwayInsteadSaid({ task }: { task: Task | null }) {
     if (task === null) {
         return null;
     }
-    return (
-        <p className="put-away-said">
-            Putting it away instead deletes nothing. {putAwayDoes(settings)}
-        </p>
-    );
+    return <p className="put-away-said">{putAwayInsteadSaid(settings)}</p>;
 }
 
 /**

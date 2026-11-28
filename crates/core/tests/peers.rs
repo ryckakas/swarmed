@@ -629,6 +629,34 @@ async fn an_agent_cannot_change_how_many_sessions_may_work_for_one() {
 }
 
 #[tokio::test]
+async fn an_agent_cannot_turn_on_removing_put_away_tasks() {
+    let fx = fixture();
+    let core = Arc::new(core_with_task(&fx).await);
+    let session = new_session(&core);
+    drop(tokio::spawn(serve_session_tools(Arc::clone(&core))));
+    let socket = core.paths().tools_socket();
+    listening(&socket).await;
+    let days = || core.settings().expect("reads").put_away_remove_days;
+
+    // Given among the looks, it is not one of them: the rest is changed, this is not.
+    let asked = serde_json::json!({ "kind": "appearance", "op": "save", "palette": "Forest",
+        "put_away_remove_days": 30 });
+    let (ok, said) = configure(&socket, session.id, asked).await;
+    assert!(ok, "{said}");
+    assert!(!said.contains("put_away_remove_days"), "{said}");
+    assert_eq!(core.settings().expect("reads").palette, Palette::Forest);
+    assert_eq!(days(), 0);
+
+    // Nor is there a kind of its own.
+    for kind in ["settings", "put_away", "put_away_remove_days"] {
+        let asked = serde_json::json!({ "kind": kind, "op": "save", "put_away_remove_days": 30 });
+        let (ok, said) = configure(&socket, session.id, asked).await;
+        assert!(!ok, "{said}");
+    }
+    assert_eq!(days(), 0);
+}
+
+#[tokio::test]
 async fn an_agent_cannot_change_the_models_and_efforts_of_roles() {
     let fx = fixture();
     let core = Arc::new(core_with_task(&fx).await);

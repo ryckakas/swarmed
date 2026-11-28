@@ -23,7 +23,9 @@ Everything Swarmed does, in short, with a link to where each part is explained i
   [Where things are](configuration.md#where-things-are).
 - **Finished tasks are put away, not deleted.** Their agents and stack stop and the worktree,
   branch, notes and sessions stay, by hand or by themselves once the pull request merged or they
-  sat idle, if you turn that on. See [Finished tasks](configuration.md#finished-tasks).
+  sat idle, if you turn that on. If you turn that on too (`put_away_remove_days`), a task put
+  away for a number of days is then removed, as a forced **Remove…** does. See
+  [Finished tasks](configuration.md#finished-tasks).
 
 ## Agents
 
