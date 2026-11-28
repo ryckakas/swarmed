@@ -189,3 +189,13 @@ export function CopyIcon() {
         </>
     );
 }
+
+/** An alarm clock: snoozing until a time. */
+export function SnoozeIcon() {
+    return (
+        <>
+            <circle cx="8" cy="8.8" r="5.2" />
+            <path d="M8 6v2.8l1.8 1.2M2.6 4.2 4.6 2.4M13.4 4.2l-2-1.8" />
+        </>
+    );
+}

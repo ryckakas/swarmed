@@ -15,6 +15,19 @@ notice adds its line under Unreleased.
 
 ## [Unreleased]
 
+### Added
+
+- **Snooze a session.** Not now, but not done either: press ⌘⇧D, the clock on a session's row
+  or the one in its header, and choose in 1 hour, this evening, tomorrow morning, next Monday
+  or a time of your own. The session leaves its task's list, the inbox and the Dock's count,
+  and waits in a Snoozed fold under its task, with its time and a Wake button. Its agent keeps
+  running. It comes back by itself at its time, and earlier when you write to it, it asks for
+  something or it fails; a turn that ends well, or a message another session leaves it, does
+  not wake it. A task whose last session you snooze folds, and unfolds when one wakes. The
+  morning's and the evening's hours are in Settings → Sessions → Snooze times.
+  `swarmed session snooze <id> --until <time>` or `--for <duration>`, and
+  `swarmed session wake <id>`, do the same from the command line.
+
 ## [0.4.13] - 2026-11-28
 
 ### Added

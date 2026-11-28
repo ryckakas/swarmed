@@ -421,6 +421,11 @@ const MIGRATIONS: &[&str] = &[
         clear     INTEGER NOT NULL DEFAULT 0
     );
 ",
+    // Until when the user snoozed a session, in seconds since 1970 (`snooze.rs`); none for
+    // awake. A time that has passed is as good as none: nothing clears it when it comes.
+    "
+    ALTER TABLE sessions ADD COLUMN snoozed_until INTEGER;
+",
 ];
 
 /// Stands in [`MIGRATIONS`] for the one change SQL in a transaction cannot make: every

@@ -460,6 +460,14 @@ pub enum Error {
     /// The session was closed. Its agent is not started until it is reopened.
     #[error("session {0} is closed: reopen it first")]
     SessionClosed(i64),
+    /// A session was to be snoozed until a time that is not in the future (`snooze.rs`).
+    #[error("session {id} cannot be snoozed until a time that has come already: pick a later one")]
+    SnoozePast {
+        /// The session.
+        id: i64,
+        /// The time asked for, in seconds since 1970.
+        until: i64,
+    },
     /// The session's agent has not been started, or has exited.
     #[error("session {0} is not running")]
     SessionNotRunning(i64),

@@ -330,7 +330,7 @@ export function accountWindows(usage: AccountUsage | null, now: number): LimitWi
 }
 
 /** The longest a timer is set for: browsers take a longer one for none at all. */
-const LONGEST_WAIT_MS = 2 ** 31 - 1;
+export const LONGEST_WAIT_MS = 2 ** 31 - 1;
 
 /** How long after a reset what is shown changes, so that the reset has surely passed by then. */
 const AFTER_RESET_MS = 1000;

@@ -413,7 +413,7 @@ days:
 
 A rule never puts away a task while work goes on in it: a session at work or waiting for you,
 something an agent left running in the background, a session another Swarmed runs, a session
-set to go on when a usage limit resets, or its setup. It tries again a minute later. Only the
+set to go on when a usage limit resets, a snoozed session, or its setup. It tries again a minute later. Only the
 first Swarmed to arrive on the data directory applies the rules, while the app runs.
 
 With `put_away_remove_days` above 0, a task put away that many days ago is removed by itself.
@@ -510,6 +510,8 @@ Set in the app's Settings, kept in `settings.toml`.
 | `turn_end_lines` | `true` | whether a conversation draws a line where each turn ends, with how long it took, the tokens it used and what was spent so far. A turn with nothing in it that spent nothing more has none either way, and a turn that failed or was stopped keeps its line even when this is `false`. What the agent loaded is said once, at the top, whatever this is |
 | `math` | `standard` | which formulas in agents' replies are drawn as math, by KaTeX, bundled with the app: `off`, none, shown as written; `standard`, `$$…$$`, `\(…\)`, `\[…\]` and fenced `math` blocks, while a single `$` stays a dollar sign, so prices and shell variables (`$5 and $10`, `$HOME`) stay text; `with_single_dollars`, those and `$…$` where it reads as math: no space after the first `$` or before the second, and no digit after it. A formula that stands alone in its paragraph in `$$` or `\[…\]` is drawn on its own line. Code is never drawn as math, and your own messages show as you typed them. A formula KaTeX cannot read shows as written, in the code style, and copying a formula gives its TeX |
 | `put_away_merged`, `put_away_idle` and their days, `put_away_closes_sessions`, `put_away_remove_days` | off, 1, 14, `false`, 0 | putting finished tasks away by themselves, and removing them some days later; see [Finished tasks](#finished-tasks) |
+| `snooze_morning_hour` | `9` | the hour, 0 to 23, a session snoozed until tomorrow morning or next Monday wakes at. Agents cannot change it |
+| `snooze_evening_hour` | `18` | the hour, 0 to 23, a session snoozed until this evening wakes at. Agents cannot change it |
 | `browser_program` | empty | the program a task's browser runs; empty for the first of Google Chrome, Chromium, Microsoft Edge and Brave installed. See [The task's browser](#the-tasks-browser) |
 | `browser_idle_minutes` | `30` | how long a task's browser may sit unused before it is stopped, up to 1440; 0 to leave it running. One in a window of its own is never stopped for this |
 | `browser_display` | `pane` | where a task's browser is shown: `pane`, drawn beside the conversation, or `window`, a Chrome window of its own. See [The task's browser](#the-tasks-browser) |

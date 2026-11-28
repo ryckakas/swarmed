@@ -37,6 +37,7 @@ import { type ReviewComment, withComment } from "./review";
 import { type ScrollSpot, withoutPlaces } from "./scrollSpot";
 import { type Draft, NO_DRAFT, putBack, withDraft } from "./sending";
 import { heard, readFrom, type SetupSeen } from "./setup";
+import { foldedWhenSnoozed, snoozedShownFor } from "./snooze";
 import { answersInOrder, NOTHING_PUT_ASIDE, type StylesheetPutAside } from "./stylesheet";
 import { atWork, type SubAgent, subAgentsIn } from "./subagents";
 import {
@@ -321,6 +322,25 @@ interface State {
      */
     doneShown: number[];
     toggleDoneShown(projectId: number): void;
+    /**
+     * The time the snoozes are looked at, in milliseconds since 1970: a session snoozed until
+     * later is out of the sidebar's list and the inbox, and counts as idle and read. Set as the
+     * tree is read and by the wake timer (`useSnoozeWakes`), so that a session wakes on time
+     * with nothing asked of the core.
+     */
+    snoozeNow: number;
+    /** Looks at the snoozes again, now: a session whose time came wakes, and its task unfolds. */
+    wakeDue(): void;
+    /**
+     * The ids of the tasks whose Snoozed fold is unfolded in the sidebar. Folded until the user
+     * unfolds it, or opens a snoozed session of the task. In memory only.
+     */
+    snoozedShown: number[];
+    toggleSnoozedShown(taskId: number): void;
+    /** The session the snooze dialog is open for, if any. */
+    snoozing: number | null;
+    /** Opens the snooze dialog for a session; `null` puts it away. */
+    askToSnooze(sessionId: number | null): void;
     /**
      * Puts a task away and reads the tree again. What went wrong on the way, a `stop` that
      * failed say, is said; a refusal is thrown, for whoever asked to say.
@@ -824,6 +844,9 @@ function forgotten(state: State, sessionIds: number[], taskIds: number[]): Parti
         reviews: without(state.reviews, taskIds),
         pulls: without(state.pulls, taskIds),
         foldedTasks: withoutIds(state.foldedTasks, taskIds),
+        snoozedShown: withoutIds(state.snoozedShown, taskIds),
+        snoozing:
+            state.snoozing !== null && sessionIds.includes(state.snoozing) ? null : state.snoozing,
         browserOpen: withoutIds(state.browserOpen, taskIds),
     };
 }
@@ -851,7 +874,7 @@ function leaving(state: State, sessionIds: number[], project?: string | null): P
 
 /**
  * What changes when a session is closed: it leaves the tree, and the centre if it was there. A
- * task it leaves with no open session folds.
+ * task it leaves with no open session folds, and so does one it leaves with snoozed ones alone.
  */
 function closed(state: State, sessionId: number): Partial<State> {
     // Put back, it reads its images again; put away, they are not held for it.
@@ -862,14 +885,37 @@ function closed(state: State, sessionId: number): Partial<State> {
         // Asked about it, the question goes with it; asked about another, that stays.
         closing: state.closing === sessionId ? null : state.closing,
         rewinding: state.rewinding?.sessionId === sessionId ? null : state.rewinding,
+        snoozing: state.snoozing === sessionId ? null : state.snoozing,
         projects,
-        foldedTasks: foldedWhenEmptied(state.foldedTasks, state.projects, projects),
+        // A task left with snoozed sessions alone folds as one left with none does.
+        foldedTasks: foldedWhenSnoozed(
+            foldedWhenEmptied(state.foldedTasks, state.projects, projects),
+            { projects: state.projects, now: state.snoozeNow },
+            { projects, now: state.snoozeNow },
+        ),
         // Put away, it cannot be written to; and its task can go while it is put away.
         drafts: without(state.drafts, [sessionId]),
         recalls: without(state.recalls, [sessionId]),
         appContexts: without(state.appContexts, [sessionId]),
         scrolls: withoutPlaces(state.scrolls, [sessionId]),
         workersShown: withoutIds(state.workersShown, [sessionId]),
+    };
+}
+
+/**
+ * The tree with what a published event means for the sidebar, and a task one of whose sessions
+ * the event woke from a snooze unfolded to show it.
+ */
+function withEventApplied(state: State, published: SessionEvent): Partial<State> {
+    const projects = applySessionEvent(state.projects, published);
+    const now = state.snoozeNow;
+    return {
+        projects,
+        foldedTasks: foldedWhenSnoozed(
+            state.foldedTasks,
+            { projects: state.projects, now },
+            { projects, now },
+        ),
     };
 }
 
@@ -892,12 +938,17 @@ function deleted(state: State, sessionId: number): Partial<State> {
 }
 
 /**
- * What changes when the tree is read again: a session on screen that is not in it has gone, and
- * a task left with no open session by something this window did not hear of folds.
+ * What changes when the tree is read again: a session on screen that is not in it has gone, a
+ * task left with no open session by something this window did not hear of folds, and the
+ * snoozes are looked at again, now: a task whose last awake session was snoozed folds, and one
+ * whose session woke unfolds.
  */
 function readAgain(state: State, projects: Project[]): Partial<State> {
     const selected = state.selectedSessionId;
     const gone = selected !== null && !findSession(projects, selected);
+    const now = Date.now();
+    const emptied = foldedWhenEmptied(state.foldedTasks, state.projects, projects);
+    const snoozedBefore = { projects: state.projects, now: state.snoozeNow };
     return {
         projects,
         load: "ready",
@@ -905,9 +956,11 @@ function readAgain(state: State, projects: Project[]): Partial<State> {
         newTaskDrafts: listedOnly(state.newTaskDrafts, projects),
         newTaskIssues: listedOnly(state.newTaskIssues, projects),
         foldedTasks: stillListed(
-            foldedWhenEmptied(state.foldedTasks, state.projects, projects),
+            foldedWhenSnoozed(emptied, snoozedBefore, { projects, now }),
             projects,
         ),
+        snoozeNow: now,
+        snoozedShown: stillListed(state.snoozedShown, projects),
         browserOpen: stillListed(state.browserOpen, projects),
         ...(gone ? leaving(state, [selected]) : {}),
     };
@@ -1034,6 +1087,30 @@ function foldedOnOpening(state: State, sessionId: number): number[] {
     return state.selectedSessionId === sessionId
         ? state.foldedTasks
         : unfoldedFor(state.foldedTasks, state.projects, sessionId);
+}
+
+/**
+ * The Snoozed folds open once session `sessionId` is opened: its task's, if it is snoozed, to
+ * show its row. Not for the session already on screen, as for its task's fold.
+ */
+function snoozedOnOpening(state: State, sessionId: number): number[] {
+    return state.selectedSessionId === sessionId
+        ? state.snoozedShown
+        : snoozedShownFor(state.snoozedShown, state.projects, sessionId, state.snoozeNow);
+}
+
+/**
+ * What changes when the snoozes are looked at again, now: a session whose time came wakes, and
+ * its task unfolds to show it.
+ */
+function wokenNow(state: State): Partial<State> {
+    const now = Date.now();
+    const { projects } = state;
+    const before = { projects, now: state.snoozeNow };
+    return {
+        snoozeNow: now,
+        foldedTasks: foldedWhenSnoozed(state.foldedTasks, before, { projects, now }),
+    };
 }
 
 /**
@@ -1245,6 +1322,13 @@ export const useStore = create<State>((set, get) => ({
     doneShown: [],
     toggleDoneShown: (projectId) =>
         set((state) => ({ doneShown: toggledId(state.doneShown, projectId) })),
+    snoozeNow: Date.now(),
+    wakeDue: () => set(wokenNow),
+    snoozedShown: [],
+    toggleSnoozedShown: (taskId) =>
+        set((state) => ({ snoozedShown: toggledId(state.snoozedShown, taskId) })),
+    snoozing: null,
+    askToSnooze: (sessionId) => set({ snoozing: sessionId }),
     putAway: (api, project, task, closeWorkers) =>
         putTaskAway(
             api,
@@ -1401,6 +1485,8 @@ export const useStore = create<State>((set, get) => ({
             foldedTasks: foldedOnOpening(state, sessionId),
             // And the Done group it is in, if its task was put away.
             doneShown: doneShownFor(state.doneShown, state.projects, sessionId),
+            // And its task's Snoozed fold, if it is snoozed.
+            snoozedShown: snoozedOnOpening(state, sessionId),
         }));
         get().markRead(api, sessionId);
         if (get().events[sessionId] || loading.has(sessionId)) {
@@ -1432,7 +1518,7 @@ export const useStore = create<State>((set, get) => ({
             heardWhileReading(reading, published.event);
         }
         set((state) => ({
-            projects: applySessionEvent(state.projects, published),
+            ...withEventApplied(state, published),
             events: appendEvent(state.events, published),
             subAgents: withSubAgents(state.subAgents, published),
             edits: countEdit(state, published),

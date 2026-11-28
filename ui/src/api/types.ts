@@ -56,6 +56,13 @@ export interface Session {
      * leaves it, and so does closing it; a fork starts without one.
      */
     highlight: MarkColour | null;
+    /**
+     * Until when the user snoozed it, in seconds since 1970: out of the sidebar's list and the
+     * inbox until then, its agent not stopped. `null` for not snoozed. Writing to it, a
+     * permission request or a question, an error and closing it take it off; a turn that ends
+     * well does not, and a fork starts without one.
+     */
+    snoozed_until: number | null;
 }
 
 /**
@@ -817,6 +824,10 @@ export interface Settings {
      * does, from 0 to 365; 0 never removes.
      */
     put_away_remove_days: number;
+    /** The hour, 0 to 23, a snooze until the morning wakes at: tomorrow's, or next Monday's. */
+    snooze_morning_hour: number;
+    /** The hour, 0 to 23, a snooze until this evening wakes at. */
+    snooze_evening_hour: number;
     /** The program a task's browser runs; empty for the first of Chrome, Chromium, Edge, Brave found. */
     browser_program: string;
     /** Minutes a task's browser may sit unused before it is stopped, up to 1440; 0 for never. */
@@ -1350,9 +1361,17 @@ export interface AppShown {
 export type AgentEvent =
     /**
      * What the user wrote; `remote` when typed on claude.ai or in the Claude app, `at_reset`
-     * when Swarmed sent it by itself as the usage limit that stopped the session reset.
+     * when Swarmed sent it by itself as the usage limit that stopped the session reset, and
+     * `from_session` the session whose agent left it (`send_message`), absent for the user's
+     * own. Only the user's own wakes a snoozed session.
      */
-    | { type: "user_message"; text: string; remote?: boolean; at_reset?: boolean }
+    | {
+          type: "user_message";
+          text: string;
+          remote?: boolean;
+          at_reset?: boolean;
+          from_session?: number;
+      }
     | {
           type: "init";
           agent_session_id: string;

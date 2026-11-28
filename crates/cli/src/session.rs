@@ -183,6 +183,18 @@ pub(crate) enum SessionCommand {
         #[arg(long, conflicts_with = "colour")]
         off: bool,
     },
+    /// Snooze a session until a time: the app leaves it out of its task's list and the inbox
+    /// until then, and its agent goes on with whatever it runs. Writing to it yourself, a
+    /// permission request or a question, or an error wakes it early; a message another session
+    /// leaves and a turn that ends well do not, and it shows unread when its time comes.
+    /// Closing it wakes it.
+    Snooze {
+        id: i64,
+        #[command(flatten)]
+        when: crate::snooze::SnoozeWhen,
+    },
+    /// Wake a snoozed session now: the app shows it among the others again.
+    Wake { id: i64 },
     /// Put a mark on a session: a colour and a few words shown in the sidebar.
     Mark {
         id: i64,
@@ -311,9 +323,10 @@ fn parent(value: &str) -> std::result::Result<Parent, String> {
 }
 
 /// Prints a task's sessions, each after the one it works for, which a column names after the
-/// columns there always were, and then its role.
+/// columns there always were, then its role, then until when it is snoozed.
 fn list(core: &Core, project: &str, task: &str) -> Result<()> {
     let sessions = core.sessions(project, task)?;
+    let now = seconds_now();
     for (s, _) in nested_sessions(&sessions) {
         let mode = s.supervision.as_str();
         let state = state_of(s);
@@ -324,8 +337,10 @@ fn list(core: &Core, project: &str, task: &str) -> Result<()> {
             .role
             .as_deref()
             .map_or_else(String::new, |role| format!("\trole {role}"));
+        let snoozed = crate::snooze::snoozed_said(s, now)
+            .map_or_else(String::new, |snoozed| format!("\t{snoozed}"));
         say(&format!(
-            "{}\t{state}\t{mode}\t{}{parent}{role}",
+            "{}\t{state}\t{mode}\t{}{parent}{role}{snoozed}",
             s.id, s.title
         ));
     }
@@ -501,6 +516,8 @@ pub(crate) async fn session(core: &Core, command: SessionCommand) -> Result<()> 
         SessionCommand::Pin { id } => pinned(core, id, true),
         SessionCommand::Unpin { id } => pinned(core, id, false),
         SessionCommand::Highlight { id, colour, .. } => highlighted(core, id, colour.as_deref()),
+        SessionCommand::Snooze { id, when } => crate::snooze::snooze(core, id, &when),
+        SessionCommand::Wake { id } => crate::snooze::wake(core, id),
         SessionCommand::Mark { id, colour, label } => mark(core, id, &colour, &label),
         SessionCommand::RemoteControl { id, off, auth } => {
             remote_control(core, id, off, auth).await
@@ -625,8 +642,9 @@ fn reopened(core: &Core, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Prints everything a session has said and been told, which counts as having read it, and
-/// when it goes on by itself, if a usage limit stopped it and it is to.
+/// Prints everything a session has said and been told, which counts as having read it, when
+/// it goes on by itself, if a usage limit stopped it and it is to, and until when it is
+/// snoozed, if it is.
 fn show(core: &Core, id: i64) -> Result<()> {
     core.session_mark_read(id)?;
     for line in shown(&core.session_events(id)?) {
@@ -635,6 +653,9 @@ fn show(core: &Core, id: i64) -> Result<()> {
     let session = core.session(id)?;
     if let Some(at) = session.continue_at {
         say(&continues(at, seconds_now()));
+    }
+    if let Some(snoozed) = crate::snooze::snoozed_said(&session, seconds_now()) {
+        say(&snoozed);
     }
     if let Some(running) = in_background(session.background) {
         say(&running);
@@ -1058,10 +1079,12 @@ fn said(text: &str, remote: bool, at_reset: bool) -> String {
 /// The line an event is shown as, or `None` for events not worth a line.
 pub(crate) fn describe(event: &AgentEvent) -> Option<String> {
     match event {
+        // A message another session left says so in its own words.
         AgentEvent::UserMessage {
             text,
             remote,
             at_reset,
+            ..
         } => Some(said(text, *remote, *at_reset)),
         AgentEvent::RemoteControl {
             state, url, detail, ..

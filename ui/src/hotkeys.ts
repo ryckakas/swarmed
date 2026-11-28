@@ -14,6 +14,7 @@ export type HotkeyId =
     | "move-down"
     | "pin"
     | "highlight"
+    | "snooze"
     | "session-1"
     | "session-2"
     | "session-3"
@@ -96,6 +97,12 @@ export const HOTKEYS: Hotkey[] = [
         id: "highlight",
         keys: "cmd+shift+h",
         label: "Highlight in a colour, where it is: the focused task or session, or the open session",
+        group: "Sessions",
+    },
+    {
+        id: "snooze",
+        keys: "cmd+shift+d",
+        label: "Snooze until a time, or wake: the focused session, or the open session",
         group: "Sessions",
     },
     {

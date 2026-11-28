@@ -108,10 +108,16 @@ export async function setRole(id: number, role: string | null) {
 
 /**
  * The row of the sidebar that has the keyboard, with what in it has the keyboard, or the
- * session on screen when no row has it.
+ * session on screen when no row has it. A snoozed session's row in its task's Snoozed fold has
+ * no place in the order, and names its session apart (`data-snoozed-session`).
  */
 function rowInHand(): { target: OrderTarget; had: Element | null } | null {
     const had = document.activeElement;
+    const asleep = had?.closest(".sidebar [data-snoozed-session]");
+    if (asleep) {
+        const id = Number(asleep.getAttribute("data-snoozed-session"));
+        return { target: { kind: "session", id }, had };
+    }
     const focused = had?.closest(".sidebar [data-order]");
     if (focused) {
         const target = targetOf(focused);
@@ -190,6 +196,31 @@ export function highlightFocusedRow() {
     const target = rowInHand()?.target;
     if (target && highlightable(target)) {
         useStore.getState().askToHighlight(target);
+    }
+}
+
+/**
+ * Opens the snooze dialog for the session row that has the keyboard, or for the session on
+ * screen when no row has it. A repository, a task or a cloud task has none.
+ */
+export function snoozeFocusedRow() {
+    const target = rowInHand()?.target;
+    if (target?.kind === "session") {
+        useStore.getState().askToSnooze(target.id);
+    }
+}
+
+/**
+ * Snoozes session `id` until `until`, in seconds since 1970, or with `null` wakes it, then reads
+ * the tree again. What went wrong is said.
+ */
+export async function snoozeSession(id: number, until: number | null) {
+    const { refresh, report } = useStore.getState();
+    try {
+        await api.sessionSnooze(id, until);
+        await refresh(api);
+    } catch (error) {
+        report(error);
     }
 }
 

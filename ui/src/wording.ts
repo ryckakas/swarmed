@@ -49,6 +49,10 @@ export interface Words {
     reopen: string;
     /** The line that unfolds a repository's tasks that were put away. */
     done: (count: number) => string;
+    /** The line that unfolds a task's snoozed sessions. */
+    snoozed: (count: number) => string;
+    /** The button that wakes a snoozed session before its time. */
+    wake: string;
     /** What handing work to a cloud agent is called, before "from <where>". */
     delegate: string;
     /** Taking a cloud task off the list, which leaves it running at its provider. */
@@ -343,6 +347,8 @@ const PLAIN: Words = {
     closed: (count) => `${count} closed`,
     reopen: "Reopen",
     done: (count) => `${count} done`,
+    snoozed: (count) => `${count} snoozed`,
+    wake: "Wake",
     delegate: "Delegate to the cloud",
     forgetCloud: "Take off the list",
     usageLimits: "Usage limits",
@@ -666,6 +672,8 @@ const COLONY: Words = {
     reopen: "Unburrow",
     // A cell whose brood is grown is capped with wax.
     done: (count) => `${count} sealed`,
+    snoozed: (count) => `${count} hibernating`,
+    wake: "Rouse",
     delegate: "Send spores to the cloud",
     forgetCloud: "Let it drift",
     usageLimits: "Hunger limits",

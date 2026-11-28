@@ -105,6 +105,7 @@ mod tests {
             text: text.into(),
             remote: false,
             at_reset: false,
+            from_session: None,
         }
     }
 

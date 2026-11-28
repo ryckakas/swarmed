@@ -20,6 +20,7 @@ import { SearchDialog } from "./components/SearchDialog";
 import { SessionPane } from "./components/SessionPane";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
+import { SnoozeDialog } from "./components/SnoozeDialog";
 import { StylesheetNotice } from "./components/StylesheetNotice";
 import { TaskPanel } from "./components/TaskPanel";
 import { UsageNotice } from "./components/UsageNotice";
@@ -29,11 +30,13 @@ import { connect, useStore } from "./store";
 import { drawUserStylesheet } from "./stylesheet";
 import { countUnread, countWaiting } from "./tree";
 import { useHotkeys } from "./useHotkeys";
+import { useSnoozeWakes } from "./useSnoozeWakes";
 
 export function App() {
     useEffect(() => connect(api), []);
     useHotkeys();
     useBrowserAsked();
+    useSnoozeWakes();
     const load = useStore((state) => state.load);
     const settings = useStore((state) => state.settings);
     const customLayout = useStore((state) => state.customLayout);
@@ -44,8 +47,13 @@ export function App() {
         // After the custom layout's, so that the user's own wins where they disagree.
         drawUserStylesheet(document, userCss);
     }, [settings, customLayout, userCss]);
-    // The app's icon counts what waits for the user: questions, and answers not looked at.
-    const waiting = useStore((state) => countWaiting(state.projects) + countUnread(state.projects));
+    // The app's icon counts what waits for the user: questions, and answers not looked at, but
+    // not those of a snoozed session until it wakes.
+    const waiting = useStore(
+        (state) =>
+            countWaiting(state.projects, state.snoozeNow) +
+            countUnread(state.projects, state.snoozeNow),
+    );
     useEffect(() => void api.setBadge(waiting).catch(() => {}), [waiting]);
     const problem = useStore((state) => state.problem);
     const dismissProblem = useStore((state) => state.dismissProblem);
@@ -107,6 +115,7 @@ export function App() {
             <CloudDiffDialog />
             <SearchDialog />
             <NoteDialog />
+            <SnoozeDialog />
             <EnvironmentsDialog />
             <IssuesDialog />
             <CloudDialog />

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { newSession } from "./actions";
+import { newSession, snoozeSession } from "./actions";
 import { api as moduleApi } from "./api";
 import type { Api } from "./api/client";
 import { createMockApi, sampleProjects } from "./api/mock";
 import type { AccountUsage, AgentEvent, Project, SessionEvent } from "./api/types";
+import { inbox } from "./inbox";
 import { NO_DRAFT } from "./sending";
 import {
     appendEvent,
@@ -1267,5 +1268,125 @@ describe("the Browser pane", () => {
         expect(useStore.getState().browserOpen).toEqual([7]);
         forgetTasks([7]);
         expect(useStore.getState().browserOpen).toEqual([]);
+    });
+});
+
+describe("a snoozed session", () => {
+    beforeEach(() => {
+        vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
+        useStore.setState({ foldedTasks: [], snoozedShown: [], snoozing: null });
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+    });
+    const inSeconds = (seconds: number) => Math.floor(Date.now() / 1000) + seconds;
+    const session = (id: number) => findSession(useStore.getState().projects, id);
+    const folded = () => useStore.getState().foldedTasks;
+    /** Moves the clock the snoozes are looked at by on `by` milliseconds from now. */
+    const later = (by: number) => {
+        const now = Date.now() + by;
+        vi.spyOn(Date, "now").mockReturnValue(now);
+    };
+
+    it("folds its task as the last awake one, and stays unfolded once the user unfolds it", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        // rule-docs (8) has session 13 alone.
+        await api.sessionSnooze(13, inSeconds(3600));
+        await useStore.getState().refresh(api);
+        expect(folded()).toEqual([8]);
+        useStore.getState().toggleTaskFolded(8);
+        await useStore.getState().refresh(api);
+        expect(folded()).toEqual([]);
+    });
+
+    it("wakes on time with nothing read: its task unfolds, and an unread one is in the inbox", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        // The sample's session 5, unread, is snoozed for a minute; its task folded by the user.
+        const { snoozeNow, projects } = useStore.getState();
+        expect(inbox(projects, snoozeNow).map((item) => item.session.id)).not.toContain(5);
+        useStore.setState({ foldedTasks: [4, 1] });
+        later(61_000);
+        useStore.getState().wakeDue();
+        const state = useStore.getState();
+        expect(state.foldedTasks).toEqual([1]);
+        expect(inbox(state.projects, state.snoozeNow)).toContainEqual(
+            expect.objectContaining({
+                kind: "unread",
+                session: expect.objectContaining({ id: 5 }),
+            }),
+        );
+    });
+
+    it("wakes early on a permission request, and its task unfolds", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await api.sessionSnooze(13, inSeconds(3600));
+        await useStore.getState().refresh(api);
+        expect(folded()).toEqual([8]);
+        useStore.getState().apply({
+            session_id: 13,
+            status: "waiting",
+            event: {
+                type: "permission_request",
+                request_id: "r",
+                tool_name: "Bash",
+                input: {},
+                description: null,
+            },
+        });
+        expect(session(13)?.snoozed_until).toBeNull();
+        expect(folded()).toEqual([]);
+    });
+
+    it("opened, has its task and its Snoozed fold unfolded", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        await api.sessionSnooze(13, inSeconds(3600));
+        await useStore.getState().refresh(api);
+        await useStore.getState().open(api, 13);
+        expect(folded()).toEqual([]);
+        expect(useStore.getState().snoozedShown).toEqual([8]);
+        // An awake one opens nothing of the kind.
+        await useStore.getState().open(api, 3);
+        expect(useStore.getState().snoozedShown).toEqual([8]);
+    });
+
+    it("folds its task when the last awake one is closed", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        // invoice-export (2) has sessions 3 and 8.
+        await api.sessionSnooze(3, inSeconds(3600));
+        await useStore.getState().refresh(api);
+        expect(folded()).toEqual([]);
+        await useStore.getState().close(api, 8, false);
+        expect(folded()).toEqual([2]);
+    });
+
+    it("wakes from its fold's button: the core is asked with no time, and the tree read again", async () => {
+        await useStore.getState().refresh(moduleApi);
+        await moduleApi.sessionSnooze(13, inSeconds(3600));
+        await useStore.getState().refresh(moduleApi);
+        expect(session(13)?.snoozed_until).not.toBeNull();
+        const asked = vi.spyOn(moduleApi, "sessionSnooze");
+        await snoozeSession(13, null);
+        expect(asked).toHaveBeenCalledWith(13, null);
+        expect(session(13)?.snoozed_until).toBeNull();
+    });
+
+    it("is forgotten with its task and its session: the fold and the dialog", async () => {
+        const api = createMockApi();
+        await useStore.getState().refresh(api);
+        useStore.getState().toggleSnoozedShown(8);
+        useStore.getState().askToSnooze(13);
+        expect(useStore.getState().snoozing).toBe(13);
+        useStore.getState().forgetTasks([8]);
+        expect(useStore.getState().snoozedShown).toEqual([]);
+        expect(useStore.getState().snoozing).toBeNull();
+        useStore.getState().askToSnooze(3);
+        await useStore.getState().close(api, 3, false);
+        expect(useStore.getState().snoozing).toBeNull();
     });
 });

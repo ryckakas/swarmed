@@ -37,6 +37,9 @@ import {
 } from "./tree";
 import { wordsFor } from "./wording";
 
+/** The time the snoozes are looked at in these tests: none of the sample's is snoozed. */
+const NOW = Date.UTC(2026, 10, 28, 12);
+
 /** Task `taskId` of `projects`, which a test expects to be there. */
 function findTask(projects: Project[], taskId: number): Task {
     const task = projects.flatMap((project) => project.tasks).find((one) => one.id === taskId);
@@ -77,9 +80,9 @@ describe("withSession and withoutSession", () => {
 describe("a folded repository", () => {
     it("still says what its most urgent session needs", () => {
         const [storefront, bonsai, fsum] = sampleProjects();
-        expect(storefront && projectStatus(storefront)).toBe("waiting");
-        expect(bonsai && projectStatus(bonsai)).toBe("errored");
-        expect(fsum && projectStatus(fsum)).toBeNull();
+        expect(storefront && projectStatus(storefront, NOW)).toBe("waiting");
+        expect(bonsai && projectStatus(bonsai, NOW)).toBe("errored");
+        expect(fsum && projectStatus(fsum, NOW)).toBeNull();
     });
 
     it("folds and unfolds by id", () => {
@@ -92,20 +95,22 @@ describe("a folded task", () => {
     it("still says how many sessions are open, what the most urgent needs, and if one is unread", () => {
         const [storefront, bonsai] = sampleProjects();
         const nothing = { agents: 0, commands: 0 };
-        expect(storefront?.tasks.map(foldedSummary)).toEqual([
+        const summary = (task: Task) => foldedSummary(task, NOW);
+        const some = { snoozed: 0, unread: false };
+        expect(storefront?.tasks.map(summary)).toEqual([
             // Each session left a dev server running.
-            { count: 2, status: "waiting", unread: false, background: { agents: 0, commands: 2 } },
+            { ...some, count: 2, status: "waiting", background: { agents: 0, commands: 2 } },
             // One left a sub-agent at work and a dev server running.
-            { count: 2, status: "idle", unread: false, background: { agents: 1, commands: 1 } },
-            { count: 0, status: null, unread: false, background: nothing },
+            { ...some, count: 2, status: "idle", background: { agents: 1, commands: 1 } },
+            { ...some, count: 0, status: null, background: nothing },
             // Put away, its session kept open.
-            { count: 1, status: "idle", unread: false, background: nothing },
+            { ...some, count: 1, status: "idle", background: nothing },
         ]);
-        expect(bonsai?.tasks.map(foldedSummary)).toEqual([
-            { count: 2, status: "errored", unread: true, background: nothing },
+        expect(bonsai?.tasks.map(summary)).toEqual([
+            { ...some, count: 2, status: "errored", unread: true, background: nothing },
             // A planner and those working for it, and one more for it in a task of its own.
-            { count: 4, status: "idle", unread: false, background: nothing },
-            { count: 1, status: "idle", unread: false, background: nothing },
+            { ...some, count: 4, status: "idle", background: nothing },
+            { ...some, count: 1, status: "idle", background: nothing },
         ]);
     });
 
@@ -393,13 +398,14 @@ describe("lookups", () => {
     });
 
     it("counts the sessions waiting for a decision", () => {
-        expect(countWaiting(sampleProjects())).toBe(1);
+        expect(countWaiting(sampleProjects(), NOW)).toBe(1);
     });
 
     it("describes a task by its most urgent session", () => {
         const [storefront, bonsai] = sampleProjects();
-        expect(storefront?.tasks.map(taskStatus)).toEqual(["waiting", "idle", null, "idle"]);
-        expect(bonsai?.tasks.map(taskStatus)).toEqual(["errored", "idle", "idle"]);
+        const status = (task: Task) => taskStatus(task, NOW);
+        expect(storefront?.tasks.map(status)).toEqual(["waiting", "idle", null, "idle"]);
+        expect(bonsai?.tasks.map(status)).toEqual(["errored", "idle", "idle"]);
     });
 });
 
@@ -461,7 +467,7 @@ describe("unread sessions", () => {
         expect(findSession(before, 3)?.unread).toBe(false);
         const answered = applySessionEvent(before, done);
         expect(findSession(answered, 3)?.unread).toBe(true);
-        expect(countUnread(answered)).toBe(countUnread(before) + 1);
+        expect(countUnread(answered, NOW)).toBe(countUnread(before, NOW) + 1);
 
         expect(findSession(withRead(answered, 3), 3)?.unread).toBe(false);
         const written = applySessionEvent(answered, {
@@ -474,7 +480,7 @@ describe("unread sessions", () => {
 
     it("show on a folded repository", () => {
         const [storefront] = applySessionEvent(sampleProjects(), done);
-        expect(storefront && projectUnread(storefront)).toBe(true);
+        expect(storefront && projectUnread(storefront, NOW)).toBe(true);
     });
 });
 
@@ -609,7 +615,7 @@ describe("work left in the background", () => {
     };
     /** What a folded task's heading shows of its sessions: its status, and the ring beside it. */
     const shown = (task: Task) => {
-        const status = taskStatus(task);
+        const status = taskStatus(task, NOW);
         return [status, status && backgroundShown(status, taskBackground(task))];
     };
 
@@ -671,7 +677,7 @@ describe("work left in the background", () => {
         }
         const withTasks = (tasks: Task[]): Project => ({ ...storefront, tasks });
         const ringOf = (project: Project) => {
-            const status = projectStatus(project);
+            const status = projectStatus(project, NOW);
             return status && backgroundShown(status, projectBackground(project));
         };
         const agents = taskOf([one("idle", 1)]);
@@ -692,5 +698,82 @@ describe("work left in the background", () => {
         expect(idleWithWork?.status).toBe("idle");
         expect(idleWithWork?.background).toEqual({ agents: 1, commands: 1 });
         expect(busy).toBe(2);
+    });
+});
+
+describe("a snoozed session", () => {
+    const later = NOW / 1000 + 3600;
+    /** The sample with session `id` snoozed until an hour after `NOW`. */
+    const asleep = (id: number, change: Partial<Session> = {}): Project[] => {
+        const projects = sampleProjects();
+        const session = findSession(projects, id);
+        if (session) {
+            Object.assign(session, { snoozed_until: later, ...change });
+        }
+        return projects;
+    };
+    const event = (id: number, status: SessionStatus | null, sent: SessionEvent["event"]) =>
+        applySessionEvent(asleep(id), { session_id: id, status, event: sent });
+
+    it("wakes when the user writes, on a request or a question, and on an error", () => {
+        const written = event(3, "working", { type: "user_message", text: "and now?" });
+        expect(findSession(written, 3)?.snoozed_until).toBeNull();
+        const asked = event(3, "waiting", {
+            type: "permission_request",
+            request_id: "r",
+            tool_name: "Bash",
+            input: {},
+            description: null,
+        });
+        expect(findSession(asked, 3)?.snoozed_until).toBeNull();
+        const failed = event(3, "errored", { type: "exited", code: 1, stderr: "" });
+        expect(findSession(failed, 3)?.snoozed_until).toBeNull();
+    });
+
+    it("stays snoozed through a message another session left, or one sent as a limit reset", () => {
+        const left = event(3, "working", {
+            type: "user_message",
+            text: "the parser is done",
+            from_session: 10,
+        });
+        expect(findSession(left, 3)?.snoozed_until).toBe(later);
+        const reset = event(3, "working", {
+            type: "user_message",
+            text: "Continue where you stopped.",
+            at_reset: true,
+        });
+        expect(findSession(reset, 3)?.snoozed_until).toBe(later);
+    });
+
+    it("stays snoozed through a turn that ends well, unread", () => {
+        const done = event(3, "idle", {
+            type: "turn_done",
+            is_error: false,
+            result: null,
+            cost_usd: null,
+        });
+        expect(findSession(done, 3)).toMatchObject({ snoozed_until: later, unread: true });
+        // Unread, but not counted so until it wakes.
+        expect(countUnread(done, NOW)).toBe(countUnread(sampleProjects(), NOW));
+        expect(countUnread(done, later * 1000)).toBe(countUnread(sampleProjects(), NOW) + 1);
+    });
+
+    it("counts as idle and read for its task and repository, unless it works", () => {
+        // rust-support (4): session 4 failed, session 5 unread.
+        const [, bonsai] = asleep(4);
+        const rust = bonsai?.tasks[0];
+        expect(rust && taskStatus(rust, NOW)).toBe("idle");
+        expect(rust && foldedSummary(rust, NOW)).toMatchObject({ count: 2, snoozed: 1 });
+        expect(rust && taskStatus(rust, later * 1000)).toBe("errored");
+        const [storefront] = asleep(1);
+        // fix-login-redirect: session 1 waits, session 2 works.
+        expect(storefront && projectStatus(storefront, NOW)).toBe("working");
+        expect(countWaiting(asleep(1), NOW)).toBe(0);
+        const [, quiet] = asleep(5);
+        expect(quiet && projectUnread(quiet, NOW)).toBe(false);
+        const [busy] = asleep(2);
+        expect(busy?.tasks[0] && taskStatus(busy.tasks[0], NOW)).toBe("waiting");
+        const [alone] = asleep(1, { status: "working" });
+        expect(alone?.tasks[0] && taskStatus(alone.tasks[0], NOW)).toBe("working");
     });
 });

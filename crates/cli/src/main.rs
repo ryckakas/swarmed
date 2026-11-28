@@ -14,6 +14,7 @@ mod pull;
 mod rewind;
 mod session;
 mod setup;
+mod snooze;
 mod terminal;
 
 use std::io::Write;

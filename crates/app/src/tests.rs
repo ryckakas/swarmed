@@ -597,6 +597,49 @@ fn the_ui_can_highlight_tasks_and_sessions_where_they_are() {
 }
 
 #[test]
+fn the_ui_can_snooze_a_session_and_wake_it() {
+    let app = app();
+    app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
+    let task = json!({ "project": "demo", "name": "one", "branch": null });
+    app.ok("task_new", task);
+    let how = json!({ "model": null, "supervision": "auto", "effort": null });
+    let options = json!({ "project": "demo", "task": "one", "agent": null, "how": how });
+    let (first, second) = (
+        app.ok("session_new", options.clone())["id"].clone(),
+        app.ok("session_new", options)["id"].clone(),
+    );
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970")
+        .as_secs();
+    let later = i64::try_from(now).expect("fits") + 3600;
+    app.ok("session_snooze", json!({ "id": second, "until": later }));
+    let sessions = &app.ok("overview", json!({}))[0]["tasks"][0]["sessions"];
+    // Still among its task's sessions: the window decides what is out of sight.
+    assert_eq!((&sessions[0]["id"], &sessions[1]["id"]), (&first, &second));
+    assert_eq!(
+        (&sessions[0]["snoozed_until"], &sessions[1]["snoozed_until"]),
+        (&json!(null), &json!(later))
+    );
+    app.ok("session_snooze", json!({ "id": second, "until": null }));
+    let sessions = &app.ok("overview", json!({}))[0]["tasks"][0]["sessions"];
+    assert_eq!(sessions[1]["snoozed_until"], json!(null));
+    app.invoke(
+        "session_snooze",
+        json!({ "id": second, "until": later - 7200 }),
+    )
+    .expect_err("a time that has passed");
+    app.ok(
+        "session_close",
+        json!({ "id": first, "withWorkers": false }),
+    );
+    app.invoke("session_snooze", json!({ "id": first, "until": later }))
+        .expect_err("a closed session");
+    app.invoke("session_snooze", json!({ "id": 999, "until": later }))
+        .expect_err("no such session");
+}
+
+#[test]
 fn the_ui_can_have_a_session_work_for_another_across_tasks() {
     let app = app();
     app.ok("project_add", json!({ "path": app.repo, "name": "demo" }));
@@ -1379,6 +1422,7 @@ fn the_ui_can_choose_the_editor_and_is_told_what_cannot_be_opened() {
             "put_away_idle_days": 14, "put_away_closes_sessions": false,
             "put_away_remove_days": 0,
             "browser_program": "", "browser_idle_minutes": 30, "browser_display": "pane",
+            "snooze_morning_hour": 9, "snooze_evening_hour": 18,
         })
     );
 

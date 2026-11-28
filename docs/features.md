@@ -94,6 +94,11 @@ Everything Swarmed does, in short, with a link to where each part is explained i
 - **Search, notifications and an inbox.** Search what was said in any session; unread answers are
   marked, and notifications and a count on the Dock icon say when a session needs you. ⌘I lists
   everything that waits.
+- **Snooze a session until a time.** ⌘⇧D, the clock on a session's row or in its header: in an
+  hour, this evening, tomorrow morning, next Monday or a time of your own. Until then it waits
+  in its task's Snoozed fold, out of the list, the inbox and the Dock's count, and its agent is
+  not stopped. It comes back early when you write to it, it asks for something or it fails, and
+  on time by itself; `swarmed session snooze` and `wake` do the same from the command line.
 
 ## Answers you can see
 

@@ -357,6 +357,11 @@ pub enum AgentEvent {
         /// recorded before this, and from every message typed.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         at_reset: bool,
+        /// The session whose agent left it (`send_message`, `peers.rs`), when another session
+        /// wrote it rather than the user. Absent from what was recorded before this, and from
+        /// the user's own, typed here or on claude.ai.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_session: Option<i64>,
     },
     /// The agent process is up.
     Init {
@@ -520,8 +525,9 @@ pub enum AgentEvent {
     /// Another Swarmed process on the same data, such as the command line, changed
     /// repositories, tasks or sessions, or started or stopped a stack, or a task was put away,
     /// brought back or removed by itself here (`put_away.rs`), or a task or a session was
-    /// highlighted (`highlights.rs`), so front ends read the tree again. It belongs to no
-    /// session: published with session id 0, which no session has, and never recorded.
+    /// highlighted (`highlights.rs`), or a session was snoozed or woken (`snooze.rs`), so front
+    /// ends read the tree again. It belongs to no session: published with session id 0, which
+    /// no session has, and never recorded.
     TreeChanged,
     /// A task put away for `days` was removed by itself, as the user's settings say
     /// (`put_away.rs`). It belongs to no session: published with session id 0, which no session

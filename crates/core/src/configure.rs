@@ -15,8 +15,9 @@
 //! - **Not reachable at all**: API keys, MCP servers and their secrets, Swarmed's built-in servers
 //!   too (installing one, turning it on and taking its registrations out run programs), signing in,
 //!   how much an agent may do without asking, and notes. An agent must not widen what it may do,
-//!   and has no business with secrets. Nor the branch prefix: the user sets it once, and it is not
-//!   worth a line in a description every agent is sent. Nor how many sessions may work for one
+//!   and has no business with secrets. Nor the branch prefix, nor the hours a snooze wakes a
+//!   session at (`snooze_morning_hour`, `snooze_evening_hour`): the user sets them once, and they
+//!   are not worth a line in a description every agent is sent. Nor how many sessions may work for one
 //!   (`max_workers`): it caps how many agents one session keeps running, and so what it can
 //!   spend, and an agent must not raise its own ceiling. Nor the model and effort each role's
 //!   sessions start on (`role_defaults`): they decide what agents cost, and an agent picks

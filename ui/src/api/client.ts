@@ -213,6 +213,11 @@ export interface Api {
     /** Highlights a session in `colour` where it is, or with `null` takes its highlight off. */
     sessionHighlight(id: number, colour: MarkColour | null): Promise<void>;
     /**
+     * Snoozes a session until `until`, in seconds since 1970, or with `null` wakes it. Refused
+     * for a closed session, and for a time not in the future. Its agent is not stopped.
+     */
+    sessionSnooze(id: number, until: number | null): Promise<void>;
+    /**
      * Removes a task's worktree and takes the task out of the tree. Its branch is kept. Without
      * `force` it refuses if the worktree holds unsaved work; nothing else stops it. Resolves to
      * what it passed over to get there, a teardown that failed say, for the user to read.

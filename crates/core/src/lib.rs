@@ -87,6 +87,7 @@ mod setups;
 mod shellenv;
 mod skills;
 mod snapshots;
+mod snooze;
 mod stacks;
 mod starting;
 mod statusline;

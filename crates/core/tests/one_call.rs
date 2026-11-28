@@ -24,6 +24,7 @@ fn user_message(text: String) -> AgentEvent {
         text,
         remote: false,
         at_reset: false,
+        from_session: None,
     }
 }
 

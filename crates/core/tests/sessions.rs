@@ -71,6 +71,7 @@ async fn a_turn_is_stored_published_and_names_the_session() {
             text: "hello there".into(),
             remote: false,
             at_reset: false,
+            from_session: None,
         })
     );
     assert!(
@@ -2015,6 +2016,7 @@ async fn a_fork_starts_with_what_was_said_and_tells_its_agent_once() {
             text: "echo: what was it?".into(),
             remote: false,
             at_reset: false,
+            from_session: None,
         })
     );
     let heard = |events: &[AgentEvent]| {
@@ -2859,6 +2861,7 @@ async fn a_waiting_message_told_now_is_taken_into_the_turn_and_recorded_where_it
         text: "a hint".to_string(),
         remote: false,
         at_reset: false,
+        from_session: None,
     };
     let result = events
         .iter()

@@ -32,11 +32,12 @@ export function InboxDialog() {
     const open = useStore((state) => state.inboxOpen);
     const showInbox = useStore((state) => state.showInbox);
     const projects = useStore((state) => state.projects);
+    const now = useStore((state) => state.snoozeNow);
 
     if (!open) {
         return null;
     }
-    const items = inbox(projects);
+    const items = inbox(projects, now);
     return (
         <Dialog
             title={words.waitingForYou}

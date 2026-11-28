@@ -44,7 +44,9 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, elsewhere, git, lock, parents, peers, publish, remote, returned, roles, views};
+use crate::{
+    Core, elsewhere, git, lock, parents, peers, publish, remote, returned, roles, snooze, views,
+};
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -260,6 +262,12 @@ pub struct Session {
     /// The colour the user highlighted it in, if any (`highlights.rs`). It stays when the
     /// user writes and while the session is closed; a fork starts without one.
     pub highlight: Option<MarkColour>,
+    /// Until when the user snoozed it, in seconds since 1970 (`snooze.rs`): front ends leave
+    /// it out of sight until then. `None` for awake; a time that has passed is as good as
+    /// none. A message the user writes to it, a permission request, an exit with an error and
+    /// closing it clear it; another session's message, the one sent at a usage limit's reset
+    /// and a turn that ends well do not. A fork starts without one.
+    pub snoozed_until: Option<i64>,
 }
 
 /// What can be changed about a session after it was created.
@@ -309,7 +317,7 @@ pub struct SessionOptions {
 
 const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
      setup_prompt IS NOT NULL, pinned, continue_at, background_agents, background_commands, \
-     highlight, spawned, role FROM sessions";
+     highlight, spawned, role, snoozed_until FROM sessions";
 
 /// What an agent's guidance tells of besides its task and the user's settings.
 #[derive(Debug, Clone, Copy)]
@@ -363,6 +371,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             .and_then(MarkColour::parse),
         spawned: row.get(20)?,
         role: row.get(21)?,
+        snoozed_until: row.get(22)?,
     })
 }
 
@@ -407,6 +416,7 @@ impl Store {
             continue_at: None,
             background: BackgroundCount::default(),
             highlight: None,
+            snoozed_until: None,
         })
     }
 
@@ -597,9 +607,12 @@ impl Store {
         Ok(counted.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Closes session `id`. A snooze goes with it: a closed session is out of sight anyway,
+    /// and one reopened is reopened to be seen.
     fn session_close(&self, id: i64) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle' WHERE id = ?1",
+            "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle', \
+             snoozed_until = NULL WHERE id = ?1",
             params![id],
         )?;
         Ok(())
@@ -743,7 +756,7 @@ impl Store {
 
     /// Stores an event and applies what it means for the session's row. Says what the
     /// session's agent has running in the background, if the event changed that.
-    fn record(
+    pub(crate) fn record(
         &self,
         session_id: i64,
         event: &AgentEvent,
@@ -756,6 +769,9 @@ impl Store {
                 "UPDATE sessions SET status = ?2 WHERE id = ?1",
                 params![session_id, status.as_str()],
             )?;
+        }
+        if snooze::wakes(event, status) {
+            self.snooze_write(session_id, None)?;
         }
         match event {
             AgentEvent::Init {
@@ -1457,12 +1473,24 @@ impl Core {
 
     /// Starts a turn with `text` in a running session, whatever `text` is.
     pub(crate) fn session_send_as_typed(&self, id: i64, text: &str) -> Result<()> {
+        self.send_from(id, text, None)
+    }
+
+    /// Starts a turn with `text` in a running session, whatever `text` is, recorded as left by
+    /// session `from_session`'s agent if it is given, else as the user's.
+    pub(crate) fn send_from(&self, id: i64, text: &str, from_session: Option<i64>) -> Result<()> {
         self.live.sender(id)?;
         if self.session(id)?.title.is_empty() {
             self.name_later(id, text);
         }
         let with = (&*self.terminals, &self.paths);
-        send_text(&self.store, &self.live, with, id, (text, false))
+        send_text(
+            &self.store,
+            &self.live,
+            with,
+            id,
+            (text, false, from_session),
+        )
     }
 
     /// Lets a pending permission request go ahead. Does nothing if it is no longer pending.
@@ -1863,13 +1891,14 @@ impl Core {
 
 /// Starts a turn with `text` in a running session: records the message, then hands it to the
 /// agent together with what happened in the session's terminal since its last turn. `at_reset`
-/// says Swarmed sent it by itself, when the usage limit that stopped the session reset.
+/// says Swarmed sent it by itself, when the usage limit that stopped the session reset, and
+/// `from_session` which session's agent left it, if another session wrote it.
 pub(crate) fn send_text(
     store: &Mutex<Store>,
     live: &Live,
     (terminals, paths): (&Terminals, &Paths),
     id: i64,
-    (text, at_reset): (&str, bool),
+    (text, at_reset, from_session): (&str, bool, Option<i64>),
 ) -> Result<()> {
     let commands = live.sender(id)?;
     let no_rewind = live.not_taking_back(store, id)?;
@@ -1894,6 +1923,7 @@ pub(crate) fn send_text(
         text: text.to_string(),
         remote: false,
         at_reset,
+        from_session,
     };
     live.note(store, id, event)?;
     drop(no_rewind);
@@ -2158,6 +2188,8 @@ pub(crate) struct Told {
     pub(crate) sent: String,
     /// What the user typed, which is what is recorded.
     pub(crate) typed: String,
+    /// The session whose agent left it, if another session wrote it (`peers.rs`).
+    pub(crate) from_session: Option<i64>,
 }
 
 /// The sessions whose agent is running, and the channel their events are published on.
@@ -2274,21 +2306,21 @@ impl Live {
         told
     }
 
-    /// What the user typed, if `text` is a message told to the session's agent mid-turn, which
-    /// it has now heard. The earliest such message is taken: one told before it that the agent
+    /// The message told to the session's agent mid-turn that `text` is, if it is one, which it
+    /// has now heard. The earliest such message is taken: one told before it that the agent
     /// has not said back stays, and must not keep the later ones from being recorded.
-    fn heard(&self, id: i64, text: &str) -> Option<String> {
+    fn heard(&self, id: i64, text: &str) -> Option<Told> {
         let mut told = lock(&self.told);
         let waiting = told.get_mut(&id)?;
         let at = waiting.iter().position(|message| message.sent == text)?;
-        waiting.remove(at).map(|message| message.typed)
+        waiting.remove(at)
     }
 
-    /// The messages told to the session's agent that it never said it heard, as the user
-    /// typed them: its run is over, or another takes its place.
-    fn never_heard(&self, id: i64) -> Vec<String> {
+    /// The messages told to the session's agent that it never said it heard: its run is over,
+    /// or another takes its place.
+    fn never_heard(&self, id: i64) -> Vec<Told> {
         let told = lock(&self.told).remove(&id).unwrap_or_default();
-        told.into_iter().map(|message| message.typed).collect()
+        told.into()
     }
 
     /// Notes a message sent to the session's agent from here, as it was sent. Only the latest
@@ -3068,11 +3100,12 @@ fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
     let live = &shared.live;
     match event {
         AgentEvent::Heard { text } => {
-            if let Some(typed) = live.heard(id, &text) {
+            if let Some(told) = live.heard(id, &text) {
                 return Some(AgentEvent::UserMessage {
-                    text: typed,
+                    text: told.typed,
                     remote: false,
                     at_reset: false,
+                    from_session: told.from_session,
                 });
             }
             // Sent from here, and recorded then. What is neither came through Remote Control,
@@ -3085,6 +3118,7 @@ fn heard_as(shared: &Shared, id: i64, event: AgentEvent) -> Option<AgentEvent> {
                 text,
                 remote: true,
                 at_reset: false,
+                from_session: None,
             })
         }
         AgentEvent::Exited { .. } => {
@@ -3248,23 +3282,38 @@ mod tests {
             repolore: RepoloreUse::None,
         };
         live.commands().insert(7, run);
-        let told = |sent: &str, typed: &str| Told {
+        let told = |sent: &str, typed: &str, from_session: Option<i64>| Told {
             sent: sent.to_string(),
             typed: typed.to_string(),
+            from_session,
         };
-        live.tell(7, told("never said back", "/lost"))
+        live.tell(7, told("never said back", "/lost", Some(3)))
             .expect("tells");
-        live.tell(7, told("what the skill says", "/skill"))
+        live.tell(7, told("what the skill says", "/skill", None))
             .expect("tells");
+        live.tell(7, told("from a planner", "from a planner", Some(3)))
+            .expect("tells");
+        let heard = |text: &str| {
+            live.heard(7, text)
+                .map(|told| (told.typed, told.from_session))
+        };
         // One the agent never says back does not keep the next from being recorded.
-        assert_eq!(live.heard(7, "something else"), None);
+        assert_eq!(heard("something else"), None);
         assert_eq!(
-            live.heard(7, "what the skill says"),
-            Some("/skill".to_string())
+            heard("what the skill says"),
+            Some(("/skill".to_string(), None))
         );
-        assert_eq!(live.heard(7, "what the skill says"), None);
-        assert_eq!(live.never_heard(7), ["/lost"]);
-        assert_eq!(live.never_heard(7), Vec::<String>::new());
+        assert_eq!(heard("what the skill says"), None);
+        // Who left it is kept with it.
+        let planner = Some(("from a planner".to_string(), Some(3)));
+        assert_eq!(heard("from a planner"), planner);
+        let never: Vec<(String, Option<i64>)> = live
+            .never_heard(7)
+            .into_iter()
+            .map(|told| (told.typed, told.from_session))
+            .collect();
+        assert_eq!(never, [("/lost".to_string(), Some(3))]);
+        assert!(live.never_heard(7).is_empty());
     }
 
     #[test]
