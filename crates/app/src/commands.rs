@@ -649,6 +649,13 @@ pub(crate) fn session_highlight(
     Ok(())
 }
 
+/// Snoozes a session until `until`, in seconds since 1970, or with `null` wakes it.
+#[tauri::command]
+pub(crate) fn session_snooze(core: CoreState<'_>, id: i64, until: Option<i64>) -> Command<()> {
+    core.session_snooze(id, until)?;
+    Ok(())
+}
+
 /// Moves a cloud task `by` places among the others of its project.
 #[tauri::command]
 pub(crate) fn cloud_task_move(core: CoreState<'_>, id: i64, by: i32) -> Command<()> {

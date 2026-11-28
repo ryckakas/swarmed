@@ -468,6 +468,7 @@ pub(crate) mod tests {
             continue_at: None,
             background: crate::BackgroundCount::default(),
             highlight: None,
+            snoozed_until: None,
         }
     }
 

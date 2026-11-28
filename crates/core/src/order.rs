@@ -5,12 +5,17 @@
 //!
 //! A repository, a task or a session can also be pinned: it then stays above its siblings that
 //! are not, and moves among the pinned ones only, as the others move among themselves.
+//!
+//! A snoozed session is drawn apart until its time (`snooze.rs`), so a move counts the siblings
+//! drawn and passes over it, and the sessions that work for it are drawn, and counted, among
+//! their task's others. Moved or pinned itself, it goes among the siblings drawn.
 
 use std::collections::HashSet;
 
 use rusqlite::{OptionalExtension, Params, params};
 
 use crate::Core;
+use crate::account_usage::seconds_now;
 use crate::agent::AgentEvent;
 use crate::chats::CHATS;
 use crate::error::{Error, Result};
@@ -51,8 +56,8 @@ impl Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Row {
     id: i64,
-    /// Whether the sidebar lists it among the others: not a closed session, an archived task
-    /// or one put away, or the chats among the repositories.
+    /// Whether the sidebar lists it among the others: not a closed or snoozed session, an
+    /// archived task or one put away, or the chats among the repositories.
     listed: bool,
     pinned: bool,
 }
@@ -144,13 +149,15 @@ impl Store {
         Ok(())
     }
 
-    fn session_rows(&self, task_id: i64) -> Result<Vec<SessionRow>> {
+    /// Every session of task `task_id`, in order. Listed is what the sidebar draws among the
+    /// others: neither closed nor snoozed at `now` (`snooze.rs`), which it draws apart.
+    fn session_rows(&self, task_id: i64, now: i64) -> Result<Vec<SessionRow>> {
         let sql = format!(
-            "SELECT id, closed_at IS NULL, pinned, spawned_by FROM sessions WHERE task_id = ?1 \
-             ORDER BY {SESSION_ORDER}"
+            "SELECT id, closed_at IS NULL AND (snoozed_until IS NULL OR snoozed_until <= ?2), \
+             pinned, spawned_by FROM sessions WHERE task_id = ?1 ORDER BY {SESSION_ORDER}"
         );
         let mut statement = self.conn.prepare(&sql)?;
-        let rows = statement.query_map(params![task_id], |row| {
+        let rows = statement.query_map(params![task_id, now], |row| {
             Ok(SessionRow {
                 row: Row {
                     id: row.get(0)?,
@@ -164,10 +171,10 @@ impl Store {
     }
 }
 
-/// The siblings of session `id` among `rows`: the sessions that work for the same open session
-/// of the task, or, for one that works for no open session of the task, every other such
-/// session. One whose parent is gone, closed or in another task is ordinary. However deep the
-/// sidebar nests them, these are the rows it draws together under one parent.
+/// The siblings of session `id` among `rows`: the sessions that work for the same listed session
+/// of the task, or, for one that works for no listed session of the task, every other such
+/// session. One whose parent is gone, closed, snoozed or in another task is ordinary. However
+/// deep the sidebar nests them, these are the rows it draws together under one parent.
 fn session_siblings(rows: &[SessionRow], id: i64) -> Vec<Row> {
     let open: HashSet<i64> = rows
         .iter()
@@ -274,15 +281,20 @@ impl Core {
         self.repin(Kind::Session, &siblings, id, pinned)
     }
 
-    /// The siblings of open session `id`, itself among them, or [`Error::SessionClosed`].
+    /// The siblings of open session `id`, itself among them, or [`Error::SessionClosed`]. A
+    /// snoozed one counts as listed among them, though the sidebar draws it apart: it is moved
+    /// or pinned among the siblings drawn, and comes back there when it wakes.
     fn open_session_siblings(&self, id: i64) -> Result<Vec<Row>> {
         let session = self.session(id)?;
-        let rows = self.store().session_rows(session.task_id)?;
-        let siblings = session_siblings(&rows, id);
-        if siblings.iter().any(|row| row.id == id && !row.listed) {
+        if self.store().session_is_closed(id)? {
             return Err(Error::SessionClosed(id));
         }
-        Ok(siblings)
+        let rows = self.store().session_rows(session.task_id, seconds_now())?;
+        let siblings = session_siblings(&rows, id).into_iter().map(|row| Row {
+            listed: row.listed || row.id == id,
+            ..row
+        });
+        Ok(siblings.collect())
     }
 
     /// Moves cloud task `id` `by` places among the other cloud tasks of its repository.

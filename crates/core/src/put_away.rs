@@ -25,7 +25,8 @@
 //!   a rule stops agents by itself.
 //! - **Never while work goes on:** a session at work or waiting for the user, work an agent
 //!   left running, a session another Swarmed runs, a session that goes on by itself when a
-//!   usage limit resets, or a setup under way. The next look tries again.
+//!   usage limit resets, a session snoozed until a time to come (the user asked to be reminded
+//!   of it: `snooze.rs`), or a setup under way. The next look tries again.
 //! - **One Swarmed looks**, the one that keeps house ([`follow_put_away`]), once a minute.
 //! - **Every front end follows:** a change is published as [`AgentEvent::TreeChanged`], and
 //!   another Swarmed sees the row change (`elsewhere.rs`).
@@ -57,6 +58,7 @@ use crate::pulls::PullState;
 use crate::sessions::{Session, is_busy_status};
 use crate::settings::Settings;
 use crate::setups::SettingUp;
+use crate::snooze::snoozed_now;
 use crate::store::{Project, Store, Task};
 use crate::{Core, RemoveOptions, continuation, lock};
 
@@ -393,8 +395,8 @@ impl Core {
     }
 
     /// Whether work goes on in `task`: a session at work, waiting for the user, run by another
-    /// Swarmed (those are `elsewhere`) or going on by itself at a reset, work an agent left
-    /// running, or its setup.
+    /// Swarmed (those are `elsewhere`), going on by itself at a reset or snoozed, work an agent
+    /// left running, or its setup.
     fn works_on(&self, task: &Task, elsewhere: &[i64]) -> Result<bool> {
         let sessions = self.store().sessions(task.id)?;
         let busy = sessions.iter().any(|session| works(session, elsewhere));
@@ -559,11 +561,13 @@ impl Core {
     }
 }
 
-/// Whether `session` works: at work, waiting for the user, going on by itself at a reset, or
-/// run by another Swarmed, whose sessions are `elsewhere`.
+/// Whether `session` works: at work, waiting for the user, going on by itself at a reset,
+/// run by another Swarmed, whose sessions are `elsewhere`, or snoozed until a time to come,
+/// when the user asked to be reminded of it (`snooze.rs`).
 fn works(session: &Session, elsewhere: &[i64]) -> bool {
     is_busy_status(session.status)
         || session.continue_at.is_some()
+        || snoozed_now(session)
         || elsewhere.contains(&session.id)
 }
 

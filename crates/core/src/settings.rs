@@ -115,7 +115,16 @@ pub struct Settings {
     pub browser_idle_minutes: u32,
     /// Where a task's browser is shown: drawn in the pane, or as a Chrome window of its own.
     pub browser_display: BrowserDisplay,
+    /// The hour, 0 to 23, a snooze until tomorrow morning or next Monday wakes a session at
+    /// (`snooze.rs`). Not reachable through `configure`.
+    pub snooze_morning_hour: u8,
+    /// The hour, 0 to 23, a snooze until this evening wakes a session at. Not reachable
+    /// through `configure`.
+    pub snooze_evening_hour: u8,
 }
+
+/// The last hour of a day, as the snooze hours take it.
+const LAST_HOUR: u8 = 23;
 
 /// The longest the user's rules may be, in bytes: they travel with every session's
 /// instructions.
@@ -315,6 +324,8 @@ impl Default for Settings {
             browser_program: String::new(),
             browser_idle_minutes: 30,
             browser_display: BrowserDisplay::Pane,
+            snooze_morning_hour: 9,
+            snooze_evening_hour: 18,
         }
     }
 }
@@ -390,6 +401,8 @@ impl Settings {
         self.put_away_idle_days = self.put_away_idle_days.clamp(1, MAX_DAYS);
         self.put_away_remove_days = self.put_away_remove_days.min(MAX_DAYS);
         self.browser_idle_minutes = self.browser_idle_minutes.min(MAX_IDLE_MINUTES);
+        self.snooze_morning_hour = self.snooze_morning_hour.min(LAST_HOUR);
+        self.snooze_evening_hour = self.snooze_evening_hour.min(LAST_HOUR);
         self.branch_prefix = crate::prefix::trimmed(&self.branch_prefix).to_string();
         chosen_only(&mut self.role_defaults);
         self
@@ -647,6 +660,8 @@ mod tests {
             browser_program: "/Applications/Chromium.app/Contents/MacOS/Chromium".to_string(),
             browser_idle_minutes: 90,
             browser_display: BrowserDisplay::Window,
+            snooze_morning_hour: 7,
+            snooze_evening_hour: 20,
         };
         chosen.save(&path).expect("saves");
         assert_eq!(Settings::load(&path).expect("loads"), chosen);
@@ -851,6 +866,40 @@ mod tests {
         std::fs::write(&path, "browser_display = \"tab\"\n").expect("writes");
         let display = Settings::load(&path).expect("loads").browser_display;
         assert_eq!(display, BrowserDisplay::Pane);
+    }
+
+    #[test]
+    fn snoozes_wake_at_nine_and_six_unless_chosen_and_an_hour_stays_in_the_day() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.toml");
+        let hours =
+            |settings: &Settings| (settings.snooze_morning_hour, settings.snooze_evening_hour);
+        // A file written before the settings existed.
+        std::fs::write(&path, "theme = \"dark\"").expect("writes");
+        assert_eq!(hours(&Settings::load(&path).expect("loads")), (9, 18));
+        std::fs::write(&path, "snooze_morning_hour = 0\nsnooze_evening_hour = 23\n")
+            .expect("writes");
+        assert_eq!(hours(&Settings::load(&path).expect("loads")), (0, 23));
+        std::fs::write(
+            &path,
+            "snooze_morning_hour = 24\nsnooze_evening_hour = 99\n",
+        )
+        .expect("writes");
+        assert_eq!(hours(&Settings::load(&path).expect("loads")), (23, 23));
+        // An hour no day has costs only itself, and is said.
+        std::fs::write(
+            &path,
+            "snooze_morning_hour = -1\nsnooze_evening_hour = 17\n",
+        )
+        .expect("writes");
+        let (settings, problems) = Settings::read(&path).expect("reads");
+        assert_eq!((hours(&settings), problems.len()), ((9, 17), 1));
+        let late = Settings {
+            snooze_evening_hour: 40,
+            ..Settings::default()
+        };
+        late.save(&path).expect("saves");
+        assert_eq!(hours(&Settings::load(&path).expect("loads")), (9, 23));
     }
 
     #[test]

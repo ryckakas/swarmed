@@ -1,5 +1,5 @@
 //! What is worth telling the user about while they look elsewhere: a session that needs a
-//! decision, has finished, has failed, or moved its task's worktree to another branch; a
+//! decision, has finished (unless it is snoozed: `snooze.rs`), has failed, or moved its task's worktree to another branch; a
 //! task's pull request whose checks failed or passed, that someone reviewed or commented on,
 //! that conflicts with its base, or that was merged or closed; and a task put away that was
 //! removed by itself, as the settings say (`put_away.rs`), with what the removal passed over.
@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::agent::AgentEvent;
 use crate::sessions::{Session, SessionEvent, SessionStatus};
+use crate::snooze::snoozed_now;
 use crate::{Core, PullChange, Result};
 
 /// The longest a notice's detail may be, in characters: it is read at a glance.
@@ -26,10 +27,13 @@ pub struct Notice {
 }
 
 /// What happened, and a line of detail. Nothing for events not worth an interruption.
+/// `held` says that a finished turn is not the user's to hear of now: the session reports to
+/// another session, or the user snoozed it (`snooze.rs`), and shows unread when its time comes.
 ///
 /// A permission request only names the tool and the agent's own summary: the tool's arguments
-/// may hold anything and are left out.
-fn wording(event: &SessionEvent, reports: bool) -> Option<(&'static str, String)> {
+/// may hold anything and are left out. It wakes a snoozed session, as an exit with an error
+/// does, so both are told as ever.
+fn wording(event: &SessionEvent, held: bool) -> Option<(&'static str, String)> {
     match &event.event {
         AgentEvent::PermissionRequest {
             tool_name,
@@ -48,7 +52,7 @@ fn wording(event: &SessionEvent, reports: bool) -> Option<(&'static str, String)
             is_error: false,
             result,
             ..
-        } if !reports && event.unread == Some(true) => {
+        } if !held && event.unread == Some(true) => {
             Some(("Finished", result.clone().unwrap_or_default()))
         }
         AgentEvent::Exited { .. } if event.status == Some(SessionStatus::Errored) => {
@@ -157,7 +161,8 @@ impl Core {
             return Ok(None);
         }
         let session = self.session(event.session_id)?;
-        let Some((heading, detail)) = wording(event, self.reports_to_a_session(&session)?) else {
+        let held = snoozed_now(&session) || self.reports_to_a_session(&session)?;
+        let Some((heading, detail)) = wording(event, held) else {
             return Ok(None);
         };
         let task = self.store().task_by_id(session.task_id)?;

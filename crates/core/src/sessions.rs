@@ -44,7 +44,9 @@ use crate::toolserver::{
     SERVER_NAME, SESSION_ENV, SHOW_HTML_FOR_CLAUDE, SOCKET_ENV, TOOL_SERVER_ARG, VIEW_SPOOL_ENV,
     take_views,
 };
-use crate::{Core, elsewhere, git, lock, parents, peers, publish, remote, returned, roles, views};
+use crate::{
+    Core, elsewhere, git, lock, parents, peers, publish, remote, returned, roles, snooze, views,
+};
 
 /// How long a session title derived from the first message may be.
 /// What stands above the user's rules where an agent reads them.
@@ -260,6 +262,11 @@ pub struct Session {
     /// The colour the user highlighted it in, if any (`highlights.rs`). It stays when the
     /// user writes and while the session is closed; a fork starts without one.
     pub highlight: Option<MarkColour>,
+    /// Until when the user snoozed it, in seconds since 1970 (`snooze.rs`): front ends leave
+    /// it out of sight until then. `None` for awake; a time that has passed is as good as
+    /// none. A message to it, a permission request, an exit with an error and closing it
+    /// clear it; a turn that ends well does not. A fork starts without one.
+    pub snoozed_until: Option<i64>,
 }
 
 /// What can be changed about a session after it was created.
@@ -309,7 +316,7 @@ pub struct SessionOptions {
 
 const SESSION_SELECT: &str = "SELECT id, task_id, title, agent_session_id, model, supervision, status, agent, effort, unread, spawned_by, fast, mark_colour, mark_label, \
      setup_prompt IS NOT NULL, pinned, continue_at, background_agents, background_commands, \
-     highlight, spawned, role FROM sessions";
+     highlight, spawned, role, snoozed_until FROM sessions";
 
 /// What an agent's guidance tells of besides its task and the user's settings.
 #[derive(Debug, Clone, Copy)]
@@ -363,6 +370,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<Session> {
             .and_then(MarkColour::parse),
         spawned: row.get(20)?,
         role: row.get(21)?,
+        snoozed_until: row.get(22)?,
     })
 }
 
@@ -407,6 +415,7 @@ impl Store {
             continue_at: None,
             background: BackgroundCount::default(),
             highlight: None,
+            snoozed_until: None,
         })
     }
 
@@ -597,9 +606,12 @@ impl Store {
         Ok(counted.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Closes session `id`. A snooze goes with it: a closed session is out of sight anyway,
+    /// and one reopened is reopened to be seen.
     fn session_close(&self, id: i64) -> Result<()> {
         self.conn.execute(
-            "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle' WHERE id = ?1",
+            "UPDATE sessions SET closed_at = CURRENT_TIMESTAMP, status = 'idle', \
+             snoozed_until = NULL WHERE id = ?1",
             params![id],
         )?;
         Ok(())
@@ -743,7 +755,7 @@ impl Store {
 
     /// Stores an event and applies what it means for the session's row. Says what the
     /// session's agent has running in the background, if the event changed that.
-    fn record(
+    pub(crate) fn record(
         &self,
         session_id: i64,
         event: &AgentEvent,
@@ -756,6 +768,9 @@ impl Store {
                 "UPDATE sessions SET status = ?2 WHERE id = ?1",
                 params![session_id, status.as_str()],
             )?;
+        }
+        if snooze::wakes(event, status) {
+            self.snooze_write(session_id, None)?;
         }
         match event {
             AgentEvent::Init {

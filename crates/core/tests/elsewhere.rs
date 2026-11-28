@@ -103,6 +103,22 @@ async fn a_rename_a_mark_and_a_new_session_from_elsewhere_are_published_here() {
     let lit = here.session(session.id).expect("found").highlight;
     assert_eq!(lit, Some(swarmed_core::MarkColour::Yellow));
 
+    // So is a snooze.
+    let until = i64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after 1970")
+            .as_secs(),
+    )
+    .expect("fits")
+        + 3600;
+    there
+        .session_snooze(session.id, Some(until))
+        .expect("snoozes");
+    noticed(&here, &mut bus, tree_changed).await;
+    let asleep = here.session(session.id).expect("found").snoozed_until;
+    assert_eq!(asleep, Some(until));
+
     let made = new_session(&there);
     noticed(&here, &mut bus, tree_changed).await;
     let listed = here.sessions("demo", "one").expect("lists");
