@@ -81,8 +81,8 @@ notice adds its line under Unreleased.
   writes counts, not the conversation it reads again from the cache with every request. A
   sub-agent counts on its own, in its own pane. The line where a turn ends says what it used
   ("Turn finished in 12s, 3.4k tokens"), so does `swarmed session send`, and the status line
-  has a new **Tokens** piece that adds up the session's turns. Other agents report nothing of
-  the kind while they work, so they show none.
+  has a new **Tokens** piece that adds up the session's turns. Codex, OpenCode and Antigravity
+  say what a turn used at its end, in the same places, and count nothing while they work.
 
 ### Changed
 

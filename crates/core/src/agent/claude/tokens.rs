@@ -20,8 +20,8 @@
 //! - **The turn's end records its totals** on `TurnDone::tokens`, the session's own agent's
 //!   only, which the window's turn-end line, `swarmed session send` and the status line's
 //!   `tokens` piece show.
-//! - **ACP agents report none:** the protocol only proposes usage at a turn's end, and leaves
-//!   open whether its input counts cache reads, so `acp.rs` says none rather than guess.
+//! - **ACP agents say theirs only at a turn's end,** in the `usage` of the `session/prompt`
+//!   response, read to mean the same in `acp/usage.rs`.
 //!
 //! Tried with Claude Code 2.1.332, whose `result.usage` reports the same sums for the agent's
 //! own requests.

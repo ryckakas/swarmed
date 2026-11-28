@@ -455,6 +455,25 @@ describe("the mock's agent", () => {
 
         expect(await turn("and the tests")).not.toContain("renamed");
     });
+
+    it("on Codex says what a plain reply used only at its end, counting nothing before", async () => {
+        const api = createMockApi();
+        expect((await sessionOf(api, 2))?.agent).toBe("codex");
+        const heard: SessionEvent["event"][] = [];
+        await api.onSessionEvent((published) => heard.push(published.event));
+        await api.sessionSend(2, "fix the loop");
+        await expect
+            .poll(() => heard.some((event) => event.type === "turn_done"), { timeout: 3000 })
+            .toBe(true);
+        const done = heard.find((event) => event.type === "turn_done");
+        expect(done?.type === "turn_done" && done.tokens).toEqual({ input: 6_480, output: 312 });
+        const counting = heard.filter(
+            (event) =>
+                event.type === "turn_tokens" ||
+                (event.type === "sub" && event.event.type === "turn_tokens"),
+        );
+        expect(counting).toEqual([]);
+    });
 });
 
 describe("the mock's terminal", () => {

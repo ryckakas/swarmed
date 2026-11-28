@@ -149,8 +149,9 @@ Everything Swarmed does, in short, with a link to where each part is explained i
   [Usage limits and extra usage](coding-agents.md#usage-limits-and-extra-usage).
 - **Go on when a limit resets.** A session a usage limit stopped can carry on by itself once it
   resets. See [When a limit stops a session](coding-agents.md#when-a-limit-stops-a-session).
-- **Tokens per turn.** A running turn counts the tokens it uses, and says what it used when it
-  ends. See [The tokens a turn uses](coding-agents.md#the-tokens-a-turn-uses).
+- **Tokens per turn.** A Claude Code turn counts the tokens it uses while it runs, and Claude
+  Code, Codex, OpenCode and Antigravity say what a turn used when it ends. See
+  [The tokens a turn uses](coding-agents.md#the-tokens-a-turn-uses).
 - **What it costs.** What the agents report their work cost, by day and by task, turns by day and
   model in charts, and what Swarmed takes up on disk.
 

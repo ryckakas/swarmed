@@ -230,8 +230,12 @@ between requests, while a tool runs. Point at it for the two figures apart.
   `swarmed session send`. The status line's **Tokens** piece adds up the session's turns, the
   running one too.
 
-Other agents say nothing of the kind while they work: the Agent Client Protocol only proposes
-a count at a turn's end, without saying what its input counts, so they show none.
+Other agents count nothing while they work. Codex, OpenCode and Antigravity say what a turn
+used once it ends, and its line, `swarmed session send` and the **Tokens** piece show that,
+counted the same way: what the model read anew, and what it wrote, its reasoning with it. Their
+sub-agents show no count of their own: what one used is left out, or is in its session's figure
+where the agent counts it there. A turn the agent takes up by itself, after the one you started
+has ended, has no figures.
 
 ## Any other agent
 

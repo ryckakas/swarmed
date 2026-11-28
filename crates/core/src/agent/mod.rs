@@ -678,8 +678,9 @@ pub enum AgentEvent {
         /// turns recorded before it was.
         #[serde(default)]
         duration_ms: Option<u64>,
-        /// The tokens the session's own agent used in the turn, its sub-agents' left out.
-        /// Absent where the agent did not say, and from turns recorded before it was kept.
+        /// The tokens the session's own agent used in the turn, its sub-agents' left out where
+        /// the agent counts them apart. Absent where the agent did not say, and from turns
+        /// recorded before it was kept.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tokens: Option<Tokens>,
     },
