@@ -254,6 +254,10 @@ reinstall. Name the tracked files they are pinned in, in `snapshot_keys` or an e
 snapshot_keys = ["pnpm-lock.yaml", "composer.lock"]
 ```
 
+Each is an exact path from the repository's root, with no patterns: `apps/web/pnpm-lock.yaml`,
+not `*/pnpm-lock.yaml`. A folder may be named, and then anything in it counts. A path that names
+nothing tracked is never seen to change.
+
 A snapshot then notes a fingerprint of those files as they were in the task it was taken from,
 from what git keeps of them (`git ls-tree`), so no file is read. A new task started from the
 base branch whose files differ, one added or removed included, and are still the base's, is

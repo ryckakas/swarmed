@@ -383,7 +383,7 @@ function Form({ draft, onChange, onSave }: FormProps) {
             </label>
             <Script
                 label="Dependency files"
-                hint={`Optional. The files git tracks that its dependencies are pinned in, one path to a line. Once one changes on the base branch, the next ${words.terms.task} started from it is kept as the ${words.snapshot.toLowerCase()} in place of the old one, so new ${words.terms.task}s have less to install. Left empty, the repository's own snapshot_keys apply.`}
+                hint={`Optional. The files git tracks that its dependencies are pinned in, one exact path from the repository's root to a line, with no patterns. Once one changes on the base branch, the next ${words.terms.task} started from it is kept as the ${words.snapshot.toLowerCase()} in place of the old one, so new ${words.terms.task}s have less to install. Left empty, the repository's own snapshot_keys apply.`}
                 placeholder={"pnpm-lock.yaml\ncomposer.lock"}
                 value={draft.snapshotKeys}
                 onChange={(snapshotKeys) => set({ snapshotKeys })}
